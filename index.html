@@ -3981,27 +3981,10 @@ function WeaknessListPanel({ state, onCrossRevenge }) {
 
       const qual = state.qualifications.find((qq) => qq.id === qualId);
       const qualName = qual ? qual.name : "資格未設定";
-      const prompt = `あなたは資格試験の学習アドバイザーです。以下は「${qualName}」の試験で2回以上間違えた問題の一覧です（最大100問）。
-
-これらの問題を分析し、どの法律・分野・論点が弱いかをJSON形式で返してください。
-
-問題一覧:
-${weakQuestions.map((q, i) => `${i+1}. [${q.bank}] 問: ${q.q} / 答: ${q.a} (間違い${q.wrong}回)`).join("
-")}
-
-以下のJSON形式のみで回答してください（前置き・説明不要）:
-{
-  "topics": [
-    {
-      "大分類": "例: 不動産登記法",
-      "中分類": "例: 申請手続き",
-      "問題数": 5,
-      "例示": "代理申請・委任状など"
-    }
-  ]
-}
-
-問題数が多い順に並べてください。大分類・中分類は問題文・解答から推測してください。`;
+      const qList = weakQuestions.map(function(q, i) {
+        return (i+1) + ". [" + q.bank + "] 問: " + q.q + " / 答: " + q.a + " (間違い" + q.wrong + "回)";
+      }).join("\n");
+      const prompt = "あなたは資格試験の学習アドバイザーです。以下は「" + qualName + "」の試験で2回以上間違えた問題の一覧です（最大100問）。\n\nこれらの問題を分析し、どの法律・分野・論点が弱いかをJSON形式で返してください。\n\n問題一覧:\n" + qList + "\n\n以下のJSON形式のみで回答してください（前置き・説明不要）:\n{\n  \"topics\": [\n    {\n      \"大分類\": \"例: 不動産登記法\",\n      \"中分類\": \"例: 申請手続き\",\n      \"問題数\": 5,\n      \"例示\": \"代理申請・委任状など\"\n    }\n  ]\n}\n\n問題数が多い順に並べてください。大分類・中分類は問題文・解答から推測してください。";
 
       const res = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
