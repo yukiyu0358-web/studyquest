@@ -3924,10 +3924,10 @@ function CrossYearRevengeSession({ qualId, state, recordRevengeAnswer, recordClo
 
 // ============ Weakness List Panel (弱点リスト) ============
 function WeaknessListPanel({ state, onCrossRevenge }) {
-  const [analysisResult, setAnalysisResult] = React.useState(null);
-  const [analysisLoading, setAnalysisLoading] = React.useState(false);
-  const [analysisQualId, setAnalysisQualId] = React.useState(null);
-  const [openTopics, setOpenTopics] = React.useState({});
+  const [analysisResult, setAnalysisResult] = useState(null);
+  const [analysisLoading, setAnalysisLoading] = useState(false);
+  const [analysisQualId, setAnalysisQualId] = useState(null);
+  const [openTopics, setOpenTopics] = useState({});
 
   // Collect weakness counts per qualification (auto + manual mark, both q and clozes)
   const summary = {};
