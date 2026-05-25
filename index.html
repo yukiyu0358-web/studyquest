@@ -2161,7 +2161,7 @@ function ManualEntryForm({ state, activeQuals, onCancel, onSubmit }) {
 
 // ============ Question Bank Tab ============
 function QBankTab(props) {
-  const { state, addBank, deleteBank, recordAnswer, recordRevengeAnswer, awardXp, startTimer, stopTimer, incrementBankClears, updateBestStreak, moveBank, addCloze, deleteCloze, recordClozeAnswer, recordClozeRevengeAnswer, toggleQuestionMark, toggleClozeMark, recordClearSnapshot, createClozeBank, updateQuestionFormats, addFolder, deleteFolder, renameFolder, moveBankToFolder, saveSessionResume, clearSessionResume, editBankClears, updateQuestionMemo, toggleQuestionExclude } = props;
+  const { state, addBank, deleteBank, recordAnswer, recordRevengeAnswer, awardXp, startTimer, stopTimer, incrementBankClears, updateBestStreak, moveBank, addCloze, deleteCloze, recordClozeAnswer, recordClozeRevengeAnswer, toggleQuestionMark, toggleClozeMark, recordClearSnapshot, createClozeBank, updateQuestionFormats, addFolder, deleteFolder, renameFolder, moveBankToFolder, saveSessionResume, clearSessionResume, editBankClears, updateQuestionMemo, toggleQuestionExclude, editQuestion } = props;
 
   const [activeBankId, setActiveBankId] = useState(null);
   const [revengeMode, setRevengeMode] = useState(false);
@@ -3103,7 +3103,15 @@ function QStudySession({ bank, state, recordAnswer, awardXp, startTimer, stopTim
   useEffect(() => {
     if (fromResume) {
       // 途中再開：保存されたキューとスコアを復元
-      setQueue(resumeData.queueIds || []);
+      const qids = Array.isArray(resumeData.queueIds) ? resumeData.queueIds : [];
+      const validQids = qids.filter((id) => typeof id === "string" && safeQuestions.find((q) => q.id === id));
+      if (validQids.length > 0) {
+        setQueue(validQids);
+      } else {
+        // IDが見つからない場合は最初から
+        const ids = safeQuestions.map((q) => q.id);
+        setQueue(config.random ? shuffle(ids) : ids);
+      }
       setStats(resumeData.stats || { correct: 0, wrong: 0, totalAnswered: 0, streak: 0, bestStreak: 0 });
     } else {
       // 最初から：clearして新しいキュー
@@ -3127,7 +3135,8 @@ function QStudySession({ bank, state, recordAnswer, awardXp, startTimer, stopTim
   const showToast = (text, color = "var(--gold)") => { setToast({ text, color, id: Date.now() }); setTimeout(() => setToast(null), 2200); };
 
   const currentBank = state.questionBanks.find((b) => b.id === bank.id) || bank;
-  const currentQ = currentBank.questions.find((q) => q.id === queue[0]);
+  const safeQuestions = currentBank.questions || bank.questions || [];
+  const currentQ = safeQuestions.find((q) => q.id === queue[0]);
   const totalUnique = bank.questions.length;
 
   const answer = (correct) => {
