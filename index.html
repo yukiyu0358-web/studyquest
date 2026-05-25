@@ -2475,6 +2475,36 @@ function QBankTab(props) {
         </Box>
       ) : (
         <>
+          {/* ── フォルダ一括開閉 ── */}
+          {folders.length > 0 && (
+            <div className="flex gap-2 mb-1">
+              <button
+                onClick={() => {
+                  const allKeys = [...folders.map(f => f.id), "_none_"];
+                  const newState = {};
+                  allKeys.forEach(k => { newState[k] = false; });
+                  setCollapsedFolders(newState);
+                }}
+                className="jp flex-1 py-1 text-xs flex items-center justify-center gap-1"
+                style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)", color: "var(--ink-soft)" }}
+              >
+                📂 すべて開く
+              </button>
+              <button
+                onClick={() => {
+                  const allKeys = [...folders.map(f => f.id), "_none_"];
+                  const newState = {};
+                  allKeys.forEach(k => { newState[k] = true; });
+                  setCollapsedFolders(newState);
+                }}
+                className="jp flex-1 py-1 text-xs flex items-center justify-center gap-1"
+                style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)", color: "var(--ink-soft)" }}
+              >
+                📁 すべて閉じる
+              </button>
+            </div>
+          )}
+
           {/* ── フォルダごとに表示 ── */}
           {folders.map((folder) => {
             const banks = folderBanks(folder.id);
@@ -3894,6 +3924,11 @@ function CrossYearRevengeSession({ qualId, state, recordRevengeAnswer, recordClo
 
 // ============ Weakness List Panel (弱点リスト) ============
 function WeaknessListPanel({ state, onCrossRevenge }) {
+  const [analysisResult, setAnalysisResult] = React.useState(null);
+  const [analysisLoading, setAnalysisLoading] = React.useState(false);
+  const [analysisQualId, setAnalysisQualId] = React.useState(null);
+  const [openTopics, setOpenTopics] = React.useState({});
+
   // Collect weakness counts per qualification (auto + manual mark, both q and clozes)
   const summary = {};
   state.questionBanks.forEach((b) => {
@@ -3914,6 +3949,82 @@ function WeaknessListPanel({ state, onCrossRevenge }) {
   });
   const keys = Object.keys(summary).filter((k) => summary[k].total > 0);
   if (keys.length === 0) return null;
+
+  const runAnalysis = async (qualId) => {
+    setAnalysisLoading(true);
+    setAnalysisResult(null);
+    setAnalysisQualId(qualId);
+    try {
+      // 2回以上間違えた問題を収集（最大100問）
+      const weakQuestions = [];
+      state.questionBanks
+        .filter((b) => (b.qualId || "_none_") === qualId)
+        .forEach((b) => {
+          b.questions.forEach((q) => {
+            if (weakQuestions.length >= 100) return;
+            if (q.wrong >= 2) {
+              weakQuestions.push({
+                bank: b.name,
+                q: (q.q || "").substring(0, 120),
+                a: (q.a || "").substring(0, 80),
+                wrong: q.wrong,
+              });
+            }
+          });
+        });
+
+      if (weakQuestions.length === 0) {
+        setAnalysisResult({ error: "2回以上間違えた問題がまだありません。" });
+        setAnalysisLoading(false);
+        return;
+      }
+
+      const qual = state.qualifications.find((qq) => qq.id === qualId);
+      const qualName = qual ? qual.name : "資格未設定";
+      const prompt = `あなたは資格試験の学習アドバイザーです。以下は「${qualName}」の試験で2回以上間違えた問題の一覧です（最大100問）。
+
+これらの問題を分析し、どの法律・分野・論点が弱いかをJSON形式で返してください。
+
+問題一覧:
+${weakQuestions.map((q, i) => `${i+1}. [${q.bank}] 問: ${q.q} / 答: ${q.a} (間違い${q.wrong}回)`).join("
+")}
+
+以下のJSON形式のみで回答してください（前置き・説明不要）:
+{
+  "topics": [
+    {
+      "大分類": "例: 不動産登記法",
+      "中分類": "例: 申請手続き",
+      "問題数": 5,
+      "例示": "代理申請・委任状など"
+    }
+  ]
+}
+
+問題数が多い順に並べてください。大分類・中分類は問題文・解答から推測してください。`;
+
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-20250514",
+          max_tokens: 1000,
+          messages: [{ role: "user", content: prompt }],
+        }),
+      });
+      const data = await res.json();
+      const text = (data.content || []).map((c) => c.text || "").join("");
+      const clean = text.replace(/```json|```/g, "").trim();
+      const parsed = JSON.parse(clean);
+      setAnalysisResult(parsed);
+    } catch (e) {
+      setAnalysisResult({ error: "分析中にエラーが発生しました。" });
+    }
+    setAnalysisLoading(false);
+  };
+
+  const toggleTopic = (idx) => setOpenTopics((prev) => ({ ...prev, [idx]: !prev[idx] }));
+
   return (
     <Box title="弱点リスト" icon={<Skull size={18} />}>
       <p className="jp text-[11px] mb-2" style={{ color: "var(--ink-soft)" }}>苦手 (不正解&gt;正解) と⭐手動マークを統合。資格ごとに横断リベンジできます。</p>
@@ -3933,8 +4044,56 @@ function WeaknessListPanel({ state, onCrossRevenge }) {
                     {s.manual > 0 && <span style={{ color: "var(--gold)" }}> ・ ⭐{s.manual}</span>}
                   </div>
                 </div>
-                <button onClick={() => onCrossRevenge(k)} className="jp btn-plum px-3 py-1.5 text-[11px] flex items-center gap-1"><Skull size={12} /> 横断リベンジ</button>
+                <div className="flex gap-1 flex-wrap justify-end">
+                  <button
+                    onClick={() => runAnalysis(k)}
+                    disabled={analysisLoading && analysisQualId === k}
+                    className="jp btn-sky px-2 py-1.5 text-[11px] flex items-center gap-1"
+                  >
+                    🔍 論点分析
+                  </button>
+                  <button onClick={() => onCrossRevenge(k)} className="jp btn-plum px-3 py-1.5 text-[11px] flex items-center gap-1"><Skull size={12} /> 横断リベンジ</button>
+                </div>
               </div>
+
+              {/* 論点分析結果 */}
+              {analysisQualId === k && (
+                <div className="mt-2 p-2" style={{ background: "var(--sky-pale)", border: "1px solid var(--sky-deep)", borderRadius: "2px" }}>
+                  {analysisLoading && (
+                    <p className="jp text-[11px] text-center" style={{ color: "var(--sky-deep)" }}>🤖 AIが弱点論点を分析中...</p>
+                  )}
+                  {analysisResult && analysisResult.error && (
+                    <p className="jp text-[11px]" style={{ color: "var(--brick)" }}>{analysisResult.error}</p>
+                  )}
+                  {analysisResult && analysisResult.topics && (
+                    <div>
+                      <div className="jp text-[11px] font-bold mb-1" style={{ color: "var(--sky-deep)" }}>🔍 弱点論点レポート</div>
+                      <ul className="space-y-1">
+                        {analysisResult.topics.map((t, idx) => (
+                          <li key={idx}>
+                            <button
+                              onClick={() => toggleTopic(idx)}
+                              className="w-full flex items-center gap-2 text-left jp text-[11px] py-1"
+                              style={{ background: "none", border: "none", cursor: "pointer" }}
+                            >
+                              <span style={{ color: "var(--ink-mute)" }}>{openTopics[idx] ? "▼" : "▶"}</span>
+                              <span style={{ color: "var(--ink)", fontWeight: "bold" }}>{t["大分類"]}</span>
+                              <span style={{ color: "var(--ink-soft)" }}>›</span>
+                              <span style={{ color: "var(--ink-soft)" }}>{t["中分類"]}</span>
+                              <span className="ml-auto px-1.5 py-0.5 pixel text-[9px]" style={{ background: "var(--brick)", color: "var(--paper)" }}>{t["問題数"]}問</span>
+                            </button>
+                            {openTopics[idx] && t["例示"] && (
+                              <div className="jp text-[10px] pl-5 pb-1" style={{ color: "var(--ink-mute)" }}>
+                                例: {t["例示"]}
+                              </div>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              )}
             </li>
           );
         })}
