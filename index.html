@@ -3293,15 +3293,41 @@ function QStudySession({ bank, state, recordAnswer, awardXp, startTimer, stopTim
         <div className="rpg-inner-border min-h-[180px] flex flex-col">
           <div className="flex items-start justify-between gap-2 mb-2">
             <div className="jp text-[10px]" style={{ color: "var(--slate)" }}>問題</div>
-            {toggleQuestionMark && (
-              <button onClick={() => toggleQuestionMark(bank.id, currentQ.id)} className="text-base flex-shrink-0" title={currentQ.marked ? "マーク解除" : "要復習マークを付ける"} style={{ color: currentQ.marked ? "var(--gold)" : "var(--ink-mute)" }}>{currentQ.marked ? "⭐" : "☆"}</button>
-            )}
+            <div className="flex items-center gap-1">
+              <button onClick={() => { setEditMode(editMode === "q" ? null : "q"); setEditText(currentQ.q); }} className="flex-shrink-0 jp text-[10px] px-1.5 py-0.5" style={{ border: "1px solid var(--rule)", color: editMode === "q" ? "var(--sky-deep)" : "var(--ink-soft)" }} title="問題文を編集">✏️</button>
+              {toggleQuestionMark && (
+                <button onClick={() => toggleQuestionMark(bank.id, currentQ.id)} className="text-base flex-shrink-0" title={currentQ.marked ? "マーク解除" : "要復習マークを付ける"} style={{ color: currentQ.marked ? "var(--gold)" : "var(--ink-mute)" }}>{currentQ.marked ? "⭐" : "☆"}</button>
+              )}
+            </div>
           </div>
-          <div className="jp text-base md:text-lg flex-1 break-words" style={{ color: "var(--ink)" }}>{renderFormattedText(currentQ.q, currentQ.q_formats)}</div>
+          {editMode === "q" ? (
+            <div className="space-y-1">
+              <textarea className="rpg-input w-full text-sm" rows={4} value={editText} onChange={e => setEditText(e.target.value)} autoFocus style={{ resize: "vertical" }} />
+              <div className="flex gap-1">
+                <button onClick={() => { if (editQuestion) editQuestion(bank.id, currentQ.id, editText, currentQ.a); setEditMode(null); }} className="jp btn-primary flex-1 py-1 text-xs">💾 保存</button>
+                <button onClick={() => setEditMode(null)} className="jp btn-ghost px-3 py-1 text-xs">キャンセル</button>
+              </div>
+            </div>
+          ) : (
+            <div className="jp text-base md:text-lg flex-1 break-words" style={{ color: "var(--ink)" }}>{renderFormattedText(currentQ.q, currentQ.q_formats)}</div>
+          )}
           {showAnswer ? (
             <>
-              <div className="jp text-[10px] mt-3 mb-1" style={{ color: "var(--gold)" }}>答え</div>
-              <div className="jp text-base md:text-lg break-words p-2" style={{ background: "var(--sky-pale)", border: "1px solid var(--gold)", color: "var(--ink)" }}>{renderFormattedText(currentQ.a, currentQ.a_formats)}</div>
+              <div className="flex items-center justify-between mt-3 mb-1">
+                <div className="jp text-[10px]" style={{ color: "var(--gold)" }}>答え</div>
+                <button onClick={() => { setEditMode(editMode === "a" ? null : "a"); setEditText(currentQ.a); }} className="jp text-[10px] px-1.5 py-0.5" style={{ border: "1px solid var(--rule)", color: editMode === "a" ? "var(--sky-deep)" : "var(--ink-soft)" }} title="答えを編集">✏️ 編集</button>
+              </div>
+              {editMode === "a" ? (
+                <div className="space-y-1">
+                  <textarea className="rpg-input w-full text-sm" rows={4} value={editText} onChange={e => setEditText(e.target.value)} autoFocus style={{ resize: "vertical" }} />
+                  <div className="flex gap-1">
+                    <button onClick={() => { if (editQuestion) editQuestion(bank.id, currentQ.id, currentQ.q, editText); setEditMode(null); }} className="jp btn-primary flex-1 py-1 text-xs">💾 保存</button>
+                    <button onClick={() => setEditMode(null)} className="jp btn-ghost px-3 py-1 text-xs">キャンセル</button>
+                  </div>
+                </div>
+              ) : (
+                <div className="jp text-base md:text-lg break-words p-2" style={{ background: "var(--sky-pale)", border: "1px solid var(--gold)", color: "var(--ink)" }}>{renderFormattedText(currentQ.a, currentQ.a_formats)}</div>
+              )}
               <div className="grid grid-cols-2 gap-2 mt-3">
                 <button onClick={() => answer(false)} className="jp btn-danger py-2 flex items-center justify-center gap-1"><XIcon size={16} /> 不正解</button>
                 <button onClick={() => answer(true)} className="jp btn-success py-2 flex items-center justify-center gap-1"><Check size={16} /> 正解！</button>
