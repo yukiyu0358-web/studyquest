@@ -762,6 +762,9 @@ function StudyRPG({ user }) {
   const renameFolder = (folderId, name) => setState((s) => ({
     ...s, folders: (s.folders || []).map((f) => f.id === folderId ? { ...f, name } : f)
   }));
+  const reorderFolders = (orderedIds) => setState((s) => ({
+    ...s, folders: (s.folders || []).map((f) => ({ ...f, order: orderedIds.indexOf(f.id) }))
+  }));
   const moveBankToFolder = (bankId, folderId) => setState((s) => ({
     ...s, questionBanks: s.questionBanks.map((b) => b.id !== bankId ? b : { ...b, folderId: folderId || null })
   }));
@@ -1244,7 +1247,7 @@ function StudyRPG({ user }) {
           {tab === "qual" && <QualTab state={state} addQual={addQual} updateQual={updateQual} deleteQual={deleteQual} acquireQual={acquireQual} />}
           {tab === "task" && <TaskTab state={state} addTask={addTask} completeTask={completeTask} deleteTask={deleteTask} addPreset={addPreset} deletePreset={deletePreset} updatePreset={updatePreset} />}
           {tab === "timer" && <TimerTab state={state} liveSeconds={liveSeconds} startTimer={startTimer} stopTimer={stopTimer} cancelTimer={cancelTimer} addManualLog={addManualLog} deleteLog={deleteLog} />}
-          {tab === "qbank" && <QBankTab state={state} addBank={addQuestionBank} deleteBank={deleteBank} recordAnswer={recordAnswer} recordRevengeAnswer={recordRevengeAnswer} awardXp={awardXp} startTimer={startTimer} stopTimer={stopTimer} incrementBankClears={incrementBankClears} updateBestStreak={updateBestStreak} moveBank={moveBank} addCloze={addCloze} deleteCloze={deleteCloze} recordClozeAnswer={recordClozeAnswer} recordClozeRevengeAnswer={recordClozeRevengeAnswer} toggleQuestionMark={toggleQuestionMark} toggleClozeMark={toggleClozeMark} recordClearSnapshot={recordClearSnapshot} createClozeBank={createClozeBank} updateQuestionFormats={updateQuestionFormats} addQuestionToBank={addQuestionToBank} editQuestion={editQuestion} deleteQuestion={deleteQuestion} moveQuestions={moveQuestions} editBankMeta={editBankMeta} addFolder={addFolder} deleteFolder={deleteFolder} renameFolder={renameFolder} moveBankToFolder={moveBankToFolder} saveSessionResume={saveSessionResume} clearSessionResume={clearSessionResume} editBankClears={editBankClears} updateQuestionMemo={updateQuestionMemo} toggleQuestionExclude={toggleQuestionExclude} />}
+          {tab === "qbank" && <QBankTab state={state} addBank={addQuestionBank} deleteBank={deleteBank} recordAnswer={recordAnswer} recordRevengeAnswer={recordRevengeAnswer} awardXp={awardXp} startTimer={startTimer} stopTimer={stopTimer} incrementBankClears={incrementBankClears} updateBestStreak={updateBestStreak} moveBank={moveBank} addCloze={addCloze} deleteCloze={deleteCloze} recordClozeAnswer={recordClozeAnswer} recordClozeRevengeAnswer={recordClozeRevengeAnswer} toggleQuestionMark={toggleQuestionMark} toggleClozeMark={toggleClozeMark} recordClearSnapshot={recordClearSnapshot} createClozeBank={createClozeBank} updateQuestionFormats={updateQuestionFormats} addQuestionToBank={addQuestionToBank} editQuestion={editQuestion} deleteQuestion={deleteQuestion} moveQuestions={moveQuestions} editBankMeta={editBankMeta} addFolder={addFolder} deleteFolder={deleteFolder} renameFolder={renameFolder} reorderFolders={reorderFolders} moveBankToFolder={moveBankToFolder} saveSessionResume={saveSessionResume} clearSessionResume={clearSessionResume} editBankClears={editBankClears} updateQuestionMemo={updateQuestionMemo} toggleQuestionExclude={toggleQuestionExclude} />}
         </div>
       </div>
 
@@ -2161,7 +2164,7 @@ function ManualEntryForm({ state, activeQuals, onCancel, onSubmit }) {
 
 // ============ Question Bank Tab ============
 function QBankTab(props) {
-  const { state, addBank, deleteBank, recordAnswer, recordRevengeAnswer, awardXp, startTimer, stopTimer, incrementBankClears, updateBestStreak, moveBank, addCloze, deleteCloze, recordClozeAnswer, recordClozeRevengeAnswer, toggleQuestionMark, toggleClozeMark, recordClearSnapshot, createClozeBank, updateQuestionFormats, addFolder, deleteFolder, renameFolder, moveBankToFolder, saveSessionResume, clearSessionResume, editBankClears, updateQuestionMemo, toggleQuestionExclude, editQuestion } = props;
+  const { state, addBank, deleteBank, recordAnswer, recordRevengeAnswer, awardXp, startTimer, stopTimer, incrementBankClears, updateBestStreak, moveBank, addCloze, deleteCloze, recordClozeAnswer, recordClozeRevengeAnswer, toggleQuestionMark, toggleClozeMark, recordClearSnapshot, createClozeBank, updateQuestionFormats, addFolder, deleteFolder, renameFolder, reorderFolders, moveBankToFolder, saveSessionResume, clearSessionResume, editBankClears, updateQuestionMemo, toggleQuestionExclude, editQuestion } = props;
 
   const [activeBankId, setActiveBankId] = useState(null);
   const [revengeMode, setRevengeMode] = useState(false);
@@ -2407,8 +2410,36 @@ function QBankTab(props) {
                       <>
                         <span className="jp text-sm flex-1">{f.name}</span>
                         <span className="pixel text-[10px]" style={{ color: "var(--ink-mute)" }}>{folderBanks(f.id).length}件</span>
+                        <div className="flex flex-col gap-0.5">
+                          <button
+                            onClick={() => {
+                              const ids = folders.map((x) => x.id);
+                              const i = ids.indexOf(f.id);
+                              if (i <= 0) return;
+                              [ids[i - 1], ids[i]] = [ids[i], ids[i - 1]];
+                              reorderFolders(ids);
+                            }}
+                            disabled={folders.indexOf(f) === 0}
+                            className="jp text-[10px] px-1 leading-none"
+                            style={{ color: folders.indexOf(f) === 0 ? "var(--ink-mute)" : "var(--ink)", border: "1px solid var(--rule-soft)", lineHeight: "1.4" }}
+                            title="上に移動"
+                          >▲</button>
+                          <button
+                            onClick={() => {
+                              const ids = folders.map((x) => x.id);
+                              const i = ids.indexOf(f.id);
+                              if (i >= ids.length - 1) return;
+                              [ids[i], ids[i + 1]] = [ids[i + 1], ids[i]];
+                              reorderFolders(ids);
+                            }}
+                            disabled={folders.indexOf(f) === folders.length - 1}
+                            className="jp text-[10px] px-1 leading-none"
+                            style={{ color: folders.indexOf(f) === folders.length - 1 ? "var(--ink-mute)" : "var(--ink)", border: "1px solid var(--rule-soft)", lineHeight: "1.4" }}
+                            title="下に移動"
+                          >▼</button>
+                        </div>
                         <button onClick={() => { setRenamingFolderId(f.id); setRenamingValue(f.name); }} className="jp text-[10px] px-1.5 py-0.5" style={{ color: "var(--sky-deep)", border: "1px solid var(--sky-deep)" }}>✏ 名前変更</button>
-                        <button onClick={() => { if (confirm(`フォルダ「${f.name}」を削除しますか？\n中の問題集は「未分類」に移動されます。`)) deleteFolder(f.id); }} style={{ color: "var(--brick)" }}><Trash2 size={13} /></button>
+                        <button onClick={() => { if (confirm("フォルダ「" + f.name + "」を削除しますか？\n中の問題集は「未分類」に移動されます。")) deleteFolder(f.id); }} style={{ color: "var(--brick)" }}><Trash2 size={13} /></button>
                       </>
                     )}
                   </li>
