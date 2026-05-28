@@ -2545,16 +2545,46 @@ function QBankTab(props) {
             return (
               <div key={folder.id} style={{ border: "1px solid var(--rule)", borderRadius: "2px" }}>
                 {/* フォルダヘッダー */}
-                <button onClick={() => toggleCollapse(folder.id)} className="w-full flex items-center gap-2 px-3 py-2" style={{ background: "var(--sky-pale)", border: "none" }}>
-                  <span className="text-base">{collapsed ? "📁" : "📂"}</span>
-                  <span className="jp text-sm font-bold flex-1 text-left" style={{ color: "var(--ink)" }}>{folder.name}</span>
-                  <span className="pixel text-[10px]" style={{ color: "var(--ink-soft)" }}>{banks.length}件</span>
-                  {wCount > 0 && <span className="pixel text-[10px] px-1" style={{ background: "var(--brick)", color: "var(--paper)" }}>苦手{wCount}</span>}
-                  {wCount > 0 && !collapsed && (
-                    <button onClick={(e) => { e.stopPropagation(); setCrossRevengeQualId("_folder_" + folder.id); }} className="jp text-[10px] px-2 py-0.5" style={{ background: "var(--plum)", color: "var(--paper)" }}>横断リベンジ</button>
-                  )}
-                  <span style={{ color: "var(--ink-mute)" }}>{collapsed ? "▶" : "▼"}</span>
-                </button>
+                <div className="w-full flex items-center gap-1 px-2 py-2" style={{ background: "var(--sky-pale)" }}>
+                  {/* ▲▼並べ替えボタン */}
+                  <div className="flex flex-col gap-0.5 flex-shrink-0">
+                    <button
+                      onClick={() => {
+                        const ids = folders.map((x) => x.id);
+                        const i = ids.indexOf(folder.id);
+                        if (i <= 0) return;
+                        [ids[i - 1], ids[i]] = [ids[i], ids[i - 1]];
+                        reorderFolders(ids);
+                      }}
+                      className="flex items-center justify-center"
+                      style={{ width: "18px", height: "16px", fontSize: "9px", border: "1px solid var(--rule-soft)", color: folders.indexOf(folder) === 0 ? "var(--rule-soft)" : "var(--ink-soft)", background: "var(--paper)", cursor: folders.indexOf(folder) === 0 ? "default" : "pointer" }}
+                      title="上に移動"
+                    >▲</button>
+                    <button
+                      onClick={() => {
+                        const ids = folders.map((x) => x.id);
+                        const i = ids.indexOf(folder.id);
+                        if (i >= ids.length - 1) return;
+                        [ids[i], ids[i + 1]] = [ids[i + 1], ids[i]];
+                        reorderFolders(ids);
+                      }}
+                      className="flex items-center justify-center"
+                      style={{ width: "18px", height: "16px", fontSize: "9px", border: "1px solid var(--rule-soft)", color: folders.indexOf(folder) === folders.length - 1 ? "var(--rule-soft)" : "var(--ink-soft)", background: "var(--paper)", cursor: folders.indexOf(folder) === folders.length - 1 ? "default" : "pointer" }}
+                      title="下に移動"
+                    >▼</button>
+                  </div>
+                  {/* クリックでアコーディオン開閉 */}
+                  <button onClick={() => toggleCollapse(folder.id)} className="flex items-center gap-2 flex-1 text-left" style={{ background: "none", border: "none", padding: 0 }}>
+                    <span className="text-base">{collapsed ? "📁" : "📂"}</span>
+                    <span className="jp text-sm font-bold flex-1 text-left" style={{ color: "var(--ink)" }}>{folder.name}</span>
+                    <span className="pixel text-[10px]" style={{ color: "var(--ink-soft)" }}>{banks.length}件</span>
+                    {wCount > 0 && <span className="pixel text-[10px] px-1" style={{ background: "var(--brick)", color: "var(--paper)" }}>苦手{wCount}</span>}
+                    {wCount > 0 && !collapsed && (
+                      <span onClick={(e) => { e.stopPropagation(); setCrossRevengeQualId("_folder_" + folder.id); }} className="jp text-[10px] px-2 py-0.5" style={{ background: "var(--plum)", color: "var(--paper)", cursor: "pointer" }}>横断リベンジ</span>
+                    )}
+                    <span style={{ color: "var(--ink-mute)" }}>{collapsed ? "▶" : "▼"}</span>
+                  </button>
+                </div>
                 {!collapsed && (
                   <div className="p-2 space-y-2">
                     {banks.length === 0 ? (
