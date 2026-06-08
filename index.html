@@ -268,6 +268,7 @@ const INIT = {
   player: { level: 1, xp: 0, totalCompleted: 0, totalQaAnswered: 0, achievements: [], mainTitleId: null, seededProfile: false, bestQaStreak: 0 },
   qualifications: [], tasks: [], taskPresets: [], taskClears: {}, studyLog: [], questionBanks: [],
   folders: [],
+  studyNotes: [], // {id, folderId, title, content, createdAt, updatedAt}
   sessionResume: null, // {bankId, mode, queueIds, stats, savedAt} | null
   timer: { qualId: null, startMs: null, autoMode: null },
 };
@@ -765,6 +766,15 @@ function StudyRPG({ user }) {
   const reorderFolders = (orderedIds) => setState((s) => ({
     ...s, folders: (s.folders || []).map((f) => ({ ...f, order: orderedIds.indexOf(f.id) }))
   }));
+  const addStudyNote = (folderId, title, content) => setState((s) => ({
+    ...s, studyNotes: [...(s.studyNotes || []), { id: uid(), folderId: folderId || null, title: title || "", content: content || "", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }]
+  }));
+  const updateStudyNote = (noteId, patch) => setState((s) => ({
+    ...s, studyNotes: (s.studyNotes || []).map((n) => n.id === noteId ? { ...n, ...patch, updatedAt: new Date().toISOString() } : n)
+  }));
+  const deleteStudyNote = (noteId) => setState((s) => ({
+    ...s, studyNotes: (s.studyNotes || []).filter((n) => n.id !== noteId)
+  }));
   const moveBankToFolder = (bankId, folderId) => setState((s) => ({
     ...s, questionBanks: s.questionBanks.map((b) => b.id !== bankId ? b : { ...b, folderId: folderId || null })
   }));
@@ -1247,7 +1257,7 @@ function StudyRPG({ user }) {
           {tab === "qual" && <QualTab state={state} addQual={addQual} updateQual={updateQual} deleteQual={deleteQual} acquireQual={acquireQual} />}
           {tab === "task" && <TaskTab state={state} addTask={addTask} completeTask={completeTask} deleteTask={deleteTask} addPreset={addPreset} deletePreset={deletePreset} updatePreset={updatePreset} />}
           {tab === "timer" && <TimerTab state={state} liveSeconds={liveSeconds} startTimer={startTimer} stopTimer={stopTimer} cancelTimer={cancelTimer} addManualLog={addManualLog} deleteLog={deleteLog} />}
-          {tab === "qbank" && <QBankTab state={state} addBank={addQuestionBank} deleteBank={deleteBank} recordAnswer={recordAnswer} recordRevengeAnswer={recordRevengeAnswer} awardXp={awardXp} startTimer={startTimer} stopTimer={stopTimer} incrementBankClears={incrementBankClears} updateBestStreak={updateBestStreak} moveBank={moveBank} addCloze={addCloze} deleteCloze={deleteCloze} recordClozeAnswer={recordClozeAnswer} recordClozeRevengeAnswer={recordClozeRevengeAnswer} toggleQuestionMark={toggleQuestionMark} toggleClozeMark={toggleClozeMark} recordClearSnapshot={recordClearSnapshot} createClozeBank={createClozeBank} updateQuestionFormats={updateQuestionFormats} addQuestionToBank={addQuestionToBank} editQuestion={editQuestion} deleteQuestion={deleteQuestion} moveQuestions={moveQuestions} editBankMeta={editBankMeta} addFolder={addFolder} deleteFolder={deleteFolder} renameFolder={renameFolder} reorderFolders={reorderFolders} moveBankToFolder={moveBankToFolder} saveSessionResume={saveSessionResume} clearSessionResume={clearSessionResume} editBankClears={editBankClears} updateQuestionMemo={updateQuestionMemo} toggleQuestionExclude={toggleQuestionExclude} />}
+          {tab === "qbank" && <QBankTab state={state} addBank={addQuestionBank} deleteBank={deleteBank} recordAnswer={recordAnswer} recordRevengeAnswer={recordRevengeAnswer} awardXp={awardXp} startTimer={startTimer} stopTimer={stopTimer} incrementBankClears={incrementBankClears} updateBestStreak={updateBestStreak} moveBank={moveBank} addCloze={addCloze} deleteCloze={deleteCloze} recordClozeAnswer={recordClozeAnswer} recordClozeRevengeAnswer={recordClozeRevengeAnswer} toggleQuestionMark={toggleQuestionMark} toggleClozeMark={toggleClozeMark} recordClearSnapshot={recordClearSnapshot} createClozeBank={createClozeBank} updateQuestionFormats={updateQuestionFormats} addQuestionToBank={addQuestionToBank} editQuestion={editQuestion} deleteQuestion={deleteQuestion} moveQuestions={moveQuestions} editBankMeta={editBankMeta} addFolder={addFolder} deleteFolder={deleteFolder} renameFolder={renameFolder} reorderFolders={reorderFolders} addStudyNote={addStudyNote} updateStudyNote={updateStudyNote} deleteStudyNote={deleteStudyNote} moveBankToFolder={moveBankToFolder} saveSessionResume={saveSessionResume} clearSessionResume={clearSessionResume} editBankClears={editBankClears} updateQuestionMemo={updateQuestionMemo} toggleQuestionExclude={toggleQuestionExclude} />}
         </div>
       </div>
 
@@ -2164,7 +2174,7 @@ function ManualEntryForm({ state, activeQuals, onCancel, onSubmit }) {
 
 // ============ Question Bank Tab ============
 function QBankTab(props) {
-  const { state, addBank, deleteBank, recordAnswer, recordRevengeAnswer, awardXp, startTimer, stopTimer, incrementBankClears, updateBestStreak, moveBank, addCloze, deleteCloze, recordClozeAnswer, recordClozeRevengeAnswer, toggleQuestionMark, toggleClozeMark, recordClearSnapshot, createClozeBank, updateQuestionFormats, addFolder, deleteFolder, renameFolder, reorderFolders, moveBankToFolder, saveSessionResume, clearSessionResume, editBankClears, updateQuestionMemo, toggleQuestionExclude, editQuestion } = props;
+  const { state, addBank, deleteBank, recordAnswer, recordRevengeAnswer, awardXp, startTimer, stopTimer, incrementBankClears, updateBestStreak, moveBank, addCloze, deleteCloze, recordClozeAnswer, recordClozeRevengeAnswer, toggleQuestionMark, toggleClozeMark, recordClearSnapshot, createClozeBank, updateQuestionFormats, addFolder, deleteFolder, renameFolder, reorderFolders, addStudyNote, updateStudyNote, deleteStudyNote, moveBankToFolder, saveSessionResume, clearSessionResume, editBankClears, updateQuestionMemo, toggleQuestionExclude, editQuestion } = props;
 
   const [activeBankId, setActiveBankId] = useState(null);
   const [revengeMode, setRevengeMode] = useState(false);
@@ -2184,6 +2194,13 @@ function QBankTab(props) {
   const [renamingValue, setRenamingValue] = useState("");
   const [collapsedFolders, setCollapsedFolders] = useState({});  // フォルダの折り畳み状態
   const [searchQuery, setSearchQuery] = useState("");              // キーワード検索
+  const [memoOpen, setMemoOpen] = useState(false);                  // 学習メモパネル開閉
+  const [memoEditingId, setMemoEditingId] = useState(null);         // 編集中メモID(null=新規)
+  const [memoTitle, setMemoTitle] = useState("");                   // メモタイトル入力
+  const [memoContent, setMemoContent] = useState("");               // メモ内容入力
+  const [memoFolderId, setMemoFolderId] = useState(null);           // 紐付けフォルダID
+  const [memoFilterFolder, setMemoFilterFolder] = useState("__all__"); // フォルダフィルタ
+  const [memoExpandedId, setMemoExpandedId] = useState(null);       // 展開表示中のメモID
 
   const activeBank = state.questionBanks.find((b) => b.id === activeBankId);
   const pendingBank = state.questionBanks.find((b) => b.id === pendingBankId);
@@ -2449,6 +2466,178 @@ function QBankTab(props) {
           </div>
         )}
       </Box>
+
+      {/* ── 学習メモ ── */}
+      <div className="rpg-box p-1">
+        <div className="rpg-inner-border p-2">
+          <button
+            onClick={() => setMemoOpen(!memoOpen)}
+            className="w-full flex items-center gap-2"
+            style={{ background: "none", border: "none", padding: 0 }}
+          >
+            <span className="text-base">📝</span>
+            <span className="jp text-sm font-bold flex-1 text-left" style={{ color: "var(--ink)" }}>学習メモ</span>
+            <span className="pixel text-[10px]" style={{ color: "var(--ink-soft)" }}>{(state.studyNotes || []).length}件</span>
+            <span style={{ color: "var(--ink-mute)" }}>{memoOpen ? "▼" : "▶"}</span>
+          </button>
+
+          {memoOpen && (
+            <div className="mt-2 space-y-2">
+              <p className="jp text-[10px]" style={{ color: "var(--ink-soft)" }}>気づきやまとめを自由に記録。フォルダに紐付けて整理できます。</p>
+
+              {/* 新規作成 / 編集フォーム */}
+              <div className="p-2" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)" }}>
+                <div className="jp text-[11px] mb-1 font-bold" style={{ color: "var(--sky-deep)" }}>{memoEditingId ? "✏ メモを編集" : "📝 新規メモ"}</div>
+                <input
+                  className="rpg-input w-full text-sm mb-1"
+                  value={memoTitle}
+                  onChange={(e) => setMemoTitle(e.target.value)}
+                  placeholder="タイトル（任意）"
+                />
+                <textarea
+                  className="rpg-input w-full text-sm mb-1"
+                  rows={4}
+                  value={memoContent}
+                  onChange={(e) => setMemoContent(e.target.value)}
+                  placeholder="メモを入力..."
+                  style={{ resize: "vertical" }}
+                />
+                <div className="flex gap-1 items-center flex-wrap">
+                  <label className="jp text-[10px]" style={{ color: "var(--ink-soft)" }}>フォルダ:</label>
+                  <select
+                    className="rpg-input text-xs py-0.5 flex-1 min-w-0"
+                    value={memoFolderId || ""}
+                    onChange={(e) => setMemoFolderId(e.target.value || null)}
+                  >
+                    <option value="">（未分類）</option>
+                    {folders.map((f) => (
+                      <option key={f.id} value={f.id}>{f.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex gap-1 mt-2">
+                  <button
+                    onClick={() => {
+                      if (!memoContent.trim() && !memoTitle.trim()) return;
+                      if (memoEditingId) {
+                        updateStudyNote(memoEditingId, { title: memoTitle, content: memoContent, folderId: memoFolderId });
+                      } else {
+                        addStudyNote(memoFolderId, memoTitle, memoContent);
+                      }
+                      setMemoEditingId(null);
+                      setMemoTitle("");
+                      setMemoContent("");
+                      setMemoFolderId(null);
+                    }}
+                    className="jp btn-primary flex-1 py-1 text-xs"
+                    disabled={!memoContent.trim() && !memoTitle.trim()}
+                  >💾 {memoEditingId ? "更新" : "保存"}</button>
+                  {memoEditingId && (
+                    <button
+                      onClick={() => {
+                        setMemoEditingId(null);
+                        setMemoTitle("");
+                        setMemoContent("");
+                        setMemoFolderId(null);
+                      }}
+                      className="jp btn-ghost px-3 py-1 text-xs"
+                    >キャンセル</button>
+                  )}
+                </div>
+              </div>
+
+              {/* フィルタ */}
+              {(state.studyNotes || []).length > 0 && (
+                <div className="flex gap-1 items-center flex-wrap">
+                  <label className="jp text-[10px]" style={{ color: "var(--ink-soft)" }}>表示:</label>
+                  <select
+                    className="rpg-input text-xs py-0.5 flex-1 min-w-0"
+                    value={memoFilterFolder}
+                    onChange={(e) => setMemoFilterFolder(e.target.value)}
+                  >
+                    <option value="__all__">すべて</option>
+                    <option value="__none__">（未分類）のみ</option>
+                    {folders.map((f) => (
+                      <option key={f.id} value={f.id}>{f.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* メモ一覧 */}
+              <ul className="space-y-1">
+                {(state.studyNotes || [])
+                  .slice()
+                  .sort((a, b) => (b.updatedAt || "").localeCompare(a.updatedAt || ""))
+                  .filter((n) => {
+                    if (memoFilterFolder === "__all__") return true;
+                    if (memoFilterFolder === "__none__") return !n.folderId;
+                    return n.folderId === memoFilterFolder;
+                  })
+                  .map((n) => {
+                    const folder = folders.find((f) => f.id === n.folderId);
+                    const isExpanded = memoExpandedId === n.id;
+                    return (
+                      <li key={n.id} className="p-2" style={{ background: "var(--sky-pale)", border: "1px solid var(--rule-soft)" }}>
+                        <button
+                          onClick={() => setMemoExpandedId(isExpanded ? null : n.id)}
+                          className="w-full text-left"
+                          style={{ background: "none", border: "none", padding: 0 }}
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="flex-1 min-w-0">
+                              <div className="jp text-sm font-bold" style={{ color: "var(--ink)" }}>{n.title || "(無題)"}</div>
+                              {!isExpanded && (
+                                <div className="jp text-[11px] truncate" style={{ color: "var(--ink-soft)" }}>{(n.content || "").substring(0, 60)}</div>
+                              )}
+                            </div>
+                            <span style={{ color: "var(--ink-mute)", fontSize: "10px" }}>{isExpanded ? "▼" : "▶"}</span>
+                          </div>
+                          <div className="flex items-center gap-2 mt-1">
+                            <span className="pixel text-[9px] px-1" style={{ background: folder ? "var(--gold)" : "var(--rule-soft)", color: folder ? "var(--paper)" : "var(--ink-mute)" }}>
+                              📁 {folder ? folder.name : "未分類"}
+                            </span>
+                            <span className="pixel text-[9px]" style={{ color: "var(--ink-mute)" }}>{(n.updatedAt || n.createdAt || "").substring(0, 10)}</span>
+                          </div>
+                        </button>
+                        {isExpanded && (
+                          <div className="mt-2">
+                            <div className="jp text-sm whitespace-pre-wrap p-2" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)", color: "var(--ink)" }}>{n.content}</div>
+                            <div className="flex gap-1 mt-1">
+                              <button
+                                onClick={() => {
+                                  setMemoEditingId(n.id);
+                                  setMemoTitle(n.title || "");
+                                  setMemoContent(n.content || "");
+                                  setMemoFolderId(n.folderId || null);
+                                  window.scrollTo({ top: 0, behavior: "smooth" });
+                                }}
+                                className="jp btn-info flex-1 py-1 text-xs"
+                              >✏ 編集</button>
+                              <button
+                                onClick={() => {
+                                  if (confirm("このメモを削除しますか？")) {
+                                    deleteStudyNote(n.id);
+                                    setMemoExpandedId(null);
+                                  }
+                                }}
+                                className="jp px-3 py-1 text-xs"
+                                style={{ background: "var(--brick)", color: "var(--paper)" }}
+                              >🗑 削除</button>
+                            </div>
+                          </div>
+                        )}
+                      </li>
+                    );
+                  })}
+                {(state.studyNotes || []).length === 0 && (
+                  <li className="jp text-xs text-center py-2" style={{ color: "var(--ink-mute)" }}>まだメモがありません</li>
+                )}
+              </ul>
+            </div>
+          )}
+        </div>
+      </div>
 
       {/* ── キーワード検索 ── */}
       <div className="rpg-box p-1">
