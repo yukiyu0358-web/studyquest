@@ -2225,7 +2225,7 @@ function QBankTab(props) {
     if (revengeMode) return <RevengeSession bank={activeBank} state={state} recordRevengeAnswer={recordRevengeAnswer} recordClozeRevengeAnswer={recordClozeRevengeAnswer} startTimer={startTimer} stopTimer={stopTimer} onExit={() => { setActiveBankId(null); setRevengeMode(false); }} />;
     if (sessionMode === "cloze") return <ClozeStudySession bank={activeBank} state={state} recordClozeAnswer={recordClozeAnswer} awardXp={awardXp} startTimer={startTimer} stopTimer={stopTimer} toggleClozeMark={toggleClozeMark} onExit={() => { setActiveBankId(null); setSessionMode("qa"); }} />;
     if (sessionMode === "mix") return <MixedStudySession bank={activeBank} state={state} recordAnswer={recordAnswer} recordClozeAnswer={recordClozeAnswer} awardXp={awardXp} startTimer={startTimer} stopTimer={stopTimer} incrementBankClears={incrementBankClears} updateBestStreak={updateBestStreak} recordClearSnapshot={recordClearSnapshot} toggleQuestionMark={toggleQuestionMark} toggleClozeMark={toggleClozeMark} onExit={() => { setActiveBankId(null); setSessionMode("qa"); }} />;
-    return <QStudySession bank={activeBank} state={state} recordAnswer={recordAnswer} awardXp={awardXp} startTimer={startTimer} stopTimer={stopTimer} incrementBankClears={incrementBankClears} updateBestStreak={updateBestStreak} recordClearSnapshot={recordClearSnapshot} toggleQuestionMark={toggleQuestionMark} saveSessionResume={saveSessionResume} clearSessionResume={clearSessionResume} resumeData={state.sessionResume?.bankId === activeBank.id ? state.sessionResume : null} updateQuestionMemo={updateQuestionMemo} toggleQuestionExclude={toggleQuestionExclude} editQuestion={editQuestion} onExit={() => setActiveBankId(null)} />;
+    return <QStudySession bank={activeBank} state={state} recordAnswer={recordAnswer} awardXp={awardXp} startTimer={startTimer} stopTimer={stopTimer} incrementBankClears={incrementBankClears} updateBestStreak={updateBestStreak} recordClearSnapshot={recordClearSnapshot} toggleQuestionMark={toggleQuestionMark} saveSessionResume={saveSessionResume} clearSessionResume={clearSessionResume} resumeData={state.sessionResume?.bankId === activeBank.id ? state.sessionResume : null} updateQuestionMemo={updateQuestionMemo} toggleQuestionExclude={toggleQuestionExclude} editQuestion={editQuestion} addStudyNote={addStudyNote} onExit={() => setActiveBankId(null)} />;
   }
   if (pendingBank) return <SessionConfig bank={pendingBank} state={state} onCancel={() => setPendingBankId(null)} onStart={(mode) => { setSessionMode(mode); setActiveBankId(pendingBank.id); setPendingBankId(null); }} />;
   if (stampViewBank) return <PerQuestionStampView bank={stampViewBank} state={state} toggleQuestionMark={toggleQuestionMark} toggleClozeMark={toggleClozeMark} deleteCloze={deleteCloze} onCreateCloze={(qId) => setClozeCreator({ bankId: stampViewBank.id, qId })} onEditFormat={(qId) => setFormatEditorItem({ bankId: stampViewBank.id, qId })} onExit={() => setStampViewBankId(null)} />;
@@ -3320,7 +3320,7 @@ function RevengeSession({ bank, state, recordRevengeAnswer, recordClozeRevengeAn
   );
 }
 
-function QStudySession({ bank, state, recordAnswer, awardXp, startTimer, stopTimer, incrementBankClears, updateBestStreak, recordClearSnapshot, toggleQuestionMark, saveSessionResume, clearSessionResume, resumeData, updateQuestionMemo, toggleQuestionExclude, editQuestion, onExit }) {
+function QStudySession({ bank, state, recordAnswer, awardXp, startTimer, stopTimer, incrementBankClears, updateBestStreak, recordClearSnapshot, toggleQuestionMark, saveSessionResume, clearSessionResume, resumeData, updateQuestionMemo, toggleQuestionExclude, editQuestion, addStudyNote, onExit }) {
   const [config] = useState(() => window.__qaConfig || { random: true, retryWrong: true, useTimer: true });
   const fromResume = config.fromResume && resumeData;
 
@@ -3340,6 +3340,11 @@ function QStudySession({ bank, state, recordAnswer, awardXp, startTimer, stopTim
   const [showReview, setShowReview] = useState(false); // 振り返り画面
   const [editMode, setEditMode] = useState(null);   // null | "q" | "a"
   const [editText, setEditText] = useState("");
+  // 学習メモ（フォルダに集約用）
+  const [noteCompose, setNoteCompose] = useState(false);
+  const [noteText, setNoteText] = useState("");
+  const [noteFolderId, setNoteFolderId] = useState(bank.folderId || null);
+  const [noteSaved, setNoteSaved] = useState(false);
 
   // 一時停止：現在の位置を保存してセッションを終了
   const pauseSession = () => {
@@ -3532,6 +3537,7 @@ function QStudySession({ bank, state, recordAnswer, awardXp, startTimer, stopTim
           {queue.length > 0 && (
             <button onClick={pauseSession} className="jp text-xs flex items-center gap-1 px-2 py-1" style={{ background: "var(--sky-pale)", border: "1px solid var(--sky-deep)", color: "var(--sky-deep)" }} title="現在の位置を保存して中断">⏸ 一時停止</button>
           )}
+          <button onClick={() => { setNoteCompose(!noteCompose); setNoteSaved(false); }} className="jp text-xs flex items-center gap-1 px-2 py-1" style={{ background: noteCompose ? "var(--gold)" : "var(--paper)", border: "1px solid var(--gold)", color: noteCompose ? "var(--paper)" : "var(--gold)" }} title="この問題に関するメモを作成">📝 メモ</button>
         </div>
         <div className="flex items-center gap-2">
           {fromResume && <span className="jp text-[10px] px-1.5 py-0.5" style={{ background: "var(--gold)", color: "var(--paper)" }}>📌 再開中</span>}
@@ -3539,6 +3545,56 @@ function QStudySession({ bank, state, recordAnswer, awardXp, startTimer, stopTim
         </div>
       </div>
       {stats.streak > 0 && <div className={`text-center jp text-sm ${streakAnim ? "streak-anim" : ""}`} style={{ color: "var(--brick)" }}>🔥 {stats.streak}連続正解中</div>}
+
+      {/* 📝 学習メモ入力フォーム */}
+      {noteCompose && (
+        <div className="p-2" style={{ background: "var(--sky-pale)", border: "2px solid var(--gold)", borderRadius: "2px" }}>
+          <div className="flex items-center justify-between mb-1">
+            <span className="jp text-xs font-bold" style={{ color: "var(--gold)" }}>📝 学習メモを作成</span>
+            <button onClick={() => { setNoteCompose(false); setNoteText(""); setNoteSaved(false); }} className="jp text-[10px]" style={{ color: "var(--ink-soft)", background: "none", border: "none" }}>✕</button>
+          </div>
+          <p className="jp text-[10px] mb-1" style={{ color: "var(--ink-soft)" }}>この問題への気づきを記録。後で「問題」タブの📝学習メモから一覧できます。</p>
+          {noteSaved ? (
+            <div className="jp text-xs py-2 text-center" style={{ color: "var(--gold)", fontWeight: "bold" }}>✓ メモを保存しました</div>
+          ) : (
+            <>
+              <textarea
+                className="rpg-input w-full text-sm mb-1"
+                rows={3}
+                value={noteText}
+                onChange={(e) => setNoteText(e.target.value)}
+                placeholder="気づき・論点まとめなど..."
+                style={{ resize: "vertical" }}
+              />
+              <div className="flex gap-1 items-center mb-2 flex-wrap">
+                <label className="jp text-[10px]" style={{ color: "var(--ink-soft)" }}>📁 保存先:</label>
+                <select
+                  className="rpg-input text-xs py-0.5 flex-1 min-w-0"
+                  value={noteFolderId || ""}
+                  onChange={(e) => setNoteFolderId(e.target.value || null)}
+                >
+                  <option value="">（未分類）</option>
+                  {(state.folders || []).slice().sort((a, b) => (a.order ?? 0) - (b.order ?? 0)).map((f) => (
+                    <option key={f.id} value={f.id}>{f.name}</option>
+                  ))}
+                </select>
+              </div>
+              <button
+                onClick={() => {
+                  if (!noteText.trim()) return;
+                  const title = "[" + bank.name + "] " + (currentQ.q || "").substring(0, 30);
+                  if (addStudyNote) addStudyNote(noteFolderId, title, noteText);
+                  setNoteText("");
+                  setNoteSaved(true);
+                  setTimeout(() => { setNoteCompose(false); setNoteSaved(false); }, 1500);
+                }}
+                className="jp btn-primary w-full py-1 text-xs"
+                disabled={!noteText.trim()}
+              >💾 保存してフォルダに集約</button>
+            </>
+          )}
+        </div>
+      )}
       <div className="rpg-box p-1">
         <div className="rpg-inner-border min-h-[180px] flex flex-col">
           <div className="flex items-start justify-between gap-2 mb-2">
