@@ -2246,7 +2246,7 @@ function MemoTab({ state, addStudyNote, updateStudyNote, deleteStudyNote, addFol
   return (
     <div className="space-y-3">
       {/* ── フォルダ管理パネル ── */}
-      <Box title="フォルダ管理" icon={<FolderClosed size={18} />}>
+      <Box title="フォルダ管理" icon={<FolderIcon size={18} />}>
         <button onClick={() => setFolderManagerOpen(!folderManagerOpen)} className="jp text-xs flex items-center gap-1" style={{ background: "none", border: "1px solid var(--rule)", padding: "4px 8px", color: "var(--ink-soft)" }}>
           {folderManagerOpen ? "▼ 閉じる" : "▶ フォルダを管理"} ({folders.length})
         </button>
