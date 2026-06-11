@@ -2309,13 +2309,22 @@ function MemoTab({ state, addStudyNote, updateStudyNote, deleteStudyNote, addFol
                         <button onClick={() => { const ids = folders.map((x) => x.id); const i = ids.indexOf(f.id); if (i <= 0) return; [ids[i - 1], ids[i]] = [ids[i], ids[i - 1]]; reorderFolders(ids); }} className="jp text-[10px] px-1 leading-none" style={{ color: folders.indexOf(f) === 0 ? "var(--ink-mute)" : "var(--ink)", border: "1px solid var(--rule-soft)" }}>▲</button>
                         <button onClick={() => { const ids = folders.map((x) => x.id); const i = ids.indexOf(f.id); if (i >= ids.length - 1) return; [ids[i], ids[i + 1]] = [ids[i + 1], ids[i]]; reorderFolders(ids); }} className="jp text-[10px] px-1 leading-none" style={{ color: folders.indexOf(f) === folders.length - 1 ? "var(--ink-mute)" : "var(--ink)", border: "1px solid var(--rule-soft)" }}>▼</button>
                       </div>
-                      <button onClick={() => { setRenamingFolderId(f.id); setRenamingValue(f.name); }} className="jp text-[10px] px-1.5 py-0.5" style={{ color: "var(--sky-deep)", border: "1px solid var(--sky-deep)" }}>✏</button>
-                      <button onClick={() => { if (confirm("フォルダ「" + f.name + "」を削除しますか？\n中のメモ・問題集は「未分類」に移動されます。")) deleteFolder(f.id); }} style={{ color: "var(--brick)" }}><Trash2 size={13} /></button>
+                      <button onClick={() => exportFolder(f.id)} className="jp text-[10px] px-1.5 py-0.5" style={{ background: "var(--sky-deep)", color: "var(--paper)" }} title="このフォルダのメモをエクスポート">📥</button>
+                      <button onClick={() => { setRenamingFolderId(f.id); setRenamingValue(f.name); }} className="jp text-[10px] px-1.5 py-0.5" style={{ color: "var(--sky-deep)", border: "1px solid var(--sky-deep)" }} title="フォルダ名を編集">✏ 名前</button>
+                      <button onClick={() => { if (confirm("フォルダ「" + f.name + "」を削除しますか？\n中のメモ・問題集は「未分類」に移動されます。")) deleteFolder(f.id); }} style={{ color: "var(--brick)" }} title="フォルダを削除"><Trash2 size={13} /></button>
                     </>
                   )}
                 </li>
               ))}
             </ul>
+            {/* 未分類のメモがある場合のエクスポート */}
+            {notes.filter((n) => !n.folderId).length > 0 && (
+              <div className="flex items-center gap-2 p-2" style={{ background: "var(--rule-soft)", border: "1px solid var(--rule-soft)" }}>
+                <span className="jp text-sm flex-1">📂 未分類</span>
+                <span className="pixel text-[10px]" style={{ color: "var(--ink-mute)" }}>{notes.filter((n) => !n.folderId).length}件</span>
+                <button onClick={() => exportFolder(null)} className="jp text-[10px] px-1.5 py-0.5" style={{ background: "var(--sky-deep)", color: "var(--paper)" }} title="未分類のメモをエクスポート">📥</button>
+              </div>
+            )}
           </div>
         )}
       </Box>
@@ -2346,19 +2355,7 @@ function MemoTab({ state, addStudyNote, updateStudyNote, deleteStudyNote, addFol
             <option value="__none__">（未分類）のみ</option>
             {folders.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
           </select>
-          {/* エクスポートボタン */}
-          <button
-            onClick={() => {
-              if (filterFolder === "__all__") {
-                exportAll();
-              } else {
-                exportFolder(filterFolder === "__none__" ? null : filterFolder);
-              }
-            }}
-            className="jp text-[10px] px-2 py-0.5"
-            style={{ background: "var(--sky-deep)", color: "var(--paper)" }}
-            title={filterFolder === "__all__" ? "全メモをエクスポート（フォルダごとに分けて1ファイルに）" : "このフォルダのメモをエクスポート"}
-          >📥 エクスポート</button>
+
         </div>
         {filteredNotes.length === 0 ? (
           <p className="jp text-sm text-center py-4" style={{ color: "var(--ink-mute)" }}>メモがありません</p>
