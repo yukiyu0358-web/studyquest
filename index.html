@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
+<meta name="theme-color" content="#e3edf5" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+<meta name="apple-mobile-web-app-title" content="Study Quest" />
+<title>Study Quest 〜 学びの冒険 〜</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%93%9C%3C/text%3E%3C/svg%3E" />
+
+<!-- Tailwind は フェーズA では CDN のまま。フェーズCで PostCSS 構成へ移行する -->
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=DotGothic16&family=Press+Start+2P&display=swap" rel="stylesheet" />
+
+<style>
+  :root {
+    --ink: #354156; --ink-soft: #5e6f8a; --ink-mute: #8696b0;
+    --paper: #fdfcf6; --cream: #f5f0e2; --beige: #e8dfc8; --greige: #c9c0a4;
+    --rule: #6b5d44; --rule-soft: #b5ad95;
+    --gold: #b8862c; --gold-light: #d6a84e;
+    --sage: #6d8454; --brick: #a04848; --slate: #5d7894;
+    --sky: #7eb6d6; --sky-light: #b8d8ec; --sky-pale: #e3edf5; --sky-deep: #4f8eb3;
+    --mint: #92c4b9; --plum: #8a6ca6;
+  }
+  html, body { margin: 0; padding: 0; background: var(--sky-pale); color: var(--ink); }
+  body {
+    font-family: 'DotGothic16', 'Hiragino Kaku Gothic ProN', sans-serif;
+    background: radial-gradient(ellipse at top, var(--paper) 0%, var(--sky-pale) 45%, var(--sky-light) 100%);
+    min-height: 100vh;
+  }
+  .pixel { font-family: 'Press Start 2P', monospace; letter-spacing: 0.04em; }
+  .jp { font-family: 'DotGothic16', monospace; }
+  .rpg-box { background: var(--paper); border: 2px solid var(--rule); box-shadow: 0 0 0 1px var(--paper), 0 0 0 3px var(--rule), 4px 4px 0 3px rgba(107, 93, 68, 0.14); }
+  .rpg-inner-border { border: 1px solid var(--rule-soft); padding: 12px; }
+  .rpg-input { width: 100%; background: var(--paper); border: 1px solid var(--rule); color: var(--ink); padding: 8px 10px; font-family: 'DotGothic16', monospace; }
+  .rpg-input::placeholder { color: var(--ink-mute); }
+  .rpg-input:focus { outline: 2px solid var(--sky-deep); outline-offset: 1px; }
+  .btn-primary { background: var(--gold); color: var(--paper); border: 1px solid var(--rule); font-weight: bold; transition: filter .15s; }
+  .btn-primary:hover:not(:disabled) { filter: brightness(1.08); }
+  .btn-primary:disabled { opacity: .4; cursor: not-allowed; }
+  .btn-sky { background: var(--sky); color: var(--paper); border: 1px solid var(--rule); font-weight: bold; transition: filter .15s; }
+  .btn-sky:hover:not(:disabled) { filter: brightness(1.05); }
+  .btn-sky:disabled { opacity: .4; cursor: not-allowed; }
+  .btn-ghost { background: var(--paper); color: var(--ink); border: 1px solid var(--rule); transition: background .15s; }
+  .btn-ghost:hover { background: var(--cream); }
+  .btn-success { background: var(--sage); color: var(--paper); border: 1px solid var(--rule); transition: filter .15s; }
+  .btn-success:hover { filter: brightness(1.08); }
+  .btn-danger { background: var(--brick); color: var(--paper); border: 1px solid var(--rule); transition: filter .15s; }
+  .btn-danger:hover { filter: brightness(1.08); }
+  .btn-info { background: var(--slate); color: var(--paper); border: 1px solid var(--rule); transition: filter .15s; }
+  .btn-info:hover { filter: brightness(1.08); }
+  .btn-plum { background: var(--plum); color: var(--paper); border: 1px solid var(--rule); transition: filter .15s; font-weight: bold; }
+  .btn-plum:hover:not(:disabled) { filter: brightness(1.08); }
+  .btn-plum:disabled { opacity: .4; cursor: not-allowed; }
+
+  .stamp { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 50%; border: 2px solid var(--brick); color: var(--brick); font-weight: bold; font-size: 13px; transform: rotate(-12deg); background: rgba(255,255,255,0.6); box-shadow: 1px 1px 0 rgba(160,72,72,0.3); }
+  .stamp.gold { border-color: var(--gold); color: var(--gold); }
+  .stamp.sage { border-color: var(--sage); color: var(--sage); }
+  .stamp.tiny { width: 18px; height: 18px; font-size: 10px; border-width: 1.5px; }
+  .stamp.empty { border-color: var(--rule-soft); border-style: dashed; color: var(--rule-soft); background: transparent; transform: rotate(0deg); box-shadow: none; }
+
+  .stat-bar { height: 10px; background: rgba(53,65,86,0.08); border: 1px solid var(--rule-soft); position: relative; overflow: hidden; }
+  .stat-bar > div { height: 100%; background: linear-gradient(90deg, var(--sky-deep), var(--sky)); transition: width .6s ease; }
+  .stat-bar.atk > div { background: linear-gradient(90deg, var(--brick), #c66060); }
+  .stat-bar.def > div { background: linear-gradient(90deg, var(--slate), var(--sky)); }
+  .stat-bar.int > div { background: linear-gradient(90deg, var(--plum), #b18bd0); }
+  .stat-bar.luk > div { background: linear-gradient(90deg, var(--gold), var(--gold-light)); }
+  .stat-bar.hp > div { background: linear-gradient(90deg, var(--sage), var(--mint)); }
+  .stat-bar.mp > div { background: linear-gradient(90deg, var(--sky-deep), var(--sky-light)); }
+
+  @keyframes stampPress { 0% { transform: rotate(-12deg) scale(2.5); opacity: 0; } 40% { transform: rotate(-12deg) scale(0.85); opacity: 1; } 70% { transform: rotate(-12deg) scale(1.1); } 100% { transform: rotate(-12deg) scale(1); opacity: 1; } }
+  .stamp-new { animation: stampPress 0.6s ease-out; }
+  @keyframes floatUp { 0% { opacity: 0; transform: translate(-50%, 0) scale(0.5); } 20% { opacity: 1; transform: translate(-50%, -20px) scale(1.1); } 80% { opacity: 1; transform: translate(-50%, -80px) scale(1); } 100% { opacity: 0; transform: translate(-50%, -120px) scale(0.9); } }
+  @keyframes levelUpPop { 0% { opacity: 0; transform: translate(-50%, -50%) scale(0.3) rotate(-10deg); } 20% { opacity: 1; transform: translate(-50%, -50%) scale(1.2) rotate(2deg); } 40% { transform: translate(-50%, -50%) scale(0.95) rotate(-1deg); } 60% { transform: translate(-50%, -50%) scale(1.05) rotate(1deg); } 80% { opacity: 1; transform: translate(-50%, -50%) scale(1) rotate(0); } 100% { opacity: 0; transform: translate(-50%, -50%) scale(1.1); } }
+  @keyframes shimmer { 0%,100% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } }
+  @keyframes blink { 0%,50% { opacity: 1; } 51%,100% { opacity: 0.3; } }
+  @keyframes milestonePop { 0% { opacity: 0; transform: translateX(-50%) scale(0.6) translateY(20px); } 15% { opacity: 1; transform: translateX(-50%) scale(1.1) translateY(0); } 25% { transform: translateX(-50%) scale(0.95); } 45% { transform: translateX(-50%) scale(1); } 85% { opacity: 1; transform: translateX(-50%) scale(1); } 100% { opacity: 0; transform: translateX(-50%) scale(0.95) translateY(-10px); } }
+  @keyframes streak { 0% { transform: scale(0.6); opacity: 0; } 50% { transform: scale(1.15); opacity: 1; } 100% { transform: scale(1); opacity: 1; } }
+  @keyframes legendGlow { 0%,100% { opacity: 0.5; transform: scale(1); } 50% { opacity: 1; transform: scale(1.08); } }
+  .char-aura-legend { animation: legendGlow 2.6s ease-in-out infinite; }
+  @keyframes equipPop { 0% { transform: scale(0.5) rotate(-15deg); opacity: 0; } 30% { transform: scale(1.2) rotate(5deg); opacity: 1; } 60% { transform: scale(0.95) rotate(-2deg); } 100% { transform: scale(1) rotate(0); opacity: 1; } }
+  .equip-anim { animation: equipPop 1.4s ease-out forwards; }
+  .float-xp { animation: floatUp 1.6s ease-out forwards; }
+  .level-up-anim { animation: levelUpPop 2.8s ease-out forwards; }
+  .milestone-toast { animation: milestonePop 2.2s ease-out forwards; }
+  .streak-anim { animation: streak .35s ease-out; }
+  .xp-shimmer { background: linear-gradient(90deg, var(--sky-deep) 0%, var(--sky) 50%, var(--sky-deep) 100%); background-size: 200% 100%; animation: shimmer 2.5s linear infinite; }
+  .blink { animation: blink 1s steps(2) infinite; }
+  button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--sky-deep); outline-offset: 2px; }
+  .swirl { position: absolute; pointer-events: none; opacity: 0.18; }
+  .boot { display: flex; align-items: center; justify-content: center; min-height: 100vh; color: var(--sky-deep); font-family: 'Press Start 2P', monospace; font-size: 12px; }
+
+  /* Sync indicator */
+  .sync-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; }
+  .sync-dot.synced { background: var(--sage); }
+  .sync-dot.syncing { background: var(--gold); animation: blink 1s infinite; }
+  .sync-dot.offline { background: var(--ink-mute); }
+  .sync-dot.error { background: var(--brick); }
+</style>
+
+  <script type="module" crossorigin src="/studyquest/assets/index-DWTcCbXZ.js"></script>
+  <link rel="stylesheet" crossorigin href="/studyquest/assets/index-tn0RQdqM.css">
+</head>
+<body>
+<div id="root"><div class="boot">LOADING...</div></div>
+</body>
+</html>
