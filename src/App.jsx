@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, createContext, useContext } from "react";
 import { createPortal } from "react-dom";
+import { fsrs as createFsrs, createEmptyCard, Rating, State } from "ts-fsrs";
 import Papa from "papaparse";
 import { fbAuth, fbDb, fbFieldValue } from "./firebase";
 
@@ -102,6 +103,199 @@ const fmtMin = (m) => { const h = Math.floor(m / 60), mm = Math.floor(m % 60); r
 const fmtSec = (s) => { const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), ss = Math.floor(s % 60); return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(ss).padStart(2, "0")}`; };
 const daysUntil = (d) => { if (!d) return null; const t = new Date(); t.setHours(0,0,0,0); const x = new Date(d); x.setHours(0,0,0,0); return Math.ceil((x - t) / 86400000); };
 const todayStr = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; };
+
+// ============ 問題文の表示（フォント・文字サイズ） ============
+const QFONTS = [
+  { id: "dot", label: "ドット文字（いつもの）", css: "'DotGothic16', 'Hiragino Kaku Gothic ProN', sans-serif" },
+  { id: "mincho", label: "明朝体（BIZ UD明朝）", css: "'BIZ UDMincho', 'Yu Mincho', 'YuMincho', 'Hiragino Mincho ProN', 'MS Mincho', serif", web: "BIZ+UDMincho" },
+  { id: "mincho-sys", label: "明朝体（端末の標準）", css: "'Yu Mincho', 'YuMincho', 'Hiragino Mincho ProN', 'MS Mincho', serif" },
+  { id: "gothic", label: "ゴシック体（BIZ UDPゴシック）", css: "'BIZ UDPGothic', 'Yu Gothic', 'YuGothic', 'Hiragino Sans', 'Meiryo', sans-serif", web: "BIZ+UDPGothic" },
+];
+const QSIZES = [
+  { id: "auto", label: "標準", px: null },
+  { id: "s", label: "小", px: 15 },
+  { id: "l", label: "大", px: 20 },
+  { id: "xl", label: "特大", px: 23 },
+];
+const DISPLAY_DEFAULTS = { qFont: "dot", qSize: "auto" };
+
+// 問題文・答え（class="qtext"）にフォントとサイズを当てる
+function QTextStyle({ settings }) {
+  const ds = { ...DISPLAY_DEFAULTS, ...(settings || {}) };
+  const font = QFONTS.find((f) => f.id === ds.qFont) || QFONTS[0];
+  const size = QSIZES.find((z) => z.id === ds.qSize) || QSIZES[0];
+  useEffect(() => {
+    if (!font.web) return;
+    const id = "qfont-" + font.id;
+    if (document.getElementById(id)) return;
+    const link = document.createElement("link");
+    link.id = id; link.rel = "stylesheet";
+    link.href = `https://fonts.googleapis.com/css2?family=${font.web}:wght@400;700&display=swap`;
+    document.head.appendChild(link);
+  }, [font.id]);
+  const css = `.qtext{font-family:${font.css} !important;${size.px ? `font-size:${size.px}px !important;` : ""}${font.id !== "dot" ? "line-height:1.85;" : ""}}
+.qtext-list{font-family:${font.css} !important;}`;
+  return <style>{css}</style>;
+}
+
+// 文字の設定パネル（画面上部の「Aa 文字」から開く）
+function DisplaySettingsPanel({ settings, onChange, onClose }) {
+  const ds = { ...DISPLAY_DEFAULTS, ...(settings || {}) };
+  return (
+    <div className="rpg-box mb-4 p-1">
+      <div className="rpg-inner-border">
+        <div className="flex items-center justify-between mb-2">
+          <div className="jp text-sm" style={{ color: "var(--ink)" }}>Aa 問題文の文字</div>
+          <button onClick={onClose} className="jp text-[10px] px-1.5 py-0.5" style={{ border: "1px solid var(--rule-soft)", background: "var(--paper)", color: "var(--ink-soft)" }}>✕ 閉じる</button>
+        </div>
+        <div className="jp text-xs mb-1" style={{ color: "var(--ink-soft)" }}>フォント</div>
+        <div className="grid grid-cols-2 gap-1 mb-3">
+          {QFONTS.map((f) => (
+            <button key={f.id} onClick={() => onChange({ qFont: f.id })} className="py-1.5 px-1 text-xs" style={{ fontFamily: f.css, background: ds.qFont === f.id ? "var(--sky-deep)" : "var(--paper)", color: ds.qFont === f.id ? "var(--paper)" : "var(--ink)", border: "1px solid var(--rule)" }}>{f.label}</button>
+          ))}
+        </div>
+        <div className="jp text-xs mb-1" style={{ color: "var(--ink-soft)" }}>文字の大きさ</div>
+        <div className="grid grid-cols-4 gap-1 mb-3">
+          {QSIZES.map((z) => (
+            <button key={z.id} onClick={() => onChange({ qSize: z.id })} className="jp py-1.5 text-xs" style={{ background: ds.qSize === z.id ? "var(--sky-deep)" : "var(--paper)", color: ds.qSize === z.id ? "var(--paper)" : "var(--ink)", border: "1px solid var(--rule)" }}>{z.label}</button>
+          ))}
+        </div>
+        <div className="jp text-[10px] mb-1" style={{ color: "var(--ink-mute)" }}>見本</div>
+        <div className="qtext jp text-base md:text-lg p-2" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)", color: "var(--ink)" }}>
+          甲建物の附属建物を分割して乙建物の附属建物に合併する建物の分割の登記及び建物の合併の登記の申請は、一の申請情報によってすることができる。
+        </div>
+        <p className="jp text-[10px] mt-2" style={{ color: "var(--ink-mute)" }}>問題文と答えの表示が変わります。設定はほかの端末にも同期されます。</p>
+      </div>
+    </div>
+  );
+}
+
+// 問題ごとの回答の記録（何回目を何日に解いたか）
+function AnswerHistory({ q, compact = false }) {
+  const ah = Array.isArray(q && q.ah) ? q.ah : [];
+  if (ah.length === 0) return null;
+  const mark = { s: "◎", u: "△", w: "✕" };
+  const color = { s: "var(--sage)", u: "var(--slate)", w: "var(--brick)" };
+  const items = compact ? ah.slice(-8) : ah;
+  const offset = ah.length - items.length;
+  return (
+    <div className="flex flex-wrap gap-1 mt-1 items-center">
+      <span className="jp text-[10px]" style={{ color: "var(--ink-mute)" }}>{compact ? "回答日" : "回答の記録"}</span>
+      {offset > 0 && <span className="jp text-[10px]" style={{ color: "var(--ink-mute)" }}>…</span>}
+      {items.map((c, i) => {
+        const m = Number(c.slice(2, 4)), d = Number(c.slice(4, 6)), r = c[6];
+        return (
+          <span key={i} className="jp text-[10px] px-1" title={`${offset + i + 1}回目（20${c.slice(0, 2)}/${m}/${d}）`} style={{ border: `1px solid ${color[r] || "var(--rule-soft)"}`, color: color[r] || "var(--ink-soft)", background: "var(--paper)" }}>
+            {compact ? "" : `${offset + i + 1}回目 `}{m}/{d}{mark[r] || ""}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
+// ============ 間隔反復（FSRS：Ankiの現行アルゴリズム） ============
+// ボタンとAnkiの評価の対応：✕ 不正解 = Again / △ 自信なし = Hard / ◎ 確実 = Good
+// 次の出題日は「YYYY-MM-DD」（端末の日付）で sr_nextReview に保存する。
+// FSRSの記憶状態は問題ごとに fs = { s:安定度, d:難しさ, st:状態, r:回答回数, l:忘却回数, lr:前回の回答時刻 } で保存する。
+const SR_DEFAULTS = { retention: 0.9, maxInterval: 365 }; // 目標記憶率90%（Ankiの標準）・最大間隔1年
+const fsrsSchedulerCache = new Map();
+function getFsrsScheduler(settings) {
+  const r = (settings && settings.retention) || SR_DEFAULTS.retention;
+  const mi = (settings && settings.maxInterval) || SR_DEFAULTS.maxInterval;
+  const key = `${r}_${mi}`;
+  if (!fsrsSchedulerCache.has(key)) {
+    fsrsSchedulerCache.set(key, createFsrs({ request_retention: r, maximum_interval: mi, enable_fuzz: false, enable_short_term: false }));
+  }
+  return fsrsSchedulerCache.get(key);
+}
+const localDateStr = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+const parseLocalDate = (str) => { const [y, m, d] = String(str).split("-").map(Number); return new Date(y, (m || 1) - 1, d || 1); };
+const round3 = (n) => Math.round(n * 1000) / 1000;
+// 問題ごとの回答の記録：「YYMMDD」＋結果（s=◎確実 / u=△自信なし / w=✕不正解）を直近20回まで保存
+const AH_MAX = 20;
+const answerHistCode = (now, correct, meta) => {
+  const yymmdd = `${String(now.getFullYear()).slice(2)}${String(now.getMonth()+1).padStart(2,"0")}${String(now.getDate()).padStart(2,"0")}`;
+  return yymmdd + (!correct ? "w" : (meta && meta.conf === "unsure" ? "u" : "s"));
+};
+
+// 問題データ → FSRSのカード
+function toFsrsCard(q, now) {
+  if (q.fs && typeof q.fs.s === "number") {
+    return {
+      ...createEmptyCard(now),
+      stability: q.fs.s, difficulty: q.fs.d, state: q.fs.st,
+      reps: q.fs.r || 0, lapses: q.fs.l || 0,
+      scheduled_days: q.sr_interval || 0,
+      last_review: q.fs.lr ? new Date(q.fs.lr) : undefined,
+      due: q.sr_nextReview ? parseLocalDate(q.sr_nextReview) : now,
+    };
+  }
+  if (q.sr_nextReview && (q.sr_interval || 0) > 0) {
+    // 旧方式（1→3→7→14→30日）で予定済みの問題：今の間隔を引き継いで移行
+    const due = parseLocalDate(q.sr_nextReview);
+    return {
+      ...createEmptyCard(now),
+      stability: q.sr_interval, difficulty: 5, state: State.Review,
+      reps: Math.max(1, q.sr_streak || 1), lapses: 0,
+      scheduled_days: q.sr_interval,
+      last_review: new Date(due.getTime() - q.sr_interval * 86400000),
+      due,
+    };
+  }
+  return createEmptyCard(now);
+}
+const ratingOf = (correct, meta) => !correct ? Rating.Again : (meta && meta.conf === "unsure" ? Rating.Hard : Rating.Good);
+
+// 回答をFSRSで計算し、問題データに書き込む更新分を返す
+function scheduleAnswer(q, correct, meta, settings, now) {
+  const grade = ratingOf(correct, meta);
+  const card = toFsrsCard(q, now);
+  const nc = getFsrsScheduler(settings).next(card, now, grade).card;
+  const maxIv = (settings && settings.maxInterval) || SR_DEFAULTS.maxInterval;
+  const days = Math.min(maxIv, Math.max(1, nc.scheduled_days || 1));
+  const due = new Date(now.getFullYear(), now.getMonth(), now.getDate() + days);
+  queueReviewLog({ q: q.id, g: grade, t: now.getTime(), st: card.state, s: round3(card.stability), d: round3(card.difficulty), lr: q.fs ? q.fs.lr || null : null });
+  return {
+    sr_nextReview: localDateStr(due),
+    sr_interval: days,
+    sr_streak: correct ? (q.sr_streak || 0) + 1 : 0,
+    ah: [...(Array.isArray(q.ah) ? q.ah : []), answerHistCode(now, correct, meta)].slice(-AH_MAX),
+    fs: { s: round3(nc.stability), d: round3(nc.difficulty), st: nc.state, r: nc.reps, l: nc.lapses, lr: now.getTime() },
+  };
+}
+
+// 各ボタンを押した場合の次回までの日数（ボタンに表示する）
+function previewIntervals(q, settings) {
+  if (!q) return null;
+  try {
+    const now = new Date();
+    const card = toFsrsCard(q, now);
+    const f = getFsrsScheduler(settings);
+    const maxIv = (settings && settings.maxInterval) || SR_DEFAULTS.maxInterval;
+    const days = (g) => Math.min(maxIv, Math.max(1, f.next(card, now, g).card.scheduled_days || 1));
+    return { again: days(Rating.Again), hard: days(Rating.Hard), good: days(Rating.Good) };
+  } catch (e) { return null; }
+}
+const fmtDays = (n) => n >= 365 ? `${Math.round(n / 36.5) / 10}年` : n >= 60 ? `${Math.round(n / 30)}か月` : `${n}日`;
+
+// 回答履歴（将来、あなた専用にFSRSを最適化するための記録）
+// userdata/{uid}/reviewlogs/{日付} に1日分ずつまとめて保存する
+let reviewLogUid = null;
+let reviewLogBuf = [];
+let reviewLogTimer = null;
+function queueReviewLog(entry) {
+  if (!reviewLogUid) return;
+  reviewLogBuf.push(entry);
+  if (reviewLogTimer) return;
+  reviewLogTimer = setTimeout(() => {
+    const buf = reviewLogBuf; reviewLogBuf = []; reviewLogTimer = null;
+    if (buf.length === 0) return;
+    fbDb.collection("userdata").doc(reviewLogUid).collection("reviewlogs").doc(localDateStr(new Date()))
+      .set({ logs: fbFieldValue.arrayUnion(...buf) }, { merge: true })
+      .catch((e) => console.warn("Review log:", e));
+  }, 5000);
+}
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 const shuffle = (arr) => { const a = [...arr]; for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
 
@@ -328,6 +522,8 @@ function StudyRPG({ user }) {
   const [state, setState] = useState(INIT);
   const [loaded, setLoaded] = useState(false);
   const [tab, setTab] = useState("home");
+  const [showDisplaySettings, setShowDisplaySettings] = useState(false); // 「Aa 文字」パネル
+  const [showLawSearch, setShowLawSearch] = useState(false);             // 「📜 条文」パネル
   const [showLevelUp, setShowLevelUp] = useState(null);
   const [showAchievement, setShowAchievement] = useState(null);
   const [floatXp, setFloatXp] = useState([]);
@@ -784,6 +980,7 @@ function StudyRPG({ user }) {
     return { ...s, questionBanks: s.questionBanks.map((b) => { if (b.id === a.id) return { ...b, order: bb.order ?? newIdx }; if (b.id === bb.id) return { ...b, order: a.order ?? idx }; return b; }) };
   });
   const recordAnswer = (bankId, qId, correct, meta) => {
+    const now = new Date();
     setState((s) => {
       const bank = s.questionBanks.find((b) => b.id === bankId);
       if (!bank) return s;
@@ -791,11 +988,12 @@ function StudyRPG({ user }) {
       const isFirst = (q.correct + q.wrong) === 0;
       const xpGain = correct ? (isFirst ? XP_QA_FIRST : XP_QA_REVIEW) : 0;
       if (xpGain > 0) setTimeout(() => awardXp(xpGain), 50);
-      return { ...s, player: { ...s.player, totalQaAnswered: s.player.totalQaAnswered + 1 }, questionBanks: s.questionBanks.map((b) => b.id !== bankId ? b : { ...b, questions: b.questions.map((x) => x.id !== qId ? x : { ...applyAnswerMeta(x, correct, meta), correct: x.correct + (correct ? 1 : 0), wrong: x.wrong + (correct ? 0 : 1) }) }) };
+      return { ...s, player: { ...s.player, totalQaAnswered: s.player.totalQaAnswered + 1 }, questionBanks: s.questionBanks.map((b) => b.id !== bankId ? b : { ...b, questions: b.questions.map((x) => x.id !== qId ? x : { ...applyAnswerMeta(x, correct, meta), correct: x.correct + (correct ? 1 : 0), wrong: x.wrong + (correct ? 0 : 1), ...scheduleAnswer(x, correct, meta, s.srSettings, now) }) }) };
     });
   };
   const recordRevengeAnswer = (bankId, qId, correct, meta) => {
-    setState((s) => ({ ...s, player: { ...s.player, totalQaAnswered: s.player.totalQaAnswered + 1 }, questionBanks: s.questionBanks.map((b) => b.id !== bankId ? b : { ...b, questions: b.questions.map((x) => x.id !== qId ? x : { ...applyAnswerMeta(x, correct, meta), correct: x.correct + (correct ? 1 : 0), wrong: x.wrong + (correct ? 0 : 1) }) }) }));
+    const now = new Date();
+    setState((s) => ({ ...s, player: { ...s.player, totalQaAnswered: s.player.totalQaAnswered + 1 }, questionBanks: s.questionBanks.map((b) => b.id !== bankId ? b : { ...b, questions: b.questions.map((x) => x.id !== qId ? x : { ...applyAnswerMeta(x, correct, meta), correct: x.correct + (correct ? 1 : 0), wrong: x.wrong + (correct ? 0 : 1), ...scheduleAnswer(x, correct, meta, s.srSettings, now) }) }) }));
     if (correct) setTimeout(() => awardXp(XP_QA_REVENGE), 50);
   };
 
@@ -860,34 +1058,20 @@ function StudyRPG({ user }) {
     })}));
   };
 
-  // 間隔反復（SR）のスケジュール計算
-  const SR_INTERVALS = [1, 3, 7, 14, 30]; // streak 0,1,2,3,4+
-  const calcNextReview = (correct, currentStreak, meta) => {
-    const today = new Date(); today.setHours(0,0,0,0);
-    if (!correct) {
-      // 不正解 → 翌日
-      const next = new Date(today); next.setDate(next.getDate() + 1);
-      return { nextReview: next.toISOString().slice(0,10), interval: 1, streak: 0 };
-    }
-    if (meta && meta.conf === "unsure") {
-      // 自信なし正解（まぐれの可能性）→ 間隔を伸ばさず2日後にもう一度
-      const next = new Date(today); next.setDate(next.getDate() + 2);
-      return { nextReview: next.toISOString().slice(0,10), interval: 2, streak: currentStreak };
-    }
-    const newStreak = currentStreak + 1;
-    const days = SR_INTERVALS[Math.min(newStreak, SR_INTERVALS.length - 1)];
-    const next = new Date(today); next.setDate(next.getDate() + days);
-    return { nextReview: next.toISOString().slice(0,10), interval: days, streak: newStreak };
-  };
+  // 問題文の表示設定（フォント・文字サイズ）
+  const updateDisplaySettings = (patch) => setState((s) => ({ ...s, displaySettings: { ...DISPLAY_DEFAULTS, ...(s.displaySettings || {}), ...patch } }));
 
-  // 通常問題のSR記録
+  // 間隔反復の設定（目標記憶率など）
+  const updateSrSettings = (patch) => setState((s) => ({ ...s, srSettings: { ...SR_DEFAULTS, ...(s.srSettings || {}), ...patch } }));
+
+  // 今日の復習での回答記録（FSRSで次回の出題日を計算）
   const recordSRAnswer = (bankId, qId, correct, meta) => {
+    const now = new Date();
     setState((s) => {
       const bank = s.questionBanks.find((b) => b.id === bankId);
       if (!bank) return s;
       const q = bank.questions.find((x) => x.id === qId);
       if (!q) return s;
-      const { nextReview, interval, streak } = calcNextReview(correct, q.sr_streak || 0, meta);
       const xpGain = correct ? XP_QA_REVIEW : 0;
       if (xpGain > 0) setTimeout(() => awardXp(xpGain), 50);
       return { ...s,
@@ -897,9 +1081,7 @@ function StudyRPG({ user }) {
             ...applyAnswerMeta(x, correct, meta),
             correct: x.correct + (correct ? 1 : 0),
             wrong: x.wrong + (correct ? 0 : 1),
-            sr_nextReview: nextReview,
-            sr_interval: interval,
-            sr_streak: streak,
+            ...scheduleAnswer(x, correct, meta, s.srSettings, now),
           })
         })
       };
@@ -1131,7 +1313,8 @@ function StudyRPG({ user }) {
   const displayJob = mainAch ? mainAch.job : null;
   const displayIcon = mainAch ? mainAch.icon : "🧙";
 
-  const qImageCtx = { uid: user.uid, updateQuestionImages };
+  const qImageCtx = { uid: user.uid, updateQuestionImages, banks: state.questionBanks };
+  reviewLogUid = user.uid; // 回答履歴の保存先
 
   return (
     <QImageContext.Provider value={qImageCtx}>
@@ -1158,6 +1341,8 @@ function StudyRPG({ user }) {
             <button onClick={forceSync} title="クラウドから強制再読み込み" className="px-1.5 py-0.5 text-[10px]" style={{ background: "var(--sky-pale)", border: "1px solid var(--sky-deep)", color: "var(--sky-deep)", cursor: "pointer" }}>📥 読込</button>
             <button onClick={exportJson} title="データをJSONファイルに書き出し（端末間移行用）" className="px-1.5 py-0.5 text-[10px]" style={{ background: "var(--sage)", border: "none", color: "var(--paper)", cursor: "pointer" }}>📦 書出</button>
             <button onClick={importJson} title="JSONファイルからデータを読み込み" className="px-1.5 py-0.5 text-[10px]" style={{ background: "var(--ink-soft)", border: "none", color: "var(--paper)", cursor: "pointer" }}>📂 読込</button>
+            <button onClick={() => setShowDisplaySettings(!showDisplaySettings)} title="問題文のフォント・文字サイズ" className="px-1.5 py-0.5 text-[10px]" style={{ background: showDisplaySettings ? "var(--sky-deep)" : "var(--paper)", border: "1px solid var(--sky-deep)", color: showDisplaySettings ? "var(--paper)" : "var(--sky-deep)", cursor: "pointer" }}>Aa 文字</button>
+            <button onClick={() => setShowLawSearch(!showLawSearch)} title="条文・キーワード検索" className="px-1.5 py-0.5 text-[10px]" style={{ background: showLawSearch ? "var(--gold)" : "var(--paper)", border: "1px solid var(--gold)", color: showLawSearch ? "var(--paper)" : "var(--gold)", cursor: "pointer" }}>📜 条文</button>
           </div>
           <div className="flex items-center gap-2">
             <span className="truncate max-w-[140px] md:max-w-[240px]">{user.email}</span>
@@ -1166,6 +1351,10 @@ function StudyRPG({ user }) {
             </button>
           </div>
         </div>
+
+        <QTextStyle settings={state.displaySettings} />
+        {showDisplaySettings && <DisplaySettingsPanel settings={state.displaySettings} onChange={updateDisplaySettings} onClose={() => setShowDisplaySettings(false)} />}
+        {showLawSearch && <LawSearchPanel banks={state.questionBanks} onClose={() => setShowLawSearch(false)} />}
 
         {/* Status bar */}
         <div className="rpg-box mb-4 p-1">
@@ -1197,7 +1386,7 @@ function StudyRPG({ user }) {
 
         <div className="mb-4">
           {tab === "home" && <HomeTab state={state} liveSeconds={liveSeconds} setMainTitle={setMainTitle} setTab={setTab} todayCount={getTodayReviewItems().length} />}
-          {tab === "today" && <TodayTab state={state} recordSRAnswer={recordSRAnswer} startTimer={startTimer} stopTimer={stopTimer} toggleQuestionMark={toggleQuestionMark} />}
+          {tab === "today" && <TodayTab state={state} recordSRAnswer={recordSRAnswer} updateSrSettings={updateSrSettings} startTimer={startTimer} stopTimer={stopTimer} toggleQuestionMark={toggleQuestionMark} />}
           {tab === "status" && <StatusTab state={state} />}
           {tab === "qual" && <QualTab state={state} addQual={addQual} updateQual={updateQual} deleteQual={deleteQual} acquireQual={acquireQual} />}
           {tab === "task" && <TaskTab state={state} addTask={addTask} completeTask={completeTask} deleteTask={deleteTask} addPreset={addPreset} deletePreset={deletePreset} updatePreset={updatePreset} />}
@@ -1293,6 +1482,8 @@ function applyDefaults(s) {
     studyLog: (s.studyLog || []).filter((l) => typeof l.minutes === "number" && l.minutes > 0 && l.minutes <= 360),
     folders: (s.folders || []).map((f, i) => ({ ...f, order: typeof f.order === "number" ? f.order : i })),
     sessionResume: s.sessionResume || null,
+    srSettings: { ...SR_DEFAULTS, ...(s.srSettings || {}) },
+    displaySettings: { ...DISPLAY_DEFAULTS, ...(s.displaySettings || {}) },
     questionBanks: (s.questionBanks || []).map((b, i) => ({
       ...b,
       clears: b.clears || 0,
@@ -2681,6 +2872,7 @@ function QBankTab(props) {
 
       {/* ── 弱点リスト ── */}
       <WeaknessListPanel state={state} onCrossRevenge={(qid) => setCrossRevengeQualId(qid)} />
+      <WeakExportPanel state={state} />
 
       {state.questionBanks.length === 0 ? (
         <Box title="登録済み問題集" icon={<ScrollIcon size={18} />}>
@@ -3098,6 +3290,28 @@ function PerQuestionStampView({ bank, state, toggleQuestionMark, toggleClozeMark
         </div>
       )}
 
+      {/* 周回の記録（何周目を何日に完了したか） */}
+      {(liveBank.clearHistory || []).length > 0 && (() => {
+        const hist = liveBank.clearHistory || [];
+        const before = Math.max(0, (liveBank.clears || 0) - hist.length); // 記録を始める前の周回
+        const fmt = (d) => { const p = String(d || "").split("-"); return p.length === 3 ? `${p[0]}/${Number(p[1])}/${Number(p[2])}` : (d || "-"); };
+        return (
+          <Box title="周回の記録" icon={<Award size={18} />}>
+            <p className="jp text-[11px] mb-2" style={{ color: "var(--ink-soft)" }}>完全制覇するごとに、その日付と正答率を記録しています。</p>
+            <div className="space-y-1">
+              {hist.map((h, i) => (
+                <div key={i} className="flex items-center justify-between gap-2 jp text-xs px-2 py-1" style={{ background: i % 2 ? "var(--paper)" : "var(--sky-pale)", border: "1px solid var(--rule-soft)" }}>
+                  <span style={{ color: "var(--ink)", minWidth: 52 }}>{before + i + 1}周目</span>
+                  <span style={{ color: "var(--ink-soft)" }}>{fmt(h.date)}</span>
+                  <span style={{ color: "var(--sky-deep)", minWidth: 90, textAlign: "right" }}>{typeof h.accuracy === "number" ? `正答率 ${h.accuracy}%` : ""}</span>
+                </div>
+              ))}
+            </div>
+            {before > 0 && <p className="jp text-[10px] mt-1" style={{ color: "var(--ink-mute)" }}>※ 記録を始める前に {before} 周しています</p>}
+          </Box>
+        );
+      })()}
+
       {/* Accuracy chart over rounds */}
       {(liveBank.clearHistory || []).length > 0 && (
         <Box title="正答率の推移" icon={<TrendingUp size={18} />}>
@@ -3167,12 +3381,13 @@ function PerQuestionStampView({ bank, state, toggleQuestionMark, toggleClozeMark
                       />
                     )}
                     <span className="pixel text-[10px] flex-shrink-0" style={{ color: "var(--ink-mute)" }}>Q{(liveBank.questions.findIndex((x) => x.id === q.id) + 1)}.</span>
-                    <span className="jp text-sm flex-1 break-words" style={{ color: "var(--ink)" }}>{renderFormattedText(q.q, q.q_formats)}</span>
+                    <span className="qtext-list jp text-sm flex-1 break-words" style={{ color: "var(--ink)" }}>{renderFormattedText(q.q, q.q_formats)}</span>
                     <button onClick={() => toggleQuestionMark(liveBank.id, q.id)} className="text-base flex-shrink-0" title={q.marked ? "マーク解除" : "要復習マークを付ける"} style={{ color: q.marked ? "var(--gold)" : "var(--ink-mute)" }}>{q.marked ? "⭐" : "☆"}</button>
                     <button onClick={() => onEditFormat(q.id)} className="text-xs flex-shrink-0 px-1.5 py-0.5 jp" title="書式設定" style={{ background: ((q.q_formats||[]).length > 0 || (q.a_formats||[]).length > 0) ? "var(--gold)" : "var(--paper)", color: ((q.q_formats||[]).length > 0 || (q.a_formats||[]).length > 0) ? "var(--paper)" : "var(--ink-mute)", border: "1px solid var(--rule-soft)" }}>✏ 書式</button>
                   </div>
-                  <div className="jp text-[11px] mb-1" style={{ color: "var(--ink-soft)" }}>答え: <span style={{ color: "var(--gold)" }}>{renderFormattedText(q.a, q.a_formats)}</span></div>
+                  <div className="jp text-[11px] mb-1" style={{ color: "var(--ink-soft)" }}>答え: <span className="qtext-list" style={{ color: "var(--gold)" }}>{renderFormattedText(q.a, q.a_formats)}</span></div>
                   <QuestionImages bankId={liveBank.id} question={q} side="all" compact />
+                  <AnswerHistory q={q} compact />
                   <div className="flex flex-wrap items-center gap-1.5 mb-1">
                     {total === 0 ? <span className="jp text-[10px]" style={{ color: "var(--ink-mute)" }}>未挑戦</span> : (
                       <>
@@ -3348,7 +3563,7 @@ function RevengeSession({ bank, state, recordRevengeAnswer, recordClozeRevengeAn
           <div className="flex items-start justify-between gap-2">
             <div>
               <div className="jp text-[10px] mb-2" style={{ color: "var(--plum)" }}>{badgeText}</div>
-              <div className="jp text-base md:text-lg flex-1 break-words" style={{ color: "var(--ink)" }}>{displayQ}</div>
+              <div className="qtext jp text-base md:text-lg flex-1 break-words" style={{ color: "var(--ink)" }}>{displayQ}</div>
               {item.type === "q" && <QuestionImages bankId={bank.id} question={currentQ} side="q" />}
             </div>
             <button onClick={() => { setEditMode("q"); setEditText(currentQ.q); }} className="flex-shrink-0 jp text-[10px] px-1.5 py-0.5 mt-1" style={{ border: "1px solid var(--rule)", color: "var(--ink-soft)" }} title="問題文を編集">✏️</button>
@@ -3368,8 +3583,9 @@ function RevengeSession({ bank, state, recordRevengeAnswer, recordClozeRevengeAn
                 <div className="jp text-[10px]" style={{ color: "var(--gold)" }}>答え</div>
                 <button onClick={() => { setEditMode("a"); setEditText(currentQ.a); }} className="jp text-[10px] px-1.5 py-0.5" style={{ border: "1px solid var(--rule)", color: "var(--ink-soft)" }} title="答えを編集">✏️ 編集</button>
               </div>
-              <div className="jp text-base md:text-lg break-words p-2" style={{ background: "var(--sky-pale)", border: "1px solid var(--gold)", color: "var(--ink)" }}>{displayA}</div>
+              <div className="qtext jp text-base md:text-lg break-words p-2" style={{ background: "var(--sky-pale)", border: "1px solid var(--gold)", color: "var(--ink)" }}>{displayA}</div>
               {item.type === "q" && <QuestionImages bankId={bank.id} question={currentQ} side="a" />}
+              {item.type === "q" && <LawRefChips q={currentQ} />}
               {editMode === "a" && (
                 <div className="mt-1 space-y-1">
                   <textarea className="rpg-input w-full text-sm" rows={3} value={editText} onChange={e => setEditText(e.target.value)} autoFocus style={{ resize: "vertical" }} />
@@ -3380,7 +3596,7 @@ function RevengeSession({ bank, state, recordRevengeAnswer, recordClozeRevengeAn
                 </div>
               )}
               {item.type === "q" ? (
-                <AnswerPanel onAnswer={answer} wrongLabel="まだ難しい" correctLabel="倒した" sureClass="btn-plum" />
+                <AnswerPanel onAnswer={answer} wrongLabel="まだ難しい" correctLabel="倒した" sureClass="btn-plum" question={currentQ} srSettings={state.srSettings} />
               ) : (
                 <div className="grid grid-cols-2 gap-2 mt-3">
                   <button onClick={() => answer(false)} className="jp btn-danger py-2 flex items-center justify-center gap-1"><XIcon size={16} /> まだ難しい</button>
@@ -3781,7 +3997,7 @@ function QStudySession({ bank, state, recordAnswer, awardXp, startTimer, stopTim
               </div>
             </div>
           ) : (
-            <div className="jp text-base md:text-lg flex-1 break-words" style={{ color: "var(--ink)" }}>{renderFormattedText(currentQ.q, currentQ.q_formats)}</div>
+            <div className="qtext jp text-base md:text-lg flex-1 break-words" style={{ color: "var(--ink)" }}>{renderFormattedText(currentQ.q, currentQ.q_formats)}</div>
           )}
           <QuestionImages bankId={bank.id} question={currentQ} side="q" />
           {showAnswer ? (
@@ -3799,10 +4015,11 @@ function QStudySession({ bank, state, recordAnswer, awardXp, startTimer, stopTim
                   </div>
                 </div>
               ) : (
-                <div className="jp text-base md:text-lg break-words p-2" style={{ background: "var(--sky-pale)", border: "1px solid var(--gold)", color: "var(--ink)" }}>{renderFormattedText(currentQ.a, currentQ.a_formats)}</div>
+                <div className="qtext jp text-base md:text-lg break-words p-2" style={{ background: "var(--sky-pale)", border: "1px solid var(--gold)", color: "var(--ink)" }}>{renderFormattedText(currentQ.a, currentQ.a_formats)}</div>
               )}
               <QuestionImages bankId={bank.id} question={currentQ} side="a" />
-              <AnswerPanel onAnswer={answer} />
+              <LawRefChips q={currentQ} />
+              <AnswerPanel onAnswer={answer} question={currentQ} srSettings={state.srSettings} />
               <button onClick={() => toggleQuestionExclude && toggleQuestionExclude(bank.id, currentQ.id)} className="w-full jp text-[11px] py-1 mt-1" style={{ background: currentQ.excluded ? "var(--sage)" : "var(--paper)", border: `1px solid ${currentQ.excluded ? "var(--sage)" : "var(--rule-soft)"}`, color: currentQ.excluded ? "var(--paper)" : "var(--ink-mute)" }}>
                 {currentQ.excluded ? "✓ 習得済み（除外中）タップで解除" : "✓ 習得済みにする（次回から除外）"}
               </button>
@@ -3827,6 +4044,7 @@ function QStudySession({ bank, state, recordAnswer, awardXp, startTimer, stopTim
             <button onClick={() => { setShowAnswer(true); setMemoEdit(false); }} className="jp btn-info mt-3 py-2 flex items-center justify-center gap-1"><Eye size={16} /> 答えを見る</button>
           )}
           <div className="pixel text-[10px] mt-2 text-right" style={{ color: "var(--ink-mute)" }}>このカード履歴: ◯{currentQ.correct} ✕{currentQ.wrong}</div>
+          <AnswerHistory q={currentQ} />
         </div>
       </div>
       <div className="flex justify-around text-center">
@@ -4121,11 +4339,11 @@ function ClozeStudySession({ bank, state, recordClozeAnswer, awardXp, startTimer
             <div className="jp text-[10px]" style={{ color: "var(--plum)" }}>穴あき問題（◯{currentCloze.correct} ✕{currentCloze.wrong}）</div>
             <button onClick={() => toggleClozeMark(bank.id, item.qId, item.clozeId)} className="text-base flex-shrink-0" title={currentCloze.marked ? "マーク解除" : "要復習"} style={{ color: currentCloze.marked ? "var(--gold)" : "var(--ink-mute)" }}>{currentCloze.marked ? "⭐" : "☆"}</button>
           </div>
-          <div className="jp text-base md:text-lg flex-1 break-words" style={{ color: "var(--ink)" }}>{renderClozePreview(currentCloze)}</div>
+          <div className="qtext jp text-base md:text-lg flex-1 break-words" style={{ color: "var(--ink)" }}>{renderClozePreview(currentCloze)}</div>
           {showAnswer ? (
             <>
               <div className="jp text-[10px] mt-3 mb-1" style={{ color: "var(--gold)" }}>答え</div>
-              <div className="jp text-base md:text-lg break-words p-2" style={{ background: "var(--sky-pale)", border: "1px solid var(--gold)", color: "var(--ink)" }}>{answerDisplay}</div>
+              <div className="qtext jp text-base md:text-lg break-words p-2" style={{ background: "var(--sky-pale)", border: "1px solid var(--gold)", color: "var(--ink)" }}>{answerDisplay}</div>
               <div className="grid grid-cols-2 gap-2 mt-3">
                 <button onClick={() => answer(false)} className="jp btn-danger py-2 flex items-center justify-center gap-1"><XIcon size={16} /> 不正解</button>
                 <button onClick={() => answer(true)} className="jp btn-success py-2 flex items-center justify-center gap-1"><Check size={16} /> 正解！</button>
@@ -4254,15 +4472,16 @@ function MixedStudySession({ bank, state, recordAnswer, recordClozeAnswer, award
               <button onClick={() => toggleQuestionMark(bank.id, currentQ.id)} className="text-base" style={{ color: currentQ.marked ? "var(--gold)" : "var(--ink-mute)" }}>{currentQ.marked ? "⭐" : "☆"}</button>
             )}
           </div>
-          <div className="jp text-base md:text-lg flex-1 break-words" style={{ color: "var(--ink)" }}>{displayQ}</div>
+          <div className="qtext jp text-base md:text-lg flex-1 break-words" style={{ color: "var(--ink)" }}>{displayQ}</div>
           {item.type === "q" && <QuestionImages bankId={bank.id} question={currentQ} side="q" />}
           {showAnswer ? (
             <>
               <div className="jp text-[10px] mt-3 mb-1" style={{ color: "var(--gold)" }}>答え</div>
-              <div className="jp text-base md:text-lg break-words p-2" style={{ background: "var(--sky-pale)", border: "1px solid var(--gold)", color: "var(--ink)" }}>{displayA}</div>
+              <div className="qtext jp text-base md:text-lg break-words p-2" style={{ background: "var(--sky-pale)", border: "1px solid var(--gold)", color: "var(--ink)" }}>{displayA}</div>
               {item.type === "q" && <QuestionImages bankId={bank.id} question={currentQ} side="a" />}
+              {item.type === "q" && <LawRefChips q={currentQ} />}
               {item.type === "q" ? (
-                <AnswerPanel onAnswer={answer} />
+                <AnswerPanel onAnswer={answer} question={currentQ} srSettings={state.srSettings} />
               ) : (
                 <div className="grid grid-cols-2 gap-2 mt-3">
                   <button onClick={() => answer(false)} className="jp btn-danger py-2 flex items-center justify-center gap-1"><XIcon size={16} /> 不正解</button>
@@ -4402,15 +4621,16 @@ function CrossYearRevengeSession({ qualId, state, recordRevengeAnswer, recordClo
             {item.year && <span className="px-1" style={{ background: "var(--gold)", color: "var(--paper)" }}>{item.year}</span>}
             <span>{item.bankName}</span>
           </div>
-          <div className="jp text-base md:text-lg flex-1 break-words" style={{ color: "var(--ink)" }}>{displayQ}</div>
+          <div className="qtext jp text-base md:text-lg flex-1 break-words" style={{ color: "var(--ink)" }}>{displayQ}</div>
           {item.type === "q" && <QuestionImages bankId={item.bankId} question={currentQ} side="q" />}
           {showAnswer ? (
             <>
               <div className="jp text-[10px] mt-3 mb-1" style={{ color: "var(--gold)" }}>答え</div>
-              <div className="jp text-base md:text-lg break-words p-2" style={{ background: "var(--sky-pale)", border: "1px solid var(--gold)", color: "var(--ink)" }}>{displayA}</div>
+              <div className="qtext jp text-base md:text-lg break-words p-2" style={{ background: "var(--sky-pale)", border: "1px solid var(--gold)", color: "var(--ink)" }}>{displayA}</div>
               {item.type === "q" && <QuestionImages bankId={item.bankId} question={currentQ} side="a" />}
+              {item.type === "q" && <LawRefChips q={currentQ} />}
               {item.type === "q" ? (
-                <AnswerPanel onAnswer={answer} wrongLabel="まだ難しい" correctLabel="倒した" sureClass="btn-plum" />
+                <AnswerPanel onAnswer={answer} wrongLabel="まだ難しい" correctLabel="倒した" sureClass="btn-plum" question={currentQ} srSettings={state.srSettings} />
               ) : (
                 <div className="grid grid-cols-2 gap-2 mt-3">
                   <button onClick={() => answer(false)} className="jp btn-danger py-2 flex items-center justify-center gap-1"><XIcon size={16} /> まだ難しい</button>
@@ -4655,12 +4875,429 @@ function QuestionImages({ bankId, question, side, compact = false }) {
   );
 }
 
+// ============ 条文（e-Gov法令データ） ============
+// 条文データは scripts/fetch-laws.mjs で public/laws/ に保存したものを読み込む。
+// key は scripts/fetch-laws.mjs の LAW_SOURCES とそろえること。
+const LAWS = [
+  { key: "fudosan-ho",     name: "不動産登記法",   short: "法",       aliases: ["不動産登記法", "不登法", "法"] },
+  { key: "fudosan-rei",    name: "不動産登記令",   short: "令",       aliases: ["不動産登記令", "不登令", "令"] },
+  { key: "fudosan-kisoku", name: "不動産登記規則", short: "規則",     aliases: ["不動産登記規則", "不登規則", "規則"] },
+  { key: "minpo",          name: "民法",           short: "民法",     aliases: ["民法"] },
+  { key: "kubun",          name: "区分所有法",     short: "区分所有法", aliases: ["建物の区分所有等に関する法律", "区分所有法", "区分法"] },
+  { key: "chosashi",       name: "土地家屋調査士法", short: "調査士法", aliases: ["土地家屋調査士法", "調査士法"] },
+];
+const LAW_BY_KEY = Object.fromEntries(LAWS.map((l) => [l.key, l]));
+const LAW_ALIAS_LIST = LAWS.flatMap((l) => l.aliases.map((a) => ({ alias: a, key: l.key }))).sort((a, b) => b.alias.length - a.alias.length);
+const SHORT_ALIASES = new Set(["法", "令", "規則"]); // 前に漢字が付くと別の法令（例：命令・手続法）になる略称
+
+const lawDataCache = new Map(); // key → Promise<data | null>
+function loadLaw(key) {
+  if (!lawDataCache.has(key)) {
+    const base = (import.meta.env && import.meta.env.BASE_URL) || "/";
+    lawDataCache.set(key, fetch(`${base}laws/${key}.json`).then((r) => (r.ok ? r.json() : null)).catch(() => null));
+  }
+  return lawDataCache.get(key);
+}
+
+// 漢数字 → 数字（条・項・号の番号用）
+const KANJI_DIGITS = { "〇": 0, "一": 1, "二": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9 };
+function kanjiToNum(s) {
+  let total = 0, cur = 0;
+  for (const ch of s) {
+    if (ch in KANJI_DIGITS) cur = KANJI_DIGITS[ch];
+    else if (ch === "十" || ch === "百" || ch === "千") { total += (cur || 1) * (ch === "十" ? 10 : ch === "百" ? 100 : 1000); cur = 0; }
+  }
+  return total + cur;
+}
+function normalizeLawText(t) {
+  return String(t || "")
+    .replace(/[０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xFEE0))
+    .replace(/([〇一二三四五六七八九十百千]+)(?=[条項号])/g, (m) => String(kanjiToNum(m)))
+    .replace(/(\d+条)の([一二三四五六七八九十]+)/g, (m, a, b) => `${a}の${kanjiToNum(b)}`);
+}
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const LAW_REF_RE = new RegExp(`(${LAW_ALIAS_LIST.map((x) => escapeRe(x.alias)).join("|")})?(?:第?(\\d+)条|(同)条)(?:の(\\d+))?(?:第?(\\d+)項)?(?:第?(\\d+)号)?`, "g");
+const isJaChar = (c) => !!c && /[\u3040-\u30ff\u3400-\u9fff]/.test(c);
+
+// 文章から「規則35条3号」などの条文の参照を取り出す
+function extractLawRefs(texts) {
+  const refs = [];
+  const seen = new Set();
+  let lastLaw = null, lastArt = null;
+  for (const raw of texts) {
+    const t = normalizeLawText(raw);
+    LAW_REF_RE.lastIndex = 0;
+    let m;
+    while ((m = LAW_REF_RE.exec(t))) {
+      const [, alias, artNum, dou, eda, para, item] = m;
+      let lawKey = null;
+      if (alias) {
+        const prev = t[m.index - 1];
+        if (SHORT_ALIASES.has(alias) && isJaChar(prev)) continue; // 「命令」「手続法」などは対象外
+        lawKey = LAW_ALIAS_LIST.find((x) => x.alias === alias).key;
+      } else {
+        lawKey = lastLaw || "fudosan-ho";
+      }
+      let art;
+      if (dou) { if (!lastArt || lawKey !== lastLaw) continue; art = lastArt; }
+      else art = artNum + (eda ? `_${eda}` : "");
+      lastLaw = lawKey; lastArt = art;
+      const id = `${lawKey}:${art}:${para || ""}:${item || ""}`;
+      if (seen.has(id)) continue;
+      seen.add(id);
+      const law = LAW_BY_KEY[lawKey];
+      const artLabel = art.includes("_") ? art.replace("_", "条の") : `${art}条`;
+      const label = `${law.short}${artLabel}${para ? `${para}項` : ""}${item ? `${item}号` : ""}`;
+      refs.push({ law: lawKey, art, para: para || null, item: item || null, label });
+    }
+  }
+  return refs;
+}
+const sameArticle = (a, b) => a.law === b.law && a.art === b.art;
+const articleFullText = (a) => [a.c, ...(a.p || []).flatMap((p) => [p.s, ...(p.i || []).flatMap((it) => [it.t + " " + it.s, ...(it.x || [])])])].join(" ");
+
+// 条文の表示（画面全体）
+function LawArticleModal({ target, onClose }) {
+  const ctx = useContext(QImageContext);
+  const [data, setData] = useState(undefined); // undefined=読込中 / null=データなし
+  const [cur, setCur] = useState(target);
+  const [openQ, setOpenQ] = useState(null);
+  const hlRef = useRef(null);
+  useEffect(() => { let alive = true; setData(undefined); loadLaw(cur.law).then((d) => { if (alive) setData(d); }); return () => { alive = false; }; }, [cur.law]);
+  useEffect(() => { if (hlRef.current && hlRef.current.scrollIntoView) hlRef.current.scrollIntoView({ block: "center" }); }, [data, cur]);
+  const law = LAW_BY_KEY[cur.law];
+  const arts = (data && data.articles) || [];
+  const idx = arts.findIndex((a) => a.n === cur.art);
+  const art = idx >= 0 ? arts[idx] : null;
+  const go = (d) => { const a = arts[idx + d]; if (a) setCur({ law: cur.law, art: a.n, para: null, item: null }); };
+  const hlPara = cur.para || (cur.item ? "1" : null);
+
+  // この条文を引用している問題
+  const related = [];
+  if (ctx && ctx.banks) {
+    for (const b of ctx.banks) for (const q of b.questions || []) {
+      if (related.length >= 50) break;
+      if (extractLawRefs([q.q, q.a]).some((r) => sameArticle(r, cur))) related.push({ bank: b, q });
+    }
+  }
+
+  return createPortal(
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 9998, background: "rgba(20,24,32,0.55)", display: "flex", alignItems: "center", justifyContent: "center", padding: 12 }}>
+      <div onClick={(e) => e.stopPropagation()} className="rpg-box p-1" style={{ width: "100%", maxWidth: 720, maxHeight: "90vh", display: "flex", flexDirection: "column" }}>
+        <div className="rpg-inner-border" style={{ display: "flex", flexDirection: "column", minHeight: 0, flex: 1 }}>
+          <div className="flex items-center justify-between gap-2 mb-2">
+            <div className="jp text-sm" style={{ color: "var(--ink)" }}>📜 {law ? law.name : ""} {art ? art.t : ""}</div>
+            <button onClick={onClose} className="jp text-[10px] px-2 py-1" style={{ border: "1px solid var(--rule)", background: "var(--paper)", color: "var(--ink)" }}>✕ 閉じる</button>
+          </div>
+          <div style={{ overflowY: "auto", flex: 1, minHeight: 0 }}>
+            {data === undefined && <p className="jp text-xs py-4 text-center" style={{ color: "var(--ink-mute)" }}>読み込み中…</p>}
+            {data === null && <p className="jp text-xs py-4" style={{ color: "var(--brick)" }}>条文データが見つかりません。PCの作業フォルダで「node scripts/fetch-laws.mjs」を実行してから公開してください。</p>}
+            {data && !art && <p className="jp text-xs py-4" style={{ color: "var(--brick)" }}>{law.name}に{cur.art.replace("_", "条の")}{cur.art.includes("_") ? "" : "条"}は見つかりませんでした。</p>}
+            {art && (
+              <div className="qtext jp text-sm leading-relaxed" style={{ color: "var(--ink)" }}>
+                {art.c && <div className="text-xs mb-1" style={{ color: "var(--ink-soft)" }}>{art.c}</div>}
+                {art.p.map((p, pi) => {
+                  const on = hlPara && String(p.n) === String(hlPara);
+                  return (
+                    <div key={pi} ref={on && !cur.item ? hlRef : null} className="mb-2 p-1" style={{ background: on && !cur.item ? "#fff3b0" : "transparent" }}>
+                      <span style={{ fontWeight: "bold" }}>{art.p.length > 1 ? `${p.n}　` : ""}</span>{p.s}
+                      {(p.i || []).map((it, ii) => {
+                        const ion = on && cur.item && String(it.n) === String(cur.item);
+                        return (
+                          <div key={ii} ref={ion ? hlRef : null} className="ml-3 mt-1 p-1" style={{ background: ion ? "#fff3b0" : "transparent" }}>
+                            {it.t}　{it.s}
+                            {(it.x || []).map((x, xi) => <div key={xi} className="ml-3">{x}</div>)}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            {art && (
+              <div className="mt-3 pt-2" style={{ borderTop: "1px dashed var(--rule-soft)" }}>
+                <div className="jp text-xs mb-1" style={{ color: "var(--ink-soft)" }}>📚 この条文に関係する問題（{related.length}{related.length >= 50 ? "+" : ""}問）</div>
+                {related.length === 0 && <p className="jp text-[11px]" style={{ color: "var(--ink-mute)" }}>答えや問題文でこの条文を引用している問題はありません。</p>}
+                {related.map(({ bank, q }) => (
+                  <button key={bank.id + q.id} onClick={() => setOpenQ(openQ === q.id ? null : q.id)} className="w-full text-left p-1.5 mb-1" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)" }}>
+                    <div className="jp text-[10px]" style={{ color: "var(--ink-mute)" }}>{bank.name}{bank.year ? ` ・ ${bank.year}` : ""}</div>
+                    <div className="qtext-list jp text-xs" style={{ color: "var(--ink)" }}>{String(q.q || "").slice(0, openQ === q.id ? 2000 : 70)}{openQ !== q.id && String(q.q || "").length > 70 ? "…" : ""}</div>
+                    {openQ === q.id && <div className="qtext-list jp text-xs mt-1 p-1" style={{ background: "var(--sky-pale)", color: "var(--ink)" }}>{q.a}</div>}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          <div className="flex items-center justify-between gap-2 mt-2">
+            <button disabled={idx <= 0} onClick={() => go(-1)} className="jp btn-ghost text-xs px-2 py-1">◀ 前の条</button>
+            <span className="jp text-[9px] text-center" style={{ color: "var(--ink-mute)" }}>出典：e-Gov法令検索{data && data.fetchedAt ? `（${data.fetchedAt} 取得）` : ""}</span>
+            <button disabled={idx < 0 || idx >= arts.length - 1} onClick={() => go(1)} className="jp btn-ghost text-xs px-2 py-1">次の条 ▶</button>
+          </div>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
+// 問題・答えの中の条文を、タップで開けるボタンにして並べる
+function LawRefChips({ q }) {
+  const [open, setOpen] = useState(null);
+  if (!q) return null;
+  const refs = extractLawRefs([q.q, q.a]);
+  if (refs.length === 0) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-1 mt-2">
+      <span className="jp text-[10px]" style={{ color: "var(--ink-mute)" }}>関連条文</span>
+      {refs.map((r) => (
+        <button key={r.law + r.art + r.para + r.item} onClick={() => setOpen(r)} className="jp text-[11px] px-1.5 py-0.5" style={{ background: "var(--cream)", border: "1px solid var(--gold)", color: "var(--ink)" }}>📜 {r.label}</button>
+      ))}
+      {open && <LawArticleModal target={open} onClose={() => setOpen(null)} />}
+    </div>
+  );
+}
+
+// 条文・問題の検索パネル（画面上部の「📜 条文」から開く）
+function LawSearchPanel({ banks, onClose }) {
+  const [lawKey, setLawKey] = useState("all");
+  const [query, setQuery] = useState("");
+  const [laws, setLaws] = useState({}); // key → data | null
+  const [open, setOpen] = useState(null);
+  const [openQ, setOpenQ] = useState(null);
+  const [view, setView] = useState("law"); // law | q
+  const targetKeys = lawKey === "all" ? LAWS.map((l) => l.key) : [lawKey];
+  const qn = normalizeLawText(query.trim());
+
+  useEffect(() => {
+    if (qn.length === 0) return;
+    let alive = true;
+    targetKeys.forEach((k) => { if (!(k in laws)) loadLaw(k).then((d) => { if (alive) setLaws((prev) => ({ ...prev, [k]: d })); }); });
+    return () => { alive = false; };
+  }, [qn, lawKey]);
+
+  // 条文番号での指定（例：規則35条、177条、35条の2、177）
+  let direct = null;
+  if (qn) {
+    const refs = extractLawRefs([/^\d+$/.test(qn) ? `${qn}条` : qn]);
+    if (refs.length > 0) {
+      const r = refs[0];
+      const hasAlias = LAW_ALIAS_LIST.some((x) => qn.startsWith(x.alias));
+      direct = hasAlias || lawKey === "all" ? r : { ...r, law: lawKey, label: LAW_BY_KEY[lawKey].short + r.label.replace(/^\D+?(?=\d)/, "") };
+    }
+  }
+
+  // キーワード検索（2文字以上）
+  const lawHits = [];
+  const qHits = [];
+  if (qn.length >= 2 && !/^\d+$/.test(qn)) {
+    for (const k of targetKeys) {
+      const d = laws[k];
+      if (!d) continue;
+      for (const a of d.articles) {
+        if (lawHits.length >= 60) break;
+        const text = articleFullText(a);
+        const i = text.indexOf(qn);
+        if (i >= 0) lawHits.push({ law: k, a, snippet: text.slice(Math.max(0, i - 25), i + qn.length + 35), at: Math.min(25, i) });
+      }
+    }
+  }
+  if (qn.length >= 2) {
+    const ref = direct;
+    for (const b of banks || []) for (const q of b.questions || []) {
+      if (qHits.length >= 60) break;
+      const hitText = (q.q || "").includes(qn) || (q.a || "").includes(qn) || normalizeLawText(q.a).includes(qn);
+      const hitRef = ref && extractLawRefs([q.q, q.a]).some((r) => sameArticle(r, ref));
+      if (hitText || hitRef) qHits.push({ bank: b, q });
+    }
+  }
+  const loading = qn.length >= 2 && targetKeys.some((k) => !(k in laws));
+  const missing = targetKeys.filter((k) => laws[k] === null);
+
+  return (
+    <div className="rpg-box mb-4 p-1">
+      <div className="rpg-inner-border">
+        <div className="flex items-center justify-between mb-2">
+          <div className="jp text-sm" style={{ color: "var(--ink)" }}>📜 条文・キーワード検索</div>
+          <button onClick={onClose} className="jp text-[10px] px-1.5 py-0.5" style={{ border: "1px solid var(--rule-soft)", background: "var(--paper)", color: "var(--ink-soft)" }}>✕ 閉じる</button>
+        </div>
+        <div className="flex gap-1 mb-2 flex-wrap">
+          {[{ key: "all", short: "すべて" }, ...LAWS].map((l) => (
+            <button key={l.key} onClick={() => setLawKey(l.key)} className="jp text-[11px] px-2 py-1" style={{ background: lawKey === l.key ? "var(--sky-deep)" : "var(--paper)", color: lawKey === l.key ? "var(--paper)" : "var(--ink)", border: "1px solid var(--rule)" }}>{l.short}</button>
+          ))}
+        </div>
+        <input className="rpg-input mb-2" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="例：規則35条 ／ 177 ／ 合筆 ／ 表題部所有者" />
+        {direct && (
+          <button onClick={() => setOpen(direct)} className="jp btn-primary w-full py-2 mb-2 text-sm">📜 {LAW_BY_KEY[direct.law].name} {direct.label.replace(LAW_BY_KEY[direct.law].short, "")} を開く</button>
+        )}
+        {qn.length >= 2 && (
+          <>
+            <div className="grid grid-cols-2 gap-1 mb-2">
+              <button onClick={() => setView("law")} className="jp text-xs py-1" style={{ background: view === "law" ? "var(--gold)" : "var(--paper)", color: view === "law" ? "var(--paper)" : "var(--ink)", border: "1px solid var(--rule)" }}>条文（{lawHits.length}{lawHits.length >= 60 ? "+" : ""}）</button>
+              <button onClick={() => setView("q")} className="jp text-xs py-1" style={{ background: view === "q" ? "var(--gold)" : "var(--paper)", color: view === "q" ? "var(--paper)" : "var(--ink)", border: "1px solid var(--rule)" }}>問題（{qHits.length}{qHits.length >= 60 ? "+" : ""}）</button>
+            </div>
+            {view === "law" && (
+              <div className="space-y-1" style={{ maxHeight: 360, overflowY: "auto" }}>
+                {loading && <p className="jp text-[11px]" style={{ color: "var(--ink-mute)" }}>条文を読み込み中…</p>}
+                {missing.length > 0 && <p className="jp text-[11px]" style={{ color: "var(--brick)" }}>条文データがありません：{missing.map((k) => LAW_BY_KEY[k].name).join("・")}</p>}
+                {lawHits.map(({ law, a, snippet, at }) => (
+                  <button key={law + a.n} onClick={() => setOpen({ law, art: a.n, para: null, item: null })} className="w-full text-left p-1.5" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)" }}>
+                    <div className="jp text-[11px]" style={{ color: "var(--sky-deep)" }}>{LAW_BY_KEY[law].name} {a.t}{a.c}</div>
+                    <div className="qtext-list jp text-[11px]" style={{ color: "var(--ink-soft)" }}>
+                      …{snippet.slice(0, at)}<mark style={{ background: "#fff3b0" }}>{snippet.slice(at, at + qn.length)}</mark>{snippet.slice(at + qn.length)}…
+                    </div>
+                  </button>
+                ))}
+                {!loading && lawHits.length === 0 && missing.length < targetKeys.length && <p className="jp text-[11px]" style={{ color: "var(--ink-mute)" }}>条文に「{qn}」は見つかりませんでした。</p>}
+              </div>
+            )}
+            {view === "q" && (
+              <div className="space-y-1" style={{ maxHeight: 360, overflowY: "auto" }}>
+                {qHits.length === 0 && <p className="jp text-[11px]" style={{ color: "var(--ink-mute)" }}>該当する問題はありません。</p>}
+                {qHits.map(({ bank, q }) => (
+                  <button key={bank.id + q.id} onClick={() => setOpenQ(openQ === q.id ? null : q.id)} className="w-full text-left p-1.5" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)" }}>
+                    <div className="jp text-[10px]" style={{ color: "var(--ink-mute)" }}>{bank.name}{bank.year ? ` ・ ${bank.year}` : ""}</div>
+                    <div className="qtext-list jp text-xs" style={{ color: "var(--ink)" }}>{openQ === q.id ? q.q : String(q.q || "").slice(0, 70) + (String(q.q || "").length > 70 ? "…" : "")}</div>
+                    {openQ === q.id && <div className="qtext-list jp text-xs mt-1 p-1" style={{ background: "var(--sky-pale)", color: "var(--ink)" }}>{q.a}</div>}
+                  </button>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+        {qn.length === 1 && !direct && <p className="jp text-[11px]" style={{ color: "var(--ink-mute)" }}>キーワードは2文字以上入力してください</p>}
+        <p className="jp text-[10px] mt-2" style={{ color: "var(--ink-mute)" }}>条文番号（例：規則35条、民法177条）で開くか、キーワードで条文と問題をまとめて探せます。出典：e-Gov法令検索</p>
+      </div>
+      {open && <LawArticleModal target={open} onClose={() => setOpen(null)} />}
+    </div>
+  );
+}
+
+// ============ 苦手問題の書き出し ============
+// 直近の回答で連続して間違えている回数（回答の記録 ah から数える）
+const trailingWrongCount = (q) => {
+  const ah = Array.isArray(q && q.ah) ? q.ah : [];
+  let n = 0;
+  for (let i = ah.length - 1; i >= 0 && ah[i][6] === "w"; i--) n++;
+  return n;
+};
+const WEAK_EXPORT_RULES = [
+  { id: "streak2", label: "連続で2回以上間違えた", test: (q) => trailingWrongCount(q) >= 2 },
+  { id: "streak3", label: "連続で3回以上間違えた", test: (q) => trailingWrongCount(q) >= 3 },
+  { id: "weak", label: "苦手リストの問題すべて", test: (q) => isQuestionWeak(q) },
+  { id: "wrong2", label: "間違いの合計が2回以上", test: (q) => (q.wrong || 0) >= 2 },
+];
+function downloadTextFile(filename, text, mime) {
+  const blob = new Blob([text], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+function buildWeakExport(state, ruleId, qualId) {
+  const rule = WEAK_EXPORT_RULES.find((r) => r.id === ruleId) || WEAK_EXPORT_RULES[0];
+  const banks = [...state.questionBanks].sort((a, b) => (a.order ?? 0) - (b.order ?? 0)).filter((b) => qualId === "all" || (b.qualId || "_none_") === qualId);
+  const groups = [];
+  for (const b of banks) {
+    const qs = (b.questions || []).filter((q) => rule.test(q)).sort((x, y) => trailingWrongCount(y) - trailingWrongCount(x) || (y.wrong || 0) - (x.wrong || 0));
+    if (qs.length > 0) groups.push({ bank: b, qs });
+  }
+  return { rule, groups, count: groups.reduce((n, g) => n + g.qs.length, 0) };
+}
+function weakExportText({ rule, groups, count }, scopeName) {
+  const now = new Date();
+  const lines = [
+    `Study Quest 苦手問題リスト（${now.getFullYear()}/${now.getMonth() + 1}/${now.getDate()} 書き出し）`,
+    `条件：${rule.label}　対象：${scopeName}　件数：${count}問`,
+    "",
+  ];
+  let no = 0;
+  for (const { bank, qs } of groups) {
+    lines.push(`■ ${bank.name}${bank.year ? `（${bank.year}）` : ""}　${qs.length}問`, "");
+    for (const q of qs) {
+      no++;
+      const tw = trailingWrongCount(q);
+      const info = [tw > 0 ? `連続✕${tw}回` : null, `正解${q.correct || 0}・不正解${q.wrong || 0}`, formatErrTypes(q.errTypes) ? `原因：${formatErrTypes(q.errTypes)}` : null, q.marked ? "⭐マーク" : null].filter(Boolean).join("　");
+      const refs = extractLawRefs([q.q, q.a]).map((r) => r.label);
+      lines.push(`【${no}】${info}`);
+      lines.push(`Q. ${q.q}`);
+      lines.push(`A. ${q.a}`);
+      if (refs.length) lines.push(`関連条文：${refs.join("、")}`);
+      if (q.memo) lines.push(`メモ：${q.memo}`);
+      lines.push("");
+    }
+  }
+  return lines.join("\n");
+}
+function weakExportCsv({ groups }) {
+  const esc = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+  const rows = [["問題", "答え", "問題集", "連続不正解", "正解", "不正解", "間違いの原因", "メモ"].map(esc).join(",")];
+  for (const { bank, qs } of groups) for (const q of qs) {
+    rows.push([q.q, q.a, bank.name + (bank.year ? `（${bank.year}）` : ""), trailingWrongCount(q), q.correct || 0, q.wrong || 0, formatErrTypes(q.errTypes), q.memo || ""].map(esc).join(","));
+  }
+  return "\uFEFF" + rows.join("\r\n"); // Excelで文字化けしないようBOM付き
+}
+
+function WeakExportPanel({ state }) {
+  const [open, setOpen] = useState(false);
+  const [ruleId, setRuleId] = useState("streak2");
+  const [qualId, setQualId] = useState("all");
+  const [msg, setMsg] = useState("");
+  if (!open) {
+    return (
+      <button onClick={() => setOpen(true)} className="jp btn-ghost w-full py-2 text-sm mb-4">📤 苦手問題を書き出す（テキスト・CSV）</button>
+    );
+  }
+  const quals = [...new Set(state.questionBanks.map((b) => b.qualId || "_none_"))];
+  const qualName = (k) => k === "all" ? "すべて" : k === "_none_" ? "資格未設定" : ((state.qualifications.find((q) => q.id === k) || {}).name || "資格");
+  const result = buildWeakExport(state, ruleId, qualId);
+  const stamp = todayStr();
+  const doText = () => { downloadTextFile(`studyquest_苦手_${stamp}.txt`, weakExportText(result, qualName(qualId)), "text/plain;charset=utf-8"); setMsg("📄 テキストファイルを保存しました"); };
+  const doCsv = () => { downloadTextFile(`studyquest_苦手_${stamp}.csv`, weakExportCsv(result), "text/csv;charset=utf-8"); setMsg("📊 CSVファイルを保存しました"); };
+  const doCopy = async () => {
+    try { await navigator.clipboard.writeText(weakExportText(result, qualName(qualId))); setMsg("📋 コピーしました（メモアプリなどに貼り付けできます）"); }
+    catch (e) { setMsg("コピーできませんでした。テキストで保存をお使いください"); }
+  };
+  return (
+    <Box title="苦手問題の書き出し" icon={<Upload size={18} />}>
+      <div className="jp text-xs mb-1" style={{ color: "var(--ink-soft)" }}>書き出す条件</div>
+      <div className="grid grid-cols-2 gap-1 mb-3">
+        {WEAK_EXPORT_RULES.map((r) => (
+          <button key={r.id} onClick={() => setRuleId(r.id)} className="jp text-[11px] py-1.5 px-1" style={{ background: ruleId === r.id ? "var(--brick)" : "var(--paper)", color: ruleId === r.id ? "var(--paper)" : "var(--ink)", border: "1px solid var(--rule)" }}>{r.label}</button>
+        ))}
+      </div>
+      {quals.length > 1 && (
+        <>
+          <div className="jp text-xs mb-1" style={{ color: "var(--ink-soft)" }}>対象</div>
+          <select className="rpg-input mb-3" value={qualId} onChange={(e) => setQualId(e.target.value)}>
+            <option value="all">すべての問題集</option>
+            {quals.map((k) => <option key={k} value={k}>{qualName(k)}</option>)}
+          </select>
+        </>
+      )}
+      <div className="jp text-sm mb-2" style={{ color: result.count > 0 ? "var(--brick)" : "var(--ink-mute)" }}>該当：{result.count}問{result.groups.length > 0 ? `（${result.groups.length}問題集）` : ""}</div>
+      <div className="grid grid-cols-3 gap-1">
+        <button disabled={result.count === 0} onClick={doText} className="jp btn-primary py-2 text-xs">📄 テキスト</button>
+        <button disabled={result.count === 0} onClick={doCsv} className="jp btn-sky py-2 text-xs">📊 CSV</button>
+        <button disabled={result.count === 0} onClick={doCopy} className="jp btn-ghost py-2 text-xs">📋 コピー</button>
+      </div>
+      {msg && <p className="jp text-[11px] mt-2" style={{ color: "var(--sage)" }}>{msg}</p>}
+      <p className="jp text-[10px] mt-2" style={{ color: "var(--ink-mute)" }}>
+        「連続で間違えた」は、回答日の記録（前回の更新以降に解いた分）から数えます。CSVは「CSVをインポート」でそのまま取り込めるので、苦手だけの問題集を作れます。
+      </p>
+      <button onClick={() => { setOpen(false); setMsg(""); }} className="jp text-[11px] w-full mt-2 py-1" style={{ background: "transparent", border: "none", color: "var(--ink-mute)", textDecoration: "underline" }}>閉じる</button>
+    </Box>
+  );
+}
+
 // ============ 回答パネル（確信度・間違いの種類） ============
 // 答えを見た後に表示する。正解は「確実/自信なし」の2択、
 // 不正解は原因（知識不足・混同・読み違い・ケアレス）を1タップで選ぶ。
-function AnswerPanel({ onAnswer, wrongLabel = "不正解", correctLabel = "正解", sureClass = "btn-success" }) {
+function AnswerPanel({ onAnswer, wrongLabel = "不正解", correctLabel = "正解", sureClass = "btn-success", question, srSettings }) {
   const [stage, setStage] = useState("choose"); // choose | wrong
   const [confident, setConfident] = useState(false);
+  const pv = question ? previewIntervals(question, srSettings) : null; // 次回までの日数
   const submitWrong = (errType) => onAnswer(false, { errType: errType || null, confident });
 
   if (stage === "wrong") {
@@ -4696,14 +5333,15 @@ function AnswerPanel({ onAnswer, wrongLabel = "不正解", correctLabel = "正�
     <div className="grid grid-cols-3 gap-2 mt-3">
       <button onClick={() => setStage("wrong")} className="jp btn-danger py-2 flex flex-col items-center justify-center leading-tight">
         <span className="flex items-center gap-1"><XIcon size={14} /> {wrongLabel}</span>
+        {pv && <span className="text-[10px]" style={{ opacity: 0.9 }}>{fmtDays(pv.again)}後</span>}
       </button>
       <button onClick={() => onAnswer(true, { conf: "unsure" })} className="jp btn-info py-2 flex flex-col items-center justify-center leading-tight">
         <span>△ {correctLabel}</span>
-        <span className="text-[10px]" style={{ opacity: 0.9 }}>自信なし</span>
+        <span className="text-[10px]" style={{ opacity: 0.9 }}>自信なし{pv && `・${fmtDays(pv.hard)}後`}</span>
       </button>
       <button onClick={() => onAnswer(true, { conf: "sure" })} className={`jp ${sureClass} py-2 flex flex-col items-center justify-center leading-tight`}>
         <span>◎ {correctLabel}</span>
-        <span className="text-[10px]" style={{ opacity: 0.9 }}>確実</span>
+        <span className="text-[10px]" style={{ opacity: 0.9 }}>確実{pv && `・${fmtDays(pv.good)}後`}</span>
       </button>
     </div>
   );
@@ -4712,7 +5350,7 @@ function AnswerPanel({ onAnswer, wrongLabel = "不正解", correctLabel = "正�
 // ============ 今日の復習（間隔反復） ============
 // 復習期限が来た問題を優先し、足りない分を未学習の問題から出題する。
 // 1セットの問題数を選べるので、未学習が大量にあっても無理なく進められる。
-function TodayTab({ state, recordSRAnswer, startTimer, stopTimer, toggleQuestionMark }) {
+function TodayTab({ state, recordSRAnswer, updateSrSettings, startTimer, stopTimer, toggleQuestionMark }) {
   const today = todayStr();
   const due = [];
   const fresh = [];
@@ -4795,8 +5433,21 @@ function TodayTab({ state, recordSRAnswer, startTimer, stopTimer, toggleQuestion
               <button onClick={start} disabled={available === 0} className="jp btn-primary w-full py-3 flex items-center justify-center gap-2">
                 <Play size={16} /> {Math.min(setSize, available)}問スタート
               </button>
+              <div className="mt-3">
+                <div className="jp text-xs mb-1" style={{ color: "var(--ink-soft)" }}>目標の記憶率</div>
+                <div className="grid grid-cols-4 gap-1">
+                  {[0.8, 0.85, 0.9, 0.95].map((r) => {
+                    const cur = (state.srSettings && state.srSettings.retention) || SR_DEFAULTS.retention;
+                    const on = Math.abs(cur - r) < 0.001;
+                    return <button key={r} onClick={() => updateSrSettings && updateSrSettings({ retention: r })} className="jp py-1.5 text-sm" style={{ background: on ? "var(--sage)" : "var(--paper)", color: on ? "var(--paper)" : "var(--ink)", border: "1px solid var(--rule)" }}>{Math.round(r * 100)}%</button>;
+                  })}
+                </div>
+                <p className="jp text-[10px] mt-1" style={{ color: "var(--ink-mute)" }}>
+                  高いほど復習の回数が増え、低いほど間隔が空きます（Ankiの標準は90%）。
+                </p>
+              </div>
               <p className="jp text-[10px] mt-2" style={{ color: "var(--ink-mute)" }}>
-                △「自信なし」で正解した問題は、間隔を伸ばさず2日後にもう一度出題されます。
+                出題間隔はAnkiと同じFSRSで、問題ごとに自動で計算されます。ボタンの下に次回までの日数が表示されます。
               </p>
             </>
           )}
@@ -4849,15 +5500,17 @@ function TodayTab({ state, recordSRAnswer, startTimer, stopTimer, toggleQuestion
             </div>
             <button onClick={() => toggleQuestionMark(item.bankId, q.id)} className="jp text-[11px] px-1.5 py-0.5 flex-shrink-0" style={{ border: "1px solid var(--rule)", background: q.marked ? "var(--gold)" : "var(--paper)", color: q.marked ? "var(--paper)" : "var(--ink-soft)" }}>⭐ {q.marked ? "マーク中" : "マーク"}</button>
           </div>
-          <div className="jp text-base md:text-lg flex-1 break-words" style={{ color: "var(--ink)" }}>{renderFormattedText(q.q, q.q_formats)}</div>
+          <div className="qtext jp text-base md:text-lg flex-1 break-words" style={{ color: "var(--ink)" }}>{renderFormattedText(q.q, q.q_formats)}</div>
           <QuestionImages bankId={item.bankId} question={q} side="q" />
           {showAnswer ? (
             <>
               <div className="jp text-[10px] mt-3 mb-1" style={{ color: "var(--gold)" }}>答え</div>
-              <div className="jp text-base md:text-lg break-words p-2" style={{ background: "var(--sky-pale)", border: "1px solid var(--gold)", color: "var(--ink)" }}>{renderFormattedText(q.a, q.a_formats)}</div>
+              <div className="qtext jp text-base md:text-lg break-words p-2" style={{ background: "var(--sky-pale)", border: "1px solid var(--gold)", color: "var(--ink)" }}>{renderFormattedText(q.a, q.a_formats)}</div>
               <QuestionImages bankId={item.bankId} question={q} side="a" />
+              <LawRefChips q={q} />
               {q.memo && <div className="jp text-[11px] mt-2 p-2" style={{ background: "var(--cream)", border: "1px dashed var(--rule-soft)", color: "var(--ink-soft)", whiteSpace: "pre-wrap" }}>📝 {q.memo}</div>}
-              <AnswerPanel onAnswer={answer} />
+              <AnswerPanel onAnswer={answer} question={q} srSettings={state.srSettings} />
+              <AnswerHistory q={q} />
             </>
           ) : (
             <button onClick={() => setShowAnswer(true)} className="jp btn-info mt-3 py-2 flex items-center justify-center gap-1"><Eye size={16} /> 答えを見る</button>
