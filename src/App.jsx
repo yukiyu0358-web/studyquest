@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, createContext, useContext } from "react";
+import { createPortal } from "react-dom";
 import Papa from "papaparse";
 import { fbAuth, fbDb, fbFieldValue } from "./firebase";
 
@@ -704,6 +705,13 @@ function StudyRPG({ user }) {
     })}));
   };
 
+  // 問題の画像リストを更新（updater は現在の配列を受け取り新しい配列を返す）
+  const updateQuestionImages = (bankId, qId, updater) => {
+    setState((s) => ({ ...s, questionBanks: s.questionBanks.map((b) => b.id !== bankId ? b : {
+      ...b, questions: b.questions.map((x) => x.id !== qId ? x : { ...x, images: updater(Array.isArray(x.images) ? x.images : []) })
+    })}));
+  };
+
   // 問題メモを更新
   const updateQuestionMemo = (bankId, qId, memo) => {
     setState((s) => ({ ...s, questionBanks: s.questionBanks.map((b) => b.id !== bankId ? b : {
@@ -945,10 +953,24 @@ function StudyRPG({ user }) {
   };
 
   // JSONエクスポート（Firebaseを使わずデータをファイルとして保存）
-  const exportJson = () => {
+  const exportJson = async () => {
     try {
       const { questionBanks, ...mainState } = state;
       const exportData = { version: 1, exportedAt: new Date().toISOString(), mainState, questionBanks };
+      // 画像（問題に付けたスクショ・写真）も書き出すか確認
+      const imgIds = [...new Set(questionBanks.flatMap((b) => (b.questions || []).flatMap((q) => (q.images || []).map((im) => im.id))))];
+      let imgNote = "";
+      if (imgIds.length > 0 && confirm(`問題に付けた画像が${imgIds.length}枚あります。\n画像も一緒に書き出しますか？（ファイルが大きくなります）`)) {
+        const images = {};
+        for (const id of imgIds) {
+          try {
+            const d = await qImageCol(user.uid).doc(id).get();
+            if (d.exists) images[id] = d.data();
+          } catch (e) { console.warn("Image export:", id, e); }
+        }
+        exportData.images = images;
+        imgNote = `\n（画像${Object.keys(images).length}枚を含みます）`;
+      }
       const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: "application/json" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -958,7 +980,7 @@ function StudyRPG({ user }) {
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-      alert("✅ データをJSONファイルとして書き出しました。\nこのファイルを他の端末でインポートしてください。");
+      alert("✅ データをJSONファイルとして書き出しました。" + imgNote + "\nこのファイルを他の端末でインポートしてください。");
     } catch (e) {
       alert("書き出しに失敗しました: " + e.message);
     }
@@ -981,6 +1003,16 @@ function StudyRPG({ user }) {
         setState(merged);
         setSyncStatus("syncing");
         alert("✅ データを読み込みました。\nFirestoreへの保存を開始します...");
+        // バックアップに画像が含まれていれば、クラウドに書き戻す
+        const imgEntries = parsed.images && typeof parsed.images === "object" ? Object.entries(parsed.images) : [];
+        if (imgEntries.length > 0) {
+          let restored = 0;
+          for (const [id, data] of imgEntries) {
+            try { await qImageCol(user.uid).doc(id).set(data); qImageCache.delete(id); restored++; }
+            catch (err) { console.warn("Image import:", id, err); }
+          }
+          alert(`🖼 画像${restored}枚を復元しました。`);
+        }
       } catch (e) {
         alert("読み込みに失敗しました: " + e.message);
       }
@@ -1099,7 +1131,10 @@ function StudyRPG({ user }) {
   const displayJob = mainAch ? mainAch.job : null;
   const displayIcon = mainAch ? mainAch.icon : "🧙";
 
+  const qImageCtx = { uid: user.uid, updateQuestionImages };
+
   return (
+    <QImageContext.Provider value={qImageCtx}>
     <div className="min-h-screen w-full pb-24 relative overflow-hidden">
       <DecorSwirls />
 
@@ -1243,6 +1278,7 @@ function StudyRPG({ user }) {
         </div>
       )}
     </div>
+    </QImageContext.Provider>
   );
 }
 
@@ -3136,6 +3172,7 @@ function PerQuestionStampView({ bank, state, toggleQuestionMark, toggleClozeMark
                     <button onClick={() => onEditFormat(q.id)} className="text-xs flex-shrink-0 px-1.5 py-0.5 jp" title="書式設定" style={{ background: ((q.q_formats||[]).length > 0 || (q.a_formats||[]).length > 0) ? "var(--gold)" : "var(--paper)", color: ((q.q_formats||[]).length > 0 || (q.a_formats||[]).length > 0) ? "var(--paper)" : "var(--ink-mute)", border: "1px solid var(--rule-soft)" }}>✏ 書式</button>
                   </div>
                   <div className="jp text-[11px] mb-1" style={{ color: "var(--ink-soft)" }}>答え: <span style={{ color: "var(--gold)" }}>{renderFormattedText(q.a, q.a_formats)}</span></div>
+                  <QuestionImages bankId={liveBank.id} question={q} side="all" compact />
                   <div className="flex flex-wrap items-center gap-1.5 mb-1">
                     {total === 0 ? <span className="jp text-[10px]" style={{ color: "var(--ink-mute)" }}>未挑戦</span> : (
                       <>
@@ -3312,6 +3349,7 @@ function RevengeSession({ bank, state, recordRevengeAnswer, recordClozeRevengeAn
             <div>
               <div className="jp text-[10px] mb-2" style={{ color: "var(--plum)" }}>{badgeText}</div>
               <div className="jp text-base md:text-lg flex-1 break-words" style={{ color: "var(--ink)" }}>{displayQ}</div>
+              {item.type === "q" && <QuestionImages bankId={bank.id} question={currentQ} side="q" />}
             </div>
             <button onClick={() => { setEditMode("q"); setEditText(currentQ.q); }} className="flex-shrink-0 jp text-[10px] px-1.5 py-0.5 mt-1" style={{ border: "1px solid var(--rule)", color: "var(--ink-soft)" }} title="問題文を編集">✏️</button>
           </div>
@@ -3331,6 +3369,7 @@ function RevengeSession({ bank, state, recordRevengeAnswer, recordClozeRevengeAn
                 <button onClick={() => { setEditMode("a"); setEditText(currentQ.a); }} className="jp text-[10px] px-1.5 py-0.5" style={{ border: "1px solid var(--rule)", color: "var(--ink-soft)" }} title="答えを編集">✏️ 編集</button>
               </div>
               <div className="jp text-base md:text-lg break-words p-2" style={{ background: "var(--sky-pale)", border: "1px solid var(--gold)", color: "var(--ink)" }}>{displayA}</div>
+              {item.type === "q" && <QuestionImages bankId={bank.id} question={currentQ} side="a" />}
               {editMode === "a" && (
                 <div className="mt-1 space-y-1">
                   <textarea className="rpg-input w-full text-sm" rows={3} value={editText} onChange={e => setEditText(e.target.value)} autoFocus style={{ resize: "vertical" }} />
@@ -3744,6 +3783,7 @@ function QStudySession({ bank, state, recordAnswer, awardXp, startTimer, stopTim
           ) : (
             <div className="jp text-base md:text-lg flex-1 break-words" style={{ color: "var(--ink)" }}>{renderFormattedText(currentQ.q, currentQ.q_formats)}</div>
           )}
+          <QuestionImages bankId={bank.id} question={currentQ} side="q" />
           {showAnswer ? (
             <>
               <div className="flex items-center justify-between mt-3 mb-1">
@@ -3761,6 +3801,7 @@ function QStudySession({ bank, state, recordAnswer, awardXp, startTimer, stopTim
               ) : (
                 <div className="jp text-base md:text-lg break-words p-2" style={{ background: "var(--sky-pale)", border: "1px solid var(--gold)", color: "var(--ink)" }}>{renderFormattedText(currentQ.a, currentQ.a_formats)}</div>
               )}
+              <QuestionImages bankId={bank.id} question={currentQ} side="a" />
               <AnswerPanel onAnswer={answer} />
               <button onClick={() => toggleQuestionExclude && toggleQuestionExclude(bank.id, currentQ.id)} className="w-full jp text-[11px] py-1 mt-1" style={{ background: currentQ.excluded ? "var(--sage)" : "var(--paper)", border: `1px solid ${currentQ.excluded ? "var(--sage)" : "var(--rule-soft)"}`, color: currentQ.excluded ? "var(--paper)" : "var(--ink-mute)" }}>
                 {currentQ.excluded ? "✓ 習得済み（除外中）タップで解除" : "✓ 習得済みにする（次回から除外）"}
@@ -4214,10 +4255,12 @@ function MixedStudySession({ bank, state, recordAnswer, recordClozeAnswer, award
             )}
           </div>
           <div className="jp text-base md:text-lg flex-1 break-words" style={{ color: "var(--ink)" }}>{displayQ}</div>
+          {item.type === "q" && <QuestionImages bankId={bank.id} question={currentQ} side="q" />}
           {showAnswer ? (
             <>
               <div className="jp text-[10px] mt-3 mb-1" style={{ color: "var(--gold)" }}>答え</div>
               <div className="jp text-base md:text-lg break-words p-2" style={{ background: "var(--sky-pale)", border: "1px solid var(--gold)", color: "var(--ink)" }}>{displayA}</div>
+              {item.type === "q" && <QuestionImages bankId={bank.id} question={currentQ} side="a" />}
               {item.type === "q" ? (
                 <AnswerPanel onAnswer={answer} />
               ) : (
@@ -4360,10 +4403,12 @@ function CrossYearRevengeSession({ qualId, state, recordRevengeAnswer, recordClo
             <span>{item.bankName}</span>
           </div>
           <div className="jp text-base md:text-lg flex-1 break-words" style={{ color: "var(--ink)" }}>{displayQ}</div>
+          {item.type === "q" && <QuestionImages bankId={item.bankId} question={currentQ} side="q" />}
           {showAnswer ? (
             <>
               <div className="jp text-[10px] mt-3 mb-1" style={{ color: "var(--gold)" }}>答え</div>
               <div className="jp text-base md:text-lg break-words p-2" style={{ background: "var(--sky-pale)", border: "1px solid var(--gold)", color: "var(--ink)" }}>{displayA}</div>
+              {item.type === "q" && <QuestionImages bankId={item.bankId} question={currentQ} side="a" />}
               {item.type === "q" ? (
                 <AnswerPanel onAnswer={answer} wrongLabel="まだ難しい" correctLabel="倒した" sureClass="btn-plum" />
               ) : (
@@ -4396,6 +4441,220 @@ function CrossYearRevengeSession({ qualId, state, recordRevengeAnswer, recordClo
 }
 
 // ============ Weakness List Panel (弱点リスト) ============
+// ============ 問題の画像（スクショ・写真） ============
+// 画像は圧縮してから Firestore の userdata/{uid}/images/{画像ID} に1枚ずつ保存する。
+// 問題データには { id, side } だけを記録する（side: "q"=問題側 / "a"=答え側）。
+// Firebase Storage（有料プラン必須）を使わず、無料のSparkプランのまま動く。
+const QImageContext = createContext(null);
+const qImageCache = new Map();         // 画像ID → dataURL（同じ画像を何度も読み込まない）
+const IMG_MAX_EDGE = 1400;             // 長辺の最大ピクセル
+const IMG_MAX_CHARS = 700 * 1024;      // Firestoreの1ドキュメント1MB制限に余裕を持たせた上限
+
+const qImageCol = (uid) => fbDb.collection("userdata").doc(uid).collection("images");
+
+// 画像ファイルを読み込み、縮小・JPEG圧縮して dataURL にする
+async function compressImageFile(file) {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise((resolve, reject) => {
+      const el = new Image();
+      el.onload = () => resolve(el);
+      el.onerror = () => reject(new Error("画像を読み込めませんでした"));
+      el.src = url;
+    });
+    let edge = IMG_MAX_EDGE;
+    let quality = 0.82;
+    for (let i = 0; i < 10; i++) {
+      const scale = Math.min(1, edge / Math.max(img.naturalWidth, img.naturalHeight));
+      const w = Math.max(1, Math.round(img.naturalWidth * scale));
+      const h = Math.max(1, Math.round(img.naturalHeight * scale));
+      const canvas = document.createElement("canvas");
+      canvas.width = w; canvas.height = h;
+      const ctx = canvas.getContext("2d");
+      ctx.fillStyle = "#ffffff";               // 透過PNG（スクショ）が黒くならないよう白で塗る
+      ctx.fillRect(0, 0, w, h);
+      ctx.drawImage(img, 0, 0, w, h);
+      const data = canvas.toDataURL("image/jpeg", quality);
+      if (data.length <= IMG_MAX_CHARS) return { data, w, h };
+      if (quality > 0.55) quality -= 0.1; else edge = Math.round(edge * 0.8);
+    }
+    throw new Error("画像が大きすぎて圧縮できませんでした");
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+// 1枚の画像を読み込んで表示する
+function QImageThumb({ userId, id, height, onOpen }) {
+  const [src, setSrc] = useState(qImageCache.get(id) || null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    if (src) return;
+    let alive = true;
+    qImageCol(userId).doc(id).get().then((d) => {
+      if (!alive) return;
+      if (d.exists && d.data().data) { qImageCache.set(id, d.data().data); setSrc(d.data().data); }
+      else setFailed(true);
+    }).catch(() => { if (alive) setFailed(true); });
+    return () => { alive = false; };
+  }, [userId, id]);
+  const box = { height, minWidth: height, border: "1px solid var(--rule-soft)", background: "var(--paper)" };
+  if (failed) return <div className="jp text-[10px] flex items-center justify-center px-2" style={{ ...box, color: "var(--ink-mute)" }}>画像なし</div>;
+  if (!src) return <div className="jp text-[10px] flex items-center justify-center px-2" style={{ ...box, color: "var(--ink-mute)" }}>読込中…</div>;
+  return (
+    <button onClick={() => onOpen(id)} className="flex-shrink-0 p-0" style={{ border: "1px solid var(--rule-soft)", background: "var(--paper)", lineHeight: 0 }} title="タップで拡大">
+      <img src={src} alt="" style={{ height, width: "auto", maxWidth: "100%", objectFit: "contain", display: "block" }} />
+    </button>
+  );
+}
+
+// 拡大表示（画面全体）
+function QImageViewer({ id, onClose, onDelete }) {
+  const [zoom, setZoom] = useState(false);
+  const src = qImageCache.get(id);
+  return createPortal(
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 9999, background: "rgba(20,24,32,0.9)", display: "flex", flexDirection: "column" }}>
+      <div className="flex items-center justify-between gap-2 p-2" onClick={(e) => e.stopPropagation()}>
+        <button onClick={() => setZoom(!zoom)} className="jp text-xs px-2 py-1" style={{ background: "var(--paper)", border: "1px solid var(--rule)", color: "var(--ink)" }}>{zoom ? "🔍 全体表示" : "🔍 拡大表示"}</button>
+        <div className="flex gap-2">
+          {onDelete && <button onClick={() => onDelete(id)} className="jp text-xs px-2 py-1 btn-danger">🗑 削除</button>}
+          <button onClick={onClose} className="jp text-xs px-3 py-1" style={{ background: "var(--paper)", border: "1px solid var(--rule)", color: "var(--ink)" }}>✕ 閉じる</button>
+        </div>
+      </div>
+      <div style={{ flex: 1, overflow: "auto", display: "flex", alignItems: zoom ? "flex-start" : "center", justifyContent: zoom ? "flex-start" : "center", padding: 8 }}>
+        {src && <img src={src} alt="" onClick={(e) => e.stopPropagation()} style={zoom ? { maxWidth: "none", width: "auto" } : { maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }} />}
+      </div>
+    </div>,
+    document.body
+  );
+}
+
+// 問題に付いた画像の表示＋追加（貼り付け・ファイル選択・ドラッグ＆ドロップ）
+// side: "q"=問題側 / "a"=答え側 / "all"=両方（一覧画面用）
+function QuestionImages({ bankId, question, side, compact = false }) {
+  const ctx = useContext(QImageContext);
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+  const [viewId, setViewId] = useState(null);
+  const [addSide, setAddSide] = useState(side === "a" ? "a" : "q");
+  const fileRef = useRef(null);
+  const addFilesRef = useRef(null);
+
+  const list = ((question && question.images) || []).filter((im) => side === "all" || im.side === side);
+
+  const addFiles = async (files) => {
+    if (!ctx || !question) return;
+    const imgs = Array.from(files || []).filter((f) => f && f.type && f.type.startsWith("image/"));
+    if (imgs.length === 0) { setMsg("画像ファイルが見つかりませんでした"); return; }
+    setBusy(true); setMsg("");
+    let added = 0;
+    for (const f of imgs) {
+      try {
+        const { data, w, h } = await compressImageFile(f);
+        const id = uid();
+        const write = qImageCol(ctx.uid).doc(id).set({ data, w, h, createdAt: new Date().toISOString() });
+        // オフライン時は送信待ちのまま進める（端末に保存され、接続時に自動送信される）
+        await Promise.race([write, new Promise((r) => setTimeout(r, 8000))]);
+        qImageCache.set(id, data);
+        ctx.updateQuestionImages(bankId, question.id, (arr) => [...arr, { id, side: addSide }]);
+        added++;
+      } catch (e) {
+        console.error("Image add error:", e);
+        setMsg("追加に失敗しました: " + e.message);
+      }
+    }
+    setBusy(false);
+    if (added > 0) { setMsg(`🖼 ${added}枚追加しました`); setOpen(false); }
+  };
+  addFilesRef.current = addFiles;
+
+  // パネルを開いている間は Ctrl+V（スクショの貼り付け）を受け付ける
+  useEffect(() => {
+    if (!open) return;
+    const onPaste = (e) => {
+      const files = Array.from((e.clipboardData && e.clipboardData.files) || []);
+      if (files.length > 0) { e.preventDefault(); addFilesRef.current(files); }
+    };
+    document.addEventListener("paste", onPaste);
+    return () => document.removeEventListener("paste", onPaste);
+  }, [open]);
+
+  // クリップボードから読み込むボタン（対応ブラウザのみ）
+  const pasteFromClipboard = async () => {
+    try {
+      if (!navigator.clipboard || !navigator.clipboard.read) throw new Error("unsupported");
+      const items = await navigator.clipboard.read();
+      const files = [];
+      for (const it of items) {
+        const type = it.types.find((t) => t.startsWith("image/"));
+        if (type) { const blob = await it.getType(type); files.push(new File([blob], "paste", { type })); }
+      }
+      if (files.length === 0) { setMsg("クリップボードに画像がありません"); return; }
+      addFiles(files);
+    } catch (e) {
+      setMsg("このブラウザではボタンから貼り付けできません。Ctrl+V を押してください");
+    }
+  };
+
+  const removeImage = (id) => {
+    if (!ctx || !confirm("この画像を削除しますか？")) return;
+    ctx.updateQuestionImages(bankId, question.id, (arr) => arr.filter((im) => im.id !== id));
+    qImageCol(ctx.uid).doc(id).delete().catch((e) => console.warn("Image delete:", e));
+    qImageCache.delete(id);
+    setViewId(null);
+  };
+
+  if (!ctx || !question) return null;
+  const thumbH = compact ? 56 : 140;
+  const addLabel = side === "q" ? "🖼 問題に画像" : side === "a" ? "🖼 答えに画像" : "🖼 画像";
+
+  return (
+    <div className="mt-2" onClick={(e) => e.stopPropagation()}>
+      {list.length > 0 && (
+        <div className="flex flex-wrap gap-2 mb-1">
+          {list.map((im) => <QImageThumb key={im.id} userId={ctx.uid} id={im.id} height={thumbH} onOpen={setViewId} />)}
+        </div>
+      )}
+      {!open ? (
+        <div className="flex items-center gap-2">
+          <button onClick={() => { setOpen(true); setMsg(""); }} className="jp text-[10px] px-1.5 py-0.5" style={{ border: "1px dashed var(--rule-soft)", background: "transparent", color: "var(--ink-mute)" }}>{addLabel}</button>
+          {msg && <span className="jp text-[10px]" style={{ color: "var(--sage)" }}>{msg}</span>}
+        </div>
+      ) : (
+        <div
+          className="p-2"
+          style={{ border: "2px dashed var(--sky-deep)", background: "var(--sky-pale)" }}
+          onDragOver={(e) => e.preventDefault()}
+          onDrop={(e) => { e.preventDefault(); addFiles(e.dataTransfer.files); }}
+        >
+          <div className="flex items-center justify-between mb-2">
+            <div className="jp text-xs" style={{ color: "var(--sky-deep)" }}>🖼 画像を追加</div>
+            <button onClick={() => setOpen(false)} className="jp text-[10px] px-1.5 py-0.5" style={{ border: "1px solid var(--rule-soft)", background: "var(--paper)", color: "var(--ink-soft)" }}>✕ 閉じる</button>
+          </div>
+          {side === "all" && (
+            <div className="flex gap-1 mb-2">
+              {[["q", "問題側に付ける"], ["a", "答え側に付ける"]].map(([k, label]) => (
+                <button key={k} onClick={() => setAddSide(k)} className="jp text-[11px] px-2 py-1 flex-1" style={{ background: addSide === k ? "var(--sky-deep)" : "var(--paper)", color: addSide === k ? "var(--paper)" : "var(--ink)", border: "1px solid var(--rule)" }}>{label}</button>
+              ))}
+            </div>
+          )}
+          <div className="grid grid-cols-2 gap-2">
+            <button disabled={busy} onClick={() => fileRef.current && fileRef.current.click()} className="jp btn-sky py-2 text-xs">📷 写真・ファイル</button>
+            <button disabled={busy} onClick={pasteFromClipboard} className="jp btn-ghost py-2 text-xs">📋 貼り付け</button>
+          </div>
+          <input ref={fileRef} type="file" accept="image/*" multiple style={{ display: "none" }} onChange={(e) => { addFiles(e.target.files); e.target.value = ""; }} />
+          <p className="jp text-[10px] mt-2" style={{ color: "var(--ink-mute)" }}>
+            {busy ? "⏳ 圧縮して保存しています…" : "PCではスクショを撮って Ctrl+V、または画像をここへドラッグでも追加できます。"}
+          </p>
+          {msg && <p className="jp text-[10px] mt-1" style={{ color: "var(--brick)" }}>{msg}</p>}
+        </div>
+      )}
+      {viewId && <QImageViewer id={viewId} onClose={() => setViewId(null)} onDelete={removeImage} />}
+    </div>
+  );
+}
+
 // ============ 回答パネル（確信度・間違いの種類） ============
 // 答えを見た後に表示する。正解は「確実/自信なし」の2択、
 // 不正解は原因（知識不足・混同・読み違い・ケアレス）を1タップで選ぶ。
@@ -4591,10 +4850,12 @@ function TodayTab({ state, recordSRAnswer, startTimer, stopTimer, toggleQuestion
             <button onClick={() => toggleQuestionMark(item.bankId, q.id)} className="jp text-[11px] px-1.5 py-0.5 flex-shrink-0" style={{ border: "1px solid var(--rule)", background: q.marked ? "var(--gold)" : "var(--paper)", color: q.marked ? "var(--paper)" : "var(--ink-soft)" }}>⭐ {q.marked ? "マーク中" : "マーク"}</button>
           </div>
           <div className="jp text-base md:text-lg flex-1 break-words" style={{ color: "var(--ink)" }}>{renderFormattedText(q.q, q.q_formats)}</div>
+          <QuestionImages bankId={item.bankId} question={q} side="q" />
           {showAnswer ? (
             <>
               <div className="jp text-[10px] mt-3 mb-1" style={{ color: "var(--gold)" }}>答え</div>
               <div className="jp text-base md:text-lg break-words p-2" style={{ background: "var(--sky-pale)", border: "1px solid var(--gold)", color: "var(--ink)" }}>{renderFormattedText(q.a, q.a_formats)}</div>
+              <QuestionImages bankId={item.bankId} question={q} side="a" />
               {q.memo && <div className="jp text-[11px] mt-2 p-2" style={{ background: "var(--cream)", border: "1px dashed var(--rule-soft)", color: "var(--ink-soft)", whiteSpace: "pre-wrap" }}>📝 {q.memo}</div>}
               <AnswerPanel onAnswer={answer} />
             </>
