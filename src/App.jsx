@@ -2751,6 +2751,9 @@ function QBankTab(props) {
         );
       })()}
 
+      {/* ── 周回の記録 ── */}
+      <LapRecordsPanel state={state} />
+
       {/* ── ツールバー ── */}
       <Box title="問題集" icon={<BookOpen size={18} />}>
         <div className="grid grid-cols-2 gap-2 mb-2">
@@ -5287,6 +5290,68 @@ function WeakExportPanel({ state }) {
         「連続で間違えた」は、回答日の記録（前回の更新以降に解いた分）から数えます。CSVは「CSVをインポート」でそのまま取り込めるので、苦手だけの問題集を作れます。
       </p>
       <button onClick={() => { setOpen(false); setMsg(""); }} className="jp text-[11px] w-full mt-2 py-1" style={{ background: "transparent", border: "none", color: "var(--ink-mute)", textDecoration: "underline" }}>閉じる</button>
+    </Box>
+  );
+}
+
+// ============ 周回の記録（問題集の選択画面のトップに表示） ============
+// 完全制覇した日と正答率（clearHistory）を、問題集ごとにまとめて見せる
+function LapRecordsPanel({ state }) {
+  const [expanded, setExpanded] = useState(null);
+  const [showAll, setShowAll] = useState(false);
+  const fmt = (d) => { const p = String(d || "").split("-"); return p.length === 3 ? `${p[0]}/${Number(p[1])}/${Number(p[2])}` : (d || "-"); };
+  const rows = state.questionBanks
+    .map((b) => {
+      const hist = Array.isArray(b.clearHistory) ? b.clearHistory : [];
+      const total = Math.max(b.clears || 0, hist.length);           // 周回数（手動で編集した分も含む）
+      return { b, hist, total, before: total - hist.length, last: hist.length ? hist[hist.length - 1] : null };
+    })
+    .filter((r) => r.total > 0)
+    .sort((x, y) => String((y.last && y.last.date) || "").localeCompare(String((x.last && x.last.date) || "")));
+  if (rows.length === 0) return null;
+  const shown = showAll ? rows : rows.slice(0, 5);
+  const accText = (h) => (typeof h.accuracy === "number" ? `${h.accuracy}%` : "-");
+  return (
+    <Box title="周回の記録" icon={<Award size={18} />}>
+      <p className="jp text-[11px] mb-2" style={{ color: "var(--ink-soft)" }}>最近完全制覇した順です。タップすると、各周の日付と正答率を表示します。</p>
+      <div className="space-y-1">
+        {shown.map(({ b, hist, total, before, last }) => (
+          <div key={b.id} style={{ border: "1px solid var(--rule-soft)", background: "var(--paper)" }}>
+            <button onClick={() => setExpanded(expanded === b.id ? null : b.id)} className="w-full text-left p-2 flex items-center gap-2" style={{ background: "transparent", border: "none" }}>
+              <div className="flex-1 min-w-0">
+                <div className="jp text-xs flex items-center gap-1 flex-wrap" style={{ color: "var(--ink)" }}>
+                  {b.year && <span className="jp text-[10px] px-1" style={{ background: "var(--gold)", color: "var(--paper)" }}>{b.year}</span>}
+                  <span>{b.name}</span>
+                </div>
+                <div className="jp text-[10px] mt-0.5" style={{ color: "var(--ink-soft)" }}>
+                  {last ? `最新：${total}周目 ${fmt(last.date)}` : `${total}周（日付の記録なし）`}
+                  {hist.length > 0 && ` ・ 正答率 ${hist.slice(-3).map(accText).join(" → ")}`}
+                </div>
+              </div>
+              <span className="pixel text-[10px] px-1 flex-shrink-0" style={{ background: "var(--brick)", color: "var(--paper)" }}>{total}周</span>
+              <span className="jp text-[10px] flex-shrink-0" style={{ color: "var(--ink-mute)" }}>{expanded === b.id ? "▲" : "▼"}</span>
+            </button>
+            {expanded === b.id && (
+              <div className="px-2 pb-2 space-y-1">
+                {hist.length === 0 && <p className="jp text-[11px]" style={{ color: "var(--ink-mute)" }}>日付の記録はまだありません（次に完全制覇したときから記録されます）。</p>}
+                {hist.map((h, i) => (
+                  <div key={i} className="flex items-center justify-between gap-2 jp text-xs px-2 py-1" style={{ background: i % 2 ? "var(--paper)" : "var(--sky-pale)", border: "1px solid var(--rule-soft)" }}>
+                    <span style={{ color: "var(--ink)", minWidth: 52 }}>{before + i + 1}周目</span>
+                    <span style={{ color: "var(--ink-soft)" }}>{fmt(h.date)}</span>
+                    <span style={{ color: "var(--sky-deep)", minWidth: 90, textAlign: "right" }}>正答率 {accText(h)}</span>
+                  </div>
+                ))}
+                {before > 0 && hist.length > 0 && <p className="jp text-[10px]" style={{ color: "var(--ink-mute)" }}>※ 記録を始める前に {before} 周しています</p>}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+      {rows.length > 5 && (
+        <button onClick={() => setShowAll(!showAll)} className="jp text-[11px] w-full mt-2 py-1" style={{ background: "transparent", border: "1px dashed var(--rule-soft)", color: "var(--ink-soft)" }}>
+          {showAll ? "▲ 最近の5件だけ表示" : `▼ すべて表示（${rows.length}件）`}
+        </button>
+      )}
     </Box>
   );
 }
