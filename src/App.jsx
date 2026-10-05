@@ -104,6 +104,34 @@ const todayStr = () => { const d = new Date(); return `${d.getFullYear()}-${Stri
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 const shuffle = (arr) => { const a = [...arr]; for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
 
+// ============ 確信度・間違いの種類 ============
+const ERROR_TYPES = [
+  { id: "knowledge", label: "知識不足", icon: "📕", hint: "覚えていなかった", advice: "解説と条文で覚え直そう" },
+  { id: "confusion", label: "混同", icon: "🔀", hint: "似た知識と取り違えた", advice: "似た知識を表に並べて違いを比較しよう" },
+  { id: "misread", label: "読み違い", icon: "👓", hint: "問題文を読み違えた", advice: "主語・否定語・数字に印をつけて読もう" },
+  { id: "careless", label: "ケアレス", icon: "💨", hint: "分かっていたのにミス", advice: "解答前の見直し手順を決めよう" },
+];
+// 自動判定の苦手：不正解>正解 / 直近が「自信なし正解」/ 直近が「自信ありの不正解」
+const isQuestionAutoWeak = (q) => !!q && ((q.wrong > 0 && q.correct < q.wrong) || q.lastConf === "unsure" || q.lastConf === "wrongSure");
+// 苦手（自動判定 + ⭐手動マーク）
+const isQuestionWeak = (q) => !!q && (isQuestionAutoWeak(q) || q.marked);
+// 間違いの種類を「混同2・知識不足1」形式の文字列にする
+const formatErrTypes = (errTypes) => ERROR_TYPES.filter((t) => errTypes && errTypes[t.id]).map((t) => `${t.label}${errTypes[t.id]}`).join("・");
+// 回答時の確信度・間違いの種類を問題データに反映（meta が無ければ何もしない）
+function applyAnswerMeta(q, correct, meta) {
+  if (!meta) return q;
+  const next = { ...q };
+  if (correct) {
+    next.lastConf = meta.conf === "unsure" ? "unsure" : "sure";
+    if (meta.conf === "unsure") next.unsureCnt = (q.unsureCnt || 0) + 1;
+  } else {
+    next.lastConf = meta.confident ? "wrongSure" : "wrong";
+    if (meta.confident) next.cwCnt = (q.cwCnt || 0) + 1;
+    if (meta.errType) next.errTypes = { ...(q.errTypes || {}), [meta.errType]: ((q.errTypes || {})[meta.errType] || 0) + 1 };
+  }
+  return next;
+}
+
 function calculateStatus(state) {
   const dates = new Set(state.studyLog.map((l) => l.date));
   let currentStreak = 0;
@@ -310,6 +338,7 @@ function StudyRPG({ user }) {
   const lastSaveTime = useRef(0);          // 最後にクラウド保存が完了した時刻
   const lastSavedBanks = useRef(null);     // 前回保存時のバンク参照スナップショット（差分保存用）
   const lastSavedMainHash = useRef(null);  // 前回保存時のメインstateハッシュ
+  const cloudLoadFailed = useRef(false);   // クラウド読込に失敗した → 初期データでクラウドを上書きしないよう保存を止める
   const SAVE_COOLDOWN_MS = 20000;          // 保存後20秒はリスナーの上書きを無視
 
   // Load: Firestore (main doc + questionbanks subcollection) -> migrate from local if needed
@@ -324,10 +353,11 @@ function StudyRPG({ user }) {
         const [snap, banksSnap, sessionSnap] = await Promise.all([
           ref.get(),
           banksRef.get(),
-          ref.collection("sessions").doc("current").get(),
+          // 途中再開データの読込失敗はアプリ全体の読込失敗にしない
+          ref.collection("sessions").doc("current").get().catch((e) => { console.warn("Session load skipped:", e); return null; }),
         ]);
         const cloudBanks = banksSnap.docs.map((d) => d.data());
-        const cloudResume = sessionSnap.exists ? sessionSnap.data() : null;
+        const cloudResume = sessionSnap && sessionSnap.exists ? sessionSnap.data() : null;
 
         let merged = { ...INIT };
         if (snap.exists) {
@@ -370,12 +400,15 @@ function StudyRPG({ user }) {
         }
       } catch (e) {
         console.error("Load error:", e);
+        // 【初期化ガード】クラウドの読込に失敗した状態でクラウドへ保存すると、
+        // 本来のデータを初期データで上書きしてしまう。再読込するまでクラウド保存を止める。
+        cloudLoadFailed.current = true;
         const local = loadUserLocalState(user.uid) || loadLocalState() || INIT;
         if (mounted) {
           setState(applyDefaults(local));
           setLoaded(true);
           skipNextSave.current = true;
-          setSyncStatus("offline");
+          setSyncStatus("error");
         }
       }
     })();
@@ -388,6 +421,9 @@ function StudyRPG({ user }) {
     if (skipNextSave.current) { skipNextSave.current = false; return; }
 
     saveLocalState(user.uid, state);
+
+    // 【初期化ガード】クラウド読込に失敗している間はクラウドへ書き込まない
+    if (cloudLoadFailed.current) { setSyncStatus("error"); return; }
 
     if (saveTimeout.current) clearTimeout(saveTimeout.current);
     setSyncStatus("syncing");
@@ -494,6 +530,7 @@ function StudyRPG({ user }) {
         const { _localVersion, ...cleanCloud } = cloud;
         const merged = applyDefaults({ ...cleanCloud, questionBanks: cloudBanks });
         skipNextSave.current = true;
+        cloudLoadFailed.current = false; // クラウドの本データを受信できたので保存を再開
         setState(merged);
         setSyncStatus("synced");
       }).catch((e) => console.warn("Banks reload error:", e));
@@ -738,7 +775,7 @@ function StudyRPG({ user }) {
     const a = group[idx], bb = group[newIdx];
     return { ...s, questionBanks: s.questionBanks.map((b) => { if (b.id === a.id) return { ...b, order: bb.order ?? newIdx }; if (b.id === bb.id) return { ...b, order: a.order ?? idx }; return b; }) };
   });
-  const recordAnswer = (bankId, qId, correct) => {
+  const recordAnswer = (bankId, qId, correct, meta) => {
     setState((s) => {
       const bank = s.questionBanks.find((b) => b.id === bankId);
       if (!bank) return s;
@@ -746,11 +783,11 @@ function StudyRPG({ user }) {
       const isFirst = (q.correct + q.wrong) === 0;
       const xpGain = correct ? (isFirst ? XP_QA_FIRST : XP_QA_REVIEW) : 0;
       if (xpGain > 0) setTimeout(() => awardXp(xpGain), 50);
-      return { ...s, player: { ...s.player, totalQaAnswered: s.player.totalQaAnswered + 1 }, questionBanks: s.questionBanks.map((b) => b.id !== bankId ? b : { ...b, questions: b.questions.map((x) => x.id !== qId ? x : { ...x, correct: x.correct + (correct ? 1 : 0), wrong: x.wrong + (correct ? 0 : 1) }) }) };
+      return { ...s, player: { ...s.player, totalQaAnswered: s.player.totalQaAnswered + 1 }, questionBanks: s.questionBanks.map((b) => b.id !== bankId ? b : { ...b, questions: b.questions.map((x) => x.id !== qId ? x : { ...applyAnswerMeta(x, correct, meta), correct: x.correct + (correct ? 1 : 0), wrong: x.wrong + (correct ? 0 : 1) }) }) };
     });
   };
-  const recordRevengeAnswer = (bankId, qId, correct) => {
-    setState((s) => ({ ...s, player: { ...s.player, totalQaAnswered: s.player.totalQaAnswered + 1 }, questionBanks: s.questionBanks.map((b) => b.id !== bankId ? b : { ...b, questions: b.questions.map((x) => x.id !== qId ? x : { ...x, correct: x.correct + (correct ? 1 : 0), wrong: x.wrong + (correct ? 0 : 1) }) }) }));
+  const recordRevengeAnswer = (bankId, qId, correct, meta) => {
+    setState((s) => ({ ...s, player: { ...s.player, totalQaAnswered: s.player.totalQaAnswered + 1 }, questionBanks: s.questionBanks.map((b) => b.id !== bankId ? b : { ...b, questions: b.questions.map((x) => x.id !== qId ? x : { ...applyAnswerMeta(x, correct, meta), correct: x.correct + (correct ? 1 : 0), wrong: x.wrong + (correct ? 0 : 1) }) }) }));
     if (correct) setTimeout(() => awardXp(XP_QA_REVENGE), 50);
   };
 
@@ -817,12 +854,17 @@ function StudyRPG({ user }) {
 
   // 間隔反復（SR）のスケジュール計算
   const SR_INTERVALS = [1, 3, 7, 14, 30]; // streak 0,1,2,3,4+
-  const calcNextReview = (correct, currentStreak) => {
+  const calcNextReview = (correct, currentStreak, meta) => {
     const today = new Date(); today.setHours(0,0,0,0);
     if (!correct) {
       // 不正解 → 翌日
       const next = new Date(today); next.setDate(next.getDate() + 1);
       return { nextReview: next.toISOString().slice(0,10), interval: 1, streak: 0 };
+    }
+    if (meta && meta.conf === "unsure") {
+      // 自信なし正解（まぐれの可能性）→ 間隔を伸ばさず2日後にもう一度
+      const next = new Date(today); next.setDate(next.getDate() + 2);
+      return { nextReview: next.toISOString().slice(0,10), interval: 2, streak: currentStreak };
     }
     const newStreak = currentStreak + 1;
     const days = SR_INTERVALS[Math.min(newStreak, SR_INTERVALS.length - 1)];
@@ -831,20 +873,20 @@ function StudyRPG({ user }) {
   };
 
   // 通常問題のSR記録
-  const recordSRAnswer = (bankId, qId, correct) => {
+  const recordSRAnswer = (bankId, qId, correct, meta) => {
     setState((s) => {
       const bank = s.questionBanks.find((b) => b.id === bankId);
       if (!bank) return s;
       const q = bank.questions.find((x) => x.id === qId);
       if (!q) return s;
-      const { nextReview, interval, streak } = calcNextReview(correct, q.sr_streak || 0);
+      const { nextReview, interval, streak } = calcNextReview(correct, q.sr_streak || 0, meta);
       const xpGain = correct ? XP_QA_REVIEW : 0;
       if (xpGain > 0) setTimeout(() => awardXp(xpGain), 50);
       return { ...s,
         player: { ...s.player, totalQaAnswered: s.player.totalQaAnswered + 1 },
         questionBanks: s.questionBanks.map((b) => b.id !== bankId ? b : {
           ...b, questions: b.questions.map((x) => x.id !== qId ? x : {
-            ...x,
+            ...applyAnswerMeta(x, correct, meta),
             correct: x.correct + (correct ? 1 : 0),
             wrong: x.wrong + (correct ? 0 : 1),
             sr_nextReview: nextReview,
@@ -862,6 +904,7 @@ function StudyRPG({ user }) {
     const items = [];
     state.questionBanks.forEach((b) => {
       b.questions.forEach((q) => {
+        if (q.excluded) return; // 習得済み（除外）は対象外
         // 未スケジュール（初回）or 今日以前が対象
         if (!q.sr_nextReview || q.sr_nextReview <= today) {
           items.push({ type: "q", bankId: b.id, bankName: b.name, qualId: b.qualId, qId: q.id });
@@ -1074,7 +1117,7 @@ function StudyRPG({ user }) {
               {syncStatus === "synced" && "同期済み"}
               {syncStatus === "syncing" && "同期中..."}
               {syncStatus === "offline" && "オフライン"}
-              {syncStatus === "error" && "同期エラー"}
+              {syncStatus === "error" && (cloudLoadFailed.current ? "読込失敗・保存停止中（再読込してください）" : "同期エラー")}
             </span>
             <button onClick={forcePush} title="このデータをクラウドに強制保存" className="ml-1 px-1.5 py-0.5 text-[10px]" style={{ background: "var(--gold)", border: "none", color: "var(--paper)", cursor: "pointer" }}>📤 保存</button>
             <button onClick={forceSync} title="クラウドから強制再読み込み" className="px-1.5 py-0.5 text-[10px]" style={{ background: "var(--sky-pale)", border: "1px solid var(--sky-deep)", color: "var(--sky-deep)", cursor: "pointer" }}>📥 読込</button>
@@ -2308,7 +2351,7 @@ function QBankTab(props) {
     return <CrossYearRevengeSession qualId={crossRevengeQualId} state={state} recordRevengeAnswer={recordRevengeAnswer} recordClozeRevengeAnswer={recordClozeRevengeAnswer} startTimer={startTimer} stopTimer={stopTimer} onExit={() => setCrossRevengeQualId(null)} />;
   }
   if (activeBank) {
-    if (revengeMode) return <RevengeSession bank={activeBank} state={state} recordRevengeAnswer={recordRevengeAnswer} recordClozeRevengeAnswer={recordClozeRevengeAnswer} startTimer={startTimer} stopTimer={stopTimer} onExit={() => { setActiveBankId(null); setRevengeMode(false); }} />;
+    if (revengeMode) return <RevengeSession bank={activeBank} state={state} recordRevengeAnswer={recordRevengeAnswer} recordClozeRevengeAnswer={recordClozeRevengeAnswer} editQuestion={editQuestion} startTimer={startTimer} stopTimer={stopTimer} onExit={() => { setActiveBankId(null); setRevengeMode(false); }} />;
     if (sessionMode === "cloze") return <ClozeStudySession bank={activeBank} state={state} recordClozeAnswer={recordClozeAnswer} awardXp={awardXp} startTimer={startTimer} stopTimer={stopTimer} toggleClozeMark={toggleClozeMark} onExit={() => { setActiveBankId(null); setSessionMode("qa"); }} />;
     if (sessionMode === "mix") return <MixedStudySession bank={activeBank} state={state} recordAnswer={recordAnswer} recordClozeAnswer={recordClozeAnswer} awardXp={awardXp} startTimer={startTimer} stopTimer={stopTimer} incrementBankClears={incrementBankClears} updateBestStreak={updateBestStreak} recordClearSnapshot={recordClearSnapshot} toggleQuestionMark={toggleQuestionMark} toggleClozeMark={toggleClozeMark} onExit={() => { setActiveBankId(null); setSessionMode("qa"); }} />;
     return <QStudySession bank={activeBank} state={state} recordAnswer={recordAnswer} awardXp={awardXp} startTimer={startTimer} stopTimer={stopTimer} incrementBankClears={incrementBankClears} updateBestStreak={updateBestStreak} recordClearSnapshot={recordClearSnapshot} toggleQuestionMark={toggleQuestionMark} saveSessionResume={saveSessionResume} clearSessionResume={clearSessionResume} resumeData={state.sessionResume?.bankId === activeBank.id ? state.sessionResume : null} updateQuestionMemo={updateQuestionMemo} toggleQuestionExclude={toggleQuestionExclude} editQuestion={editQuestion} addStudyNote={addStudyNote} updateStudyNote={updateStudyNote} moveQuestions={moveQuestions} addQuestionBank={addBank} onExit={() => setActiveBankId(null)} />;
@@ -2377,7 +2420,7 @@ function QBankTab(props) {
     let n = 0;
     banks.forEach((b) => {
       b.questions.forEach((q) => {
-        const isWeak = (q.wrong > 0 && q.correct < q.wrong) || q.marked;
+        const isWeak = isQuestionWeak(q);
         if (isWeak) n++;
         (q.clozes || []).forEach((c) => { if ((c.wrong > 0 && c.correct < c.wrong) || c.marked) n++; });
       });
@@ -2392,7 +2435,7 @@ function QBankTab(props) {
     const totalAns = b.questions.reduce((a, q) => a + q.correct + q.wrong, 0);
     const totalCorrect = b.questions.reduce((a, q) => a + q.correct, 0);
     const accuracy = totalAns > 0 ? Math.round((totalCorrect / totalAns) * 100) : 0;
-    const wrongCount = b.questions.filter((q) => (q.wrong > 0 && q.correct < q.wrong) || q.marked).length;
+    const wrongCount = b.questions.filter((q) => isQuestionWeak(q)).length;
     const clozeCount = b.questions.reduce((a, q) => a + (q.clozes || []).length, 0);
     const clears = b.clears || 0;
     const isFirst = idx === 0; const isLast = idx === siblings.length - 1;
@@ -2934,7 +2977,7 @@ function PerQuestionStampView({ bank, state, toggleQuestionMark, toggleClozeMark
   const filtered = liveBank.questions.filter((q) => {
     const total = q.correct + q.wrong;
     if (filter === "done") return q.correct > 0;
-    if (filter === "weak") return (q.wrong > 0 && q.correct < q.wrong) || q.marked;
+    if (filter === "weak") return isQuestionWeak(q);
     if (filter === "marked") return q.marked;
     if (filter === "unanswered") return total === 0;
     if (filter === "cloze") return (q.clozes || []).length > 0;
@@ -3069,7 +3112,7 @@ function PerQuestionStampView({ bank, state, toggleQuestionMark, toggleClozeMark
           <ul className="space-y-2">
             {filtered.map((q) => {
               const total = q.correct + q.wrong;
-              const isWeak = q.wrong > 0 && q.correct < q.wrong;
+              const isWeak = isQuestionAutoWeak(q);
               const visible = Math.min(q.correct, 10);
               const overflow = q.correct - visible;
               const clozes = q.clozes || [];
@@ -3155,13 +3198,15 @@ function renderClozePreview(cloze) {
   return result;
 }
 
-function RevengeSession({ bank, state, recordRevengeAnswer, recordClozeRevengeAnswer, startTimer, stopTimer, onExit }) {
+function RevengeSession({ bank, state, recordRevengeAnswer, recordClozeRevengeAnswer, editQuestion, startTimer, stopTimer, onExit }) {
+  const [editMode, setEditMode] = useState(null); // null | "q" | "a"（問題文・答えのその場編集）
+  const [editText, setEditText] = useState("");
   // Build a unified queue of weakness items: regular questions + clozes
   // type: "q" or "cloze"
   const buildItems = (b) => {
     const items = [];
     b.questions.forEach((q) => {
-      if ((q.wrong > 0 && q.correct < q.wrong) || q.marked) {
+      if (isQuestionWeak(q)) {
         items.push({ type: "q", qId: q.id, key: `q:${q.id}` });
       }
       (q.clozes || []).forEach((c) => {
@@ -3196,12 +3241,12 @@ function RevengeSession({ bank, state, recordRevengeAnswer, recordClozeRevengeAn
   const currentQ = item ? currentBank.questions.find((q) => q.id === item.qId) : null;
   const currentCloze = (item && item.type === "cloze" && currentQ) ? (currentQ.clozes || []).find((c) => c.id === item.clozeId) : null;
 
-  const answer = (correct) => {
+  const answer = (correct, meta) => {
     if (!item || !currentQ) return;
     if (item.type === "cloze" && currentCloze) {
       recordClozeRevengeAnswer(bank.id, item.qId, item.clozeId, correct);
     } else {
-      recordRevengeAnswer(bank.id, currentQ.id, correct);
+      recordRevengeAnswer(bank.id, currentQ.id, correct, meta);
     }
     if (correct) { setStats((s) => ({ ...s, revenged: s.revenged + 1 })); showToast(`💪 リベンジ成功！ +${XP_QA_REVENGE} EXP`, "var(--plum)"); }
     else { setStats((s) => ({ ...s, stillWrong: s.stillWrong + 1 })); }
@@ -3295,10 +3340,14 @@ function RevengeSession({ bank, state, recordRevengeAnswer, recordClozeRevengeAn
                   </div>
                 </div>
               )}
-              <div className="grid grid-cols-2 gap-2 mt-3">
-                <button onClick={() => answer(false)} className="jp btn-danger py-2 flex items-center justify-center gap-1"><XIcon size={16} /> まだ難しい</button>
-                <button onClick={() => answer(true)} className="jp btn-plum py-2 flex items-center justify-center gap-1"><Sword2 size={16} /> 倒した！</button>
-              </div>
+              {item.type === "q" ? (
+                <AnswerPanel onAnswer={answer} wrongLabel="まだ難しい" correctLabel="倒した" sureClass="btn-plum" />
+              ) : (
+                <div className="grid grid-cols-2 gap-2 mt-3">
+                  <button onClick={() => answer(false)} className="jp btn-danger py-2 flex items-center justify-center gap-1"><XIcon size={16} /> まだ難しい</button>
+                  <button onClick={() => answer(true)} className="jp btn-plum py-2 flex items-center justify-center gap-1"><Sword2 size={16} /> 倒した！</button>
+                </div>
+              )}
             </>
           ) : (
             <button onClick={() => setShowAnswer(true)} className="jp btn-info mt-3 py-2 flex items-center justify-center gap-1"><Eye size={16} /> 答えを見る</button>
@@ -3401,9 +3450,9 @@ function QStudySession({ bank, state, recordAnswer, awardXp, startTimer, stopTim
   const currentQ = safeQuestions.find((q) => q.id === queue[0]);
   const totalUnique = bank.questions.length;
 
-  const answer = (correct) => {
+  const answer = (correct, meta) => {
     if (!currentQ) return;
-    recordAnswer(bank.id, currentQ.id, correct);
+    recordAnswer(bank.id, currentQ.id, correct, meta);
     const newTotal = stats.totalAnswered + 1;
     const newCorrect = stats.correct + (correct ? 1 : 0);
     const newWrong = stats.wrong + (correct ? 0 : 1);
@@ -3712,10 +3761,7 @@ function QStudySession({ bank, state, recordAnswer, awardXp, startTimer, stopTim
               ) : (
                 <div className="jp text-base md:text-lg break-words p-2" style={{ background: "var(--sky-pale)", border: "1px solid var(--gold)", color: "var(--ink)" }}>{renderFormattedText(currentQ.a, currentQ.a_formats)}</div>
               )}
-              <div className="grid grid-cols-2 gap-2 mt-3">
-                <button onClick={() => answer(false)} className="jp btn-danger py-2 flex items-center justify-center gap-1"><XIcon size={16} /> 不正解</button>
-                <button onClick={() => answer(true)} className="jp btn-success py-2 flex items-center justify-center gap-1"><Check size={16} /> 正解！</button>
-              </div>
+              <AnswerPanel onAnswer={answer} />
               <button onClick={() => toggleQuestionExclude && toggleQuestionExclude(bank.id, currentQ.id)} className="w-full jp text-[11px] py-1 mt-1" style={{ background: currentQ.excluded ? "var(--sage)" : "var(--paper)", border: `1px solid ${currentQ.excluded ? "var(--sage)" : "var(--rule-soft)"}`, color: currentQ.excluded ? "var(--paper)" : "var(--ink-mute)" }}>
                 {currentQ.excluded ? "✓ 習得済み（除外中）タップで解除" : "✓ 習得済みにする（次回から除外）"}
               </button>
@@ -4088,12 +4134,12 @@ function MixedStudySession({ bank, state, recordAnswer, recordClozeAnswer, award
   const currentQ = item ? currentBank.questions.find((q) => q.id === item.qId) : null;
   const currentCloze = (item && item.type === "cloze" && currentQ) ? (currentQ.clozes || []).find((c) => c.id === item.clozeId) : null;
 
-  const answer = (correct) => {
+  const answer = (correct, meta) => {
     if (!item || !currentQ) return;
     if (item.type === "cloze" && currentCloze) {
       recordClozeAnswer(bank.id, item.qId, item.clozeId, correct);
     } else {
-      recordAnswer(bank.id, currentQ.id, correct);
+      recordAnswer(bank.id, currentQ.id, correct, meta);
     }
     const newCorrect = stats.correct + (correct ? 1 : 0);
     const newWrong = stats.wrong + (correct ? 0 : 1);
@@ -4172,10 +4218,14 @@ function MixedStudySession({ bank, state, recordAnswer, recordClozeAnswer, award
             <>
               <div className="jp text-[10px] mt-3 mb-1" style={{ color: "var(--gold)" }}>答え</div>
               <div className="jp text-base md:text-lg break-words p-2" style={{ background: "var(--sky-pale)", border: "1px solid var(--gold)", color: "var(--ink)" }}>{displayA}</div>
-              <div className="grid grid-cols-2 gap-2 mt-3">
-                <button onClick={() => answer(false)} className="jp btn-danger py-2 flex items-center justify-center gap-1"><XIcon size={16} /> 不正解</button>
-                <button onClick={() => answer(true)} className="jp btn-success py-2 flex items-center justify-center gap-1"><Check size={16} /> 正解！</button>
-              </div>
+              {item.type === "q" ? (
+                <AnswerPanel onAnswer={answer} />
+              ) : (
+                <div className="grid grid-cols-2 gap-2 mt-3">
+                  <button onClick={() => answer(false)} className="jp btn-danger py-2 flex items-center justify-center gap-1"><XIcon size={16} /> 不正解</button>
+                  <button onClick={() => answer(true)} className="jp btn-success py-2 flex items-center justify-center gap-1"><Check size={16} /> 正解！</button>
+                </div>
+              )}
             </>
           ) : (
             <button onClick={() => setShowAnswer(true)} className="jp btn-info mt-3 py-2 flex items-center justify-center gap-1"><Eye size={16} /> 答えを見る</button>
@@ -4199,7 +4249,7 @@ function CrossYearRevengeSession({ qualId, state, recordRevengeAnswer, recordClo
       const matchKey = qualId === "_none_" ? !b.qualId : b.qualId === qualId;
       if (!matchKey) return;
       b.questions.forEach((q) => {
-        if ((q.wrong > 0 && q.correct < q.wrong) || q.marked) {
+        if (isQuestionWeak(q)) {
           items.push({ type: "q", bankId: b.id, qId: q.id, bankName: b.name, year: b.year });
         }
         (q.clozes || []).forEach((c) => {
@@ -4237,12 +4287,12 @@ function CrossYearRevengeSession({ qualId, state, recordRevengeAnswer, recordClo
   const currentQ = (item && currentBank) ? currentBank.questions.find((q) => q.id === item.qId) : null;
   const currentCloze = (item && item.type === "cloze" && currentQ) ? (currentQ.clozes || []).find((c) => c.id === item.clozeId) : null;
 
-  const answer = (correct) => {
+  const answer = (correct, meta) => {
     if (!item || !currentQ) return;
     if (item.type === "cloze" && currentCloze) {
       recordClozeRevengeAnswer(item.bankId, item.qId, item.clozeId, correct);
     } else {
-      recordRevengeAnswer(item.bankId, currentQ.id, correct);
+      recordRevengeAnswer(item.bankId, currentQ.id, correct, meta);
     }
     if (correct) { setStats((s) => ({ ...s, revenged: s.revenged + 1 })); showToast(`💪 +${XP_QA_REVENGE} EXP`, "var(--plum)"); }
     else { setStats((s) => ({ ...s, stillWrong: s.stillWrong + 1 })); }
@@ -4314,10 +4364,14 @@ function CrossYearRevengeSession({ qualId, state, recordRevengeAnswer, recordClo
             <>
               <div className="jp text-[10px] mt-3 mb-1" style={{ color: "var(--gold)" }}>答え</div>
               <div className="jp text-base md:text-lg break-words p-2" style={{ background: "var(--sky-pale)", border: "1px solid var(--gold)", color: "var(--ink)" }}>{displayA}</div>
-              <div className="grid grid-cols-2 gap-2 mt-3">
-                <button onClick={() => answer(false)} className="jp btn-danger py-2 flex items-center justify-center gap-1"><XIcon size={16} /> まだ難しい</button>
-                <button onClick={() => answer(true)} className="jp btn-plum py-2 flex items-center justify-center gap-1"><Sword2 size={16} /> 倒した！</button>
-              </div>
+              {item.type === "q" ? (
+                <AnswerPanel onAnswer={answer} wrongLabel="まだ難しい" correctLabel="倒した" sureClass="btn-plum" />
+              ) : (
+                <div className="grid grid-cols-2 gap-2 mt-3">
+                  <button onClick={() => answer(false)} className="jp btn-danger py-2 flex items-center justify-center gap-1"><XIcon size={16} /> まだ難しい</button>
+                  <button onClick={() => answer(true)} className="jp btn-plum py-2 flex items-center justify-center gap-1"><Sword2 size={16} /> 倒した！</button>
+                </div>
+              )}
             </>
           ) : (
             <button onClick={() => setShowAnswer(true)} className="jp btn-info mt-3 py-2 flex items-center justify-center gap-1"><Eye size={16} /> 答えを見る</button>
@@ -4342,6 +4396,217 @@ function CrossYearRevengeSession({ qualId, state, recordRevengeAnswer, recordClo
 }
 
 // ============ Weakness List Panel (弱点リスト) ============
+// ============ 回答パネル（確信度・間違いの種類） ============
+// 答えを見た後に表示する。正解は「確実/自信なし」の2択、
+// 不正解は原因（知識不足・混同・読み違い・ケアレス）を1タップで選ぶ。
+function AnswerPanel({ onAnswer, wrongLabel = "不正解", correctLabel = "正解", sureClass = "btn-success" }) {
+  const [stage, setStage] = useState("choose"); // choose | wrong
+  const [confident, setConfident] = useState(false);
+  const submitWrong = (errType) => onAnswer(false, { errType: errType || null, confident });
+
+  if (stage === "wrong") {
+    return (
+      <div className="mt-3 p-2" style={{ background: "var(--cream)", border: "1px solid var(--brick)" }}>
+        <div className="flex items-center justify-between mb-2">
+          <div className="jp text-xs" style={{ color: "var(--brick)" }}>✕ 間違えた原因は？</div>
+          <button onClick={() => setStage("choose")} className="jp text-[10px] px-1.5 py-0.5" style={{ border: "1px solid var(--rule-soft)", color: "var(--ink-soft)", background: "var(--paper)" }}>← 戻る</button>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          {ERROR_TYPES.map((t) => (
+            <button key={t.id} onClick={() => submitWrong(t.id)} className="jp btn-ghost py-2 px-2 text-left">
+              <div className="text-sm">{t.icon} {t.label}</div>
+              <div className="text-[10px]" style={{ color: "var(--ink-mute)" }}>{t.hint}</div>
+            </button>
+          ))}
+        </div>
+        <button
+          onClick={() => setConfident(!confident)}
+          className="w-full jp text-[11px] py-1.5 mt-2 text-left px-2"
+          style={{ background: confident ? "var(--brick)" : "var(--paper)", color: confident ? "var(--paper)" : "var(--ink-soft)", border: "1px solid var(--brick)" }}
+        >
+          {confident ? "☑" : "☐"} 💥 自信があったのに間違えた（重点復習の対象にする）
+        </button>
+        <button onClick={() => submitWrong(null)} className="w-full jp text-[11px] py-1 mt-1" style={{ background: "transparent", border: "none", color: "var(--ink-mute)", textDecoration: "underline" }}>
+          原因を選ばずに次へ
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="grid grid-cols-3 gap-2 mt-3">
+      <button onClick={() => setStage("wrong")} className="jp btn-danger py-2 flex flex-col items-center justify-center leading-tight">
+        <span className="flex items-center gap-1"><XIcon size={14} /> {wrongLabel}</span>
+      </button>
+      <button onClick={() => onAnswer(true, { conf: "unsure" })} className="jp btn-info py-2 flex flex-col items-center justify-center leading-tight">
+        <span>△ {correctLabel}</span>
+        <span className="text-[10px]" style={{ opacity: 0.9 }}>自信なし</span>
+      </button>
+      <button onClick={() => onAnswer(true, { conf: "sure" })} className={`jp ${sureClass} py-2 flex flex-col items-center justify-center leading-tight`}>
+        <span>◎ {correctLabel}</span>
+        <span className="text-[10px]" style={{ opacity: 0.9 }}>確実</span>
+      </button>
+    </div>
+  );
+}
+
+// ============ 今日の復習（間隔反復） ============
+// 復習期限が来た問題を優先し、足りない分を未学習の問題から出題する。
+// 1セットの問題数を選べるので、未学習が大量にあっても無理なく進められる。
+function TodayTab({ state, recordSRAnswer, startTimer, stopTimer, toggleQuestionMark }) {
+  const today = todayStr();
+  const due = [];
+  const fresh = [];
+  state.questionBanks.forEach((b) => {
+    (b.questions || []).forEach((q) => {
+      if (q.excluded) return;
+      const it = { bankId: b.id, bankName: b.name, year: b.year || "", qId: q.id };
+      if (!q.sr_nextReview) fresh.push(it);
+      else if (q.sr_nextReview <= today) due.push({ ...it, nr: q.sr_nextReview });
+    });
+  });
+  due.sort((a, b) => (a.nr < b.nr ? -1 : a.nr > b.nr ? 1 : 0)); // 期限の古い順
+
+  const [setSize, setSetSize] = useState(20);
+  const [includeNew, setIncludeNew] = useState(true);
+  const [queue, setQueue] = useState(null); // null = 開始前 / [] = セット完了
+  const [showAnswer, setShowAnswer] = useState(false);
+  const [result, setResult] = useState({ sure: 0, unsure: 0, wrong: 0, err: {} });
+  const timerStartedByMe = useRef(false);
+
+  const item = queue && queue.length > 0 ? queue[0] : null;
+  const bank = item ? state.questionBanks.find((b) => b.id === item.bankId) : null;
+  const q = bank ? (bank.questions || []).find((x) => x.id === item.qId) : null;
+
+  // 問題が削除・移動されて見つからない場合はスキップ
+  useEffect(() => { if (item && !q) setQueue((qq) => (qq ? qq.slice(1) : qq)); }, [item, q]);
+  // タブを離れたら自分で開始したタイマーを止める
+  useEffect(() => () => { if (timerStartedByMe.current) { stopTimer(); timerStartedByMe.current = false; } }, []);
+
+  const stopMyTimer = () => { if (timerStartedByMe.current) { stopTimer(); timerStartedByMe.current = false; } };
+
+  const start = () => {
+    const pool = [...due, ...(includeNew ? shuffle(fresh) : [])];
+    const picked = pool.slice(0, setSize);
+    if (picked.length === 0) return;
+    setQueue(picked);
+    setShowAnswer(false);
+    setResult({ sure: 0, unsure: 0, wrong: 0, err: {} });
+    if (!state.timer.startMs) { startTimer(null, "qa"); timerStartedByMe.current = true; }
+  };
+
+  const answer = (correct, meta) => {
+    if (!item || !q) return;
+    recordSRAnswer(item.bankId, q.id, correct, meta);
+    setResult((r) => {
+      const n = { ...r, err: { ...r.err } };
+      if (correct) { if (meta && meta.conf === "unsure") n.unsure++; else n.sure++; }
+      else { n.wrong++; if (meta && meta.errType) n.err[meta.errType] = (n.err[meta.errType] || 0) + 1; }
+      return n;
+    });
+    const rest = queue.slice(1);
+    if (rest.length === 0) stopMyTimer();
+    setQueue(rest);
+    setShowAnswer(false);
+  };
+
+  // ── 開始前の画面 ──
+  if (queue === null) {
+    const available = due.length + (includeNew ? fresh.length : 0);
+    return (
+      <div className="space-y-3">
+        <Box title="今日の復習" icon={<Calendar size={18} />}>
+          <div className="grid grid-cols-2 gap-2 mb-3">
+            <Mini label="復習期限が来た問題" value={`${due.length}問`} highlight={due.length > 0} />
+            <Mini label="未学習の問題" value={`${fresh.length}問`} />
+          </div>
+          {due.length + fresh.length === 0 ? (
+            <p className="jp text-sm text-center py-3" style={{ color: "var(--sky-deep)" }}>✅ 今日の復習は完了！また明日。</p>
+          ) : (
+            <>
+              <div className="jp text-xs mb-1" style={{ color: "var(--ink-soft)" }}>1セットの問題数</div>
+              <div className="grid grid-cols-4 gap-1 mb-3">
+                {[10, 20, 50, 100].map((n) => (
+                  <button key={n} onClick={() => setSetSize(n)} className="jp py-1.5 text-sm" style={{ background: setSize === n ? "var(--sky-deep)" : "var(--paper)", color: setSize === n ? "var(--paper)" : "var(--ink)", border: "1px solid var(--rule)" }}>{n}問</button>
+                ))}
+              </div>
+              <div className="mb-3">
+                <ConfigToggle label="未学習の問題も出題する" sub="復習期限の問題を優先し、足りない分を未学習から補います" value={includeNew} onChange={setIncludeNew} />
+              </div>
+              <button onClick={start} disabled={available === 0} className="jp btn-primary w-full py-3 flex items-center justify-center gap-2">
+                <Play size={16} /> {Math.min(setSize, available)}問スタート
+              </button>
+              <p className="jp text-[10px] mt-2" style={{ color: "var(--ink-mute)" }}>
+                △「自信なし」で正解した問題は、間隔を伸ばさず2日後にもう一度出題されます。
+              </p>
+            </>
+          )}
+        </Box>
+      </div>
+    );
+  }
+
+  // ── セット完了の画面 ──
+  if (queue.length === 0) {
+    const errList = ERROR_TYPES.filter((t) => result.err[t.id]);
+    return (
+      <Box title="セット完了！" icon={<Award size={18} />}>
+        <div className="grid grid-cols-3 gap-2 mb-3">
+          <Mini label="◎ 確実" value={`${result.sure}問`} />
+          <Mini label="△ 自信なし" value={`${result.unsure}問`} highlight={result.unsure > 0} />
+          <Mini label="✕ 不正解" value={`${result.wrong}問`} highlight={result.wrong > 0} />
+        </div>
+        {errList.length > 0 && (
+          <div className="mb-3">
+            <div className="jp text-xs mb-1" style={{ color: "var(--ink-soft)" }}>間違いの原因</div>
+            <div className="flex flex-wrap gap-1">
+              {errList.map((t) => (
+                <span key={t.id} className="jp text-[11px] px-2 py-0.5" style={{ background: "var(--cream)", border: "1px solid var(--rule-soft)", color: "var(--ink)" }}>{t.icon} {t.label} {result.err[t.id]}</span>
+              ))}
+            </div>
+          </div>
+        )}
+        <div className="grid grid-cols-2 gap-2">
+          <button onClick={() => setQueue(null)} className="jp btn-ghost py-2">戻る</button>
+          <button onClick={start} disabled={due.length + (includeNew ? fresh.length : 0) === 0} className="jp btn-primary py-2">もう1セット</button>
+        </div>
+      </Box>
+    );
+  }
+
+  // ── 出題中の画面 ──
+  if (!q) return null;
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <button onClick={() => { stopMyTimer(); setQueue(null); }} className="jp text-xs flex items-center gap-1" style={{ color: "var(--ink-soft)" }}><XIcon size={14} /> 中断</button>
+        <div className="pixel text-xs" style={{ color: "var(--sky-deep)" }}>📅 残り {queue.length}</div>
+      </div>
+      <div className="rpg-box p-1">
+        <div className="rpg-inner-border min-h-[180px] flex flex-col">
+          <div className="flex items-start justify-between gap-2 mb-2">
+            <div className="jp text-[10px]" style={{ color: "var(--ink-mute)" }}>
+              {q.sr_nextReview ? "🔁 復習" : "🆕 初回"} ・ {item.bankName}{item.year && ` ・ ${item.year}`}
+            </div>
+            <button onClick={() => toggleQuestionMark(item.bankId, q.id)} className="jp text-[11px] px-1.5 py-0.5 flex-shrink-0" style={{ border: "1px solid var(--rule)", background: q.marked ? "var(--gold)" : "var(--paper)", color: q.marked ? "var(--paper)" : "var(--ink-soft)" }}>⭐ {q.marked ? "マーク中" : "マーク"}</button>
+          </div>
+          <div className="jp text-base md:text-lg flex-1 break-words" style={{ color: "var(--ink)" }}>{renderFormattedText(q.q, q.q_formats)}</div>
+          {showAnswer ? (
+            <>
+              <div className="jp text-[10px] mt-3 mb-1" style={{ color: "var(--gold)" }}>答え</div>
+              <div className="jp text-base md:text-lg break-words p-2" style={{ background: "var(--sky-pale)", border: "1px solid var(--gold)", color: "var(--ink)" }}>{renderFormattedText(q.a, q.a_formats)}</div>
+              {q.memo && <div className="jp text-[11px] mt-2 p-2" style={{ background: "var(--cream)", border: "1px dashed var(--rule-soft)", color: "var(--ink-soft)", whiteSpace: "pre-wrap" }}>📝 {q.memo}</div>}
+              <AnswerPanel onAnswer={answer} />
+            </>
+          ) : (
+            <button onClick={() => setShowAnswer(true)} className="jp btn-info mt-3 py-2 flex items-center justify-center gap-1"><Eye size={16} /> 答えを見る</button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function WeaknessListPanel({ state, onCrossRevenge }) {
   const [analysisResult, setAnalysisResult] = useState(null);
   const [analysisLoading, setAnalysisLoading] = useState(false);
@@ -4352,12 +4617,15 @@ function WeaknessListPanel({ state, onCrossRevenge }) {
   const summary = {};
   state.questionBanks.forEach((b) => {
     const key = b.qualId || "_none_";
-    if (!summary[key]) summary[key] = { auto: 0, manual: 0, total: 0 };
+    if (!summary[key]) summary[key] = { auto: 0, manual: 0, total: 0, unsure: 0, cw: 0, err: {} };
     b.questions.forEach((q) => {
-      const isAutoWeak = q.wrong > 0 && q.correct < q.wrong;
+      const isAutoWeak = isQuestionAutoWeak(q);
       if (isAutoWeak) summary[key].auto++;
       if (q.marked) summary[key].manual++;
       if (isAutoWeak || q.marked) summary[key].total++;
+      if (q.lastConf === "unsure") summary[key].unsure++;
+      if (q.lastConf === "wrongSure") summary[key].cw++;
+      Object.entries(q.errTypes || {}).forEach(([et, v]) => { summary[key].err[et] = (summary[key].err[et] || 0) + v; });
       (q.clozes || []).forEach((c) => {
         const isClozeWeak = c.wrong > 0 && c.correct < c.wrong;
         if (isClozeWeak) summary[key].auto++;
@@ -4381,8 +4649,9 @@ function WeaknessListPanel({ state, onCrossRevenge }) {
         .forEach((b) => {
           b.questions.forEach((q) => {
             if (weakQuestions.length >= 100) return;
-            if (q.wrong >= 2) {
+            if (q.wrong >= 2 || q.lastConf === "wrongSure") {
               weakQuestions.push({
+                err: formatErrTypes(q.errTypes),
                 bank: b.name,
                 q: (q.q || "").substring(0, 120),
                 a: (q.a || "").substring(0, 80),
@@ -4401,7 +4670,7 @@ function WeaknessListPanel({ state, onCrossRevenge }) {
       const qual = state.qualifications.find((qq) => qq.id === qualId);
       const qualName = qual ? qual.name : "資格未設定";
       const qList = weakQuestions.map(function(q, i) {
-        return (i+1) + ". [" + q.bank + "] 問: " + q.q + " / 答: " + q.a + " (間違い" + q.wrong + "回)";
+        return (i+1) + ". [" + q.bank + "] 問: " + q.q + " / 答: " + q.a + " (間違い" + q.wrong + "回" + (q.err ? "・原因:" + q.err : "") + ")";
       }).join("\n");
       const prompt = "あなたは資格試験の学習アドバイザーです。以下は「" + qualName + "」の試験で2回以上間違えた問題の一覧です（最大100問）。\n\nこれらの問題を分析し、どの法律・分野・論点が弱いかをJSON形式で返してください。\n\n問題一覧:\n" + qList + "\n\n以下のJSON形式のみで回答してください（前置き・説明不要）:\n{\n  \"topics\": [\n    {\n      \"大分類\": \"例: 不動産登記法\",\n      \"中分類\": \"例: 申請手続き\",\n      \"問題数\": 5,\n      \"例示\": \"代理申請・委任状など\"\n    }\n  ]\n}\n\n問題数が多い順に並べてください。大分類・中分類は問題文・解答から推測してください。";
 
@@ -4429,7 +4698,7 @@ function WeaknessListPanel({ state, onCrossRevenge }) {
 
   return (
     <Box title="弱点リスト" icon={<Skull size={18} />}>
-      <p className="jp text-[11px] mb-2" style={{ color: "var(--ink-soft)" }}>苦手 (不正解&gt;正解) と⭐手動マークを統合。資格ごとに横断リベンジできます。</p>
+      <p className="jp text-[11px] mb-2" style={{ color: "var(--ink-soft)" }}>苦手 (不正解&gt;正解・自信なし正解・自信ありミス) と⭐手動マークを統合。資格ごとに横断リベンジできます。</p>
       <ul className="space-y-2">
         {keys.map((k) => {
           const qual = state.qualifications.find((qq) => qq.id === k);
@@ -4445,6 +4714,26 @@ function WeaknessListPanel({ state, onCrossRevenge }) {
                     {s.auto > 0 && <span style={{ color: "var(--brick)" }}> ・ 苦手 {s.auto}</span>}
                     {s.manual > 0 && <span style={{ color: "var(--gold)" }}> ・ ⭐{s.manual}</span>}
                   </div>
+                  {(s.unsure > 0 || s.cw > 0) && (
+                    <div className="jp text-[10px] mt-0.5" style={{ color: "var(--ink-soft)" }}>
+                      {s.unsure > 0 && <span>△自信なし正解 {s.unsure}</span>}
+                      {s.unsure > 0 && s.cw > 0 && " ・ "}
+                      {s.cw > 0 && <span style={{ color: "var(--brick)" }}>💥自信ありミス {s.cw}</span>}
+                    </div>
+                  )}
+                  {Object.keys(s.err).length > 0 && (() => {
+                    const top = [...ERROR_TYPES].sort((a, b) => (s.err[b.id] || 0) - (s.err[a.id] || 0))[0];
+                    return (
+                      <div className="mt-1">
+                        <div className="flex flex-wrap gap-1">
+                          {ERROR_TYPES.filter((t) => s.err[t.id]).map((t) => (
+                            <span key={t.id} className="jp text-[10px] px-1.5 py-0.5" style={{ background: "var(--cream)", border: "1px solid var(--rule-soft)", color: "var(--ink-soft)" }}>{t.icon}{t.label} {s.err[t.id]}</span>
+                          ))}
+                        </div>
+                        <div className="jp text-[10px] mt-1" style={{ color: "var(--sky-deep)" }}>💡 最多は{top.icon}{top.label} → {top.advice}</div>
+                      </div>
+                    );
+                  })()}
                 </div>
                 <div className="flex gap-1 flex-wrap justify-end">
                   <button
