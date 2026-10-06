@@ -40,6 +40,7 @@ const Sword2 = (p) => <Ico ch="🗡" {...p} />;
 const StatusIcon = (p) => <Ico ch="📊" {...p} />;
 const LogoutIcon = (p) => <Ico ch="🚪" {...p} />;
 const Search = (p) => <Ico ch="🔍" {...p} />;
+const Castle = (p) => <Ico ch="🏰" {...p} />;
 
 // ============ Constants ============
 const DIFFICULTIES = {
@@ -328,7 +329,7 @@ function applyAnswerMeta(q, correct, meta) {
 }
 
 function calculateStatus(state) {
-  const dates = new Set(state.studyLog.map((l) => l.date));
+  const dates = new Set([...state.studyLog.map((l) => l.date), ...((state.rpg && Array.isArray(state.rpg.restDays)) ? state.rpg.restDays : [])]); // お休みチケットの日も含む
   let currentStreak = 0;
   const today = new Date(); today.setHours(0,0,0,0);
   for (let i = 0; i < 365; i++) {
@@ -771,10 +772,19 @@ function StudyRPG({ user }) {
     return () => clearInterval(id);
   }, [state.timer.startMs]);
 
+  const stateRef = useRef(state);
+  stateRef.current = state; // イベント処理の中で最新の状態を参照するため
+
   const awardXp = (amount) => {
     if (amount <= 0) return;
+    // 装備・ステータスによるボーナス（会心の一撃でEXP2倍）とゴールド
+    const bonus = getRpgBonuses(stateRef.current);
+    let gain = Math.round(amount * (1 + bonus.xpPct / 100));
+    const crit = amount >= 2 && Math.random() * 100 < bonus.critPct;
+    if (crit) gain *= 2;
+    const gold = Math.max(1, Math.round(amount * 0.3 * (1 + bonus.goldPct / 100)));
     setState((s) => {
-      let xp = s.player.xp + amount, lv = s.player.level, leveled = false;
+      let xp = s.player.xp + gain, lv = s.player.level, leveled = false;
       const prevLv = s.player.level;
       while (xp >= getXpForNextLevel(lv)) { xp -= getXpForNextLevel(lv); lv++; leveled = true; }
       if (leveled) {
@@ -785,12 +795,142 @@ function StudyRPG({ user }) {
         setShowLevelUp({ level: lv, title: newTitle, tierChanged, newTier });
         setTimeout(() => setShowLevelUp(null), tierChanged ? 4000 : 2800);
       }
-      return { ...s, player: { ...s.player, xp, level: lv } };
+      const r = normRpg(s.rpg);
+      return { ...s, player: { ...s.player, xp, level: lv }, rpg: { ...r, gold: r.gold + gold, goldEarned: r.goldEarned + gold, crits: r.crits + (crit ? 1 : 0) } };
     });
     const id = uid();
-    setFloatXp((arr) => [...arr, { id, amount }]);
+    setFloatXp((arr) => [...arr, { id, amount: gain, crit, gold }]);
     setTimeout(() => setFloatXp((arr) => arr.filter((f) => f.id !== id)), 1600);
+    // まれにアイテムが落ちる
+    if (amount >= 2 && Math.random() < 0.012) setTimeout(() => grantItem(rollRpgItem(0), "ドロップ"), 400);
   };
+
+  // ── 冒険（RPG）──
+  const [rpgToast, setRpgToast] = useState(null);
+  const showRpgToast = (text, color) => {
+    const id = uid();
+    setRpgToast({ id, text, color });
+    setTimeout(() => setRpgToast((t) => (t && t.id === id ? null : t)), 3200);
+  };
+  const updateRpg = (fn) => setState((s) => ({ ...s, rpg: fn(normRpg(s.rpg)) }));
+  const grantItem = (itemId, reason) => {
+    const it = rpgItemById(itemId);
+    if (!it) return;
+    updateRpg((r) => ({ ...r, inventory: [...r.inventory, { u: uid(), i: itemId }].slice(-150) }));
+    showRpgToast(`${it.icon} ${it.name}（${it.rarity}）を手に入れた！${reason ? `［${reason}］` : ""}`, RARITY[it.rarity].color);
+  };
+  const rpgActions = {
+    buy: (kind, id) => {
+      const r = normRpg(stateRef.current.rpg);
+      if (kind === "consumable") {
+        const c = RPG_CONSUMABLES.find((x) => x.id === id);
+        if (!c) return "";
+        if (r.gold < c.price) return "ゴールドが足りません";
+        updateRpg((x) => (x.gold < c.price ? x : { ...x, gold: x.gold - c.price, consumables: { ...x.consumables, [id]: (x.consumables[id] || 0) + 1 } }));
+        return `${c.icon} ${c.name}を買った！`;
+      }
+      const it = rpgItemById(id);
+      if (!it || !it.price) return "";
+      if (r.gold < it.price) return "ゴールドが足りません";
+      updateRpg((x) => (x.gold < it.price ? x : { ...x, gold: x.gold - it.price, inventory: [...x.inventory, { u: uid(), i: id }].slice(-150) }));
+      return `${it.icon} ${it.name}を買った！`;
+    },
+    sell: (u) => updateRpg((x) => {
+      const v = x.inventory.find((y) => y.u === u);
+      if (!v) return x;
+      const it = rpgItemById(v.i);
+      const eq = { ...x.equipped };
+      Object.keys(eq).forEach((k) => { if (eq[k] === u) eq[k] = null; });
+      return { ...x, gold: x.gold + (it ? RARITY[it.rarity].sell : 0), inventory: x.inventory.filter((y) => y.u !== u), equipped: eq };
+    }),
+    equip: (slot, u) => updateRpg((x) => ({ ...x, equipped: { ...x.equipped, [slot]: u } })),
+    useConsumable: (id) => {
+      const cur = stateRef.current;
+      const r = normRpg(cur.rpg);
+      if (!(r.consumables[id] > 0)) return "持っていません";
+      const dec = (x) => ({ ...x.consumables, [id]: Math.max(0, (x.consumables[id] || 0) - 1) });
+      if (id === "xpBook") {
+        updateRpg((x) => ({ ...x, consumables: dec(x), boosts: { ...x.boosts, xpUntil: Math.max(Date.now(), x.boosts.xpUntil || 0) + 30 * 60000 } }));
+        return "📕 30分間、獲得EXPが2倍になった！";
+      }
+      if (id === "restTicket") {
+        const y = new Date(); y.setDate(y.getDate() - 1);
+        const ys = localDateStr(y);
+        if (cur.studyLog.some((l) => l.date === ys) || r.restDays.includes(ys)) return "昨日は学習済みなので、使う必要はありません";
+        updateRpg((x) => ({ ...x, consumables: dec(x), restDays: [...x.restDays, ys].slice(-60) }));
+        return "🎫 昨日を連続学習日数に数えました";
+      }
+      updateRpg((x) => ({ ...x, consumables: dec(x) })); // 回復薬（ボス戦の中で使う）
+      return "";
+    },
+    setClass: (id) => {
+      const c = classById(id);
+      const r = normRpg(stateRef.current.rpg);
+      if (!c) return "";
+      if (stateRef.current.player.level < 10) return "Lv10から転職できます";
+      const cost = r.classId ? CLASS_CHANGE_COST : 0;
+      if (r.gold < cost) return "ゴールドが足りません";
+      updateRpg((x) => ({ ...x, gold: x.gold - cost, classId: id }));
+      showRpgEvent({ icon: c.icon, title: `${c.name}に転職した！`, sub: c.bonusText(classRankIndex(stateRef.current.player.level)) });
+      return "";
+    },
+    adoptPet: (type, name) => {
+      if (!PET_TYPES[type] || !name) return "";
+      const base = calculateStatus(stateRef.current).totalCorrect;
+      updateRpg((x) => ({ ...x, pet: { type, name, since: todayStr(), baseCorrect: base }, seen: { ...x.seen, pet: 0 } }));
+      return `🥚 ${name}を迎えた！ 勉強を続けると生まれます`;
+    },
+    renamePet: (name) => updateRpg((x) => (x.pet ? { ...x, pet: { ...x.pet, name } } : x)),
+    bossFinish: ({ won, bossId, loop, gold, xp, itemId }) => {
+      updateRpg((x) => ({
+        ...x, gold: x.gold + gold, goldEarned: x.goldEarned + gold,
+        bossWins: x.bossWins + (won ? 1 : 0), bossLosses: x.bossLosses + (won ? 0 : 1),
+        bossLog: [...x.bossLog, { d: todayStr(), b: bossId, w: won, l: loop }].slice(-30),
+        inventory: itemId ? [...x.inventory, { u: uid(), i: itemId }].slice(-150) : x.inventory,
+      }));
+      if (xp) setTimeout(() => awardXp(xp), 300);
+    },
+  };
+
+  // 覚醒・相棒の進化のお知らせ
+  const [rpgEvent, setRpgEvent] = useState(null);
+  const showRpgEvent = (ev) => {
+    const id = uid();
+    setRpgEvent({ ...ev, id });
+    setTimeout(() => setRpgEvent((e) => (e && e.id === id ? null : e)), 3400);
+  };
+  useEffect(() => {
+    if (!loaded) return;
+    const r = normRpg(state.rpg);
+    const aw = getAwakening(state);
+    if (aw.stars > (r.seen.stars || 0)) {
+      updateRpg((x) => ({ ...x, seen: { ...x.seen, stars: aw.stars } }));
+      showRpgEvent({ icon: "★".repeat(aw.stars), title: `覚醒 ★${aw.stars}`, sub: `しっかり覚えた問題が${aw.mastered}問に！` });
+      return;
+    }
+    const pet = getPetInfo(state);
+    if (pet && pet.stage > (r.seen.pet || 0)) {
+      updateRpg((x) => ({ ...x, seen: { ...x.seen, pet: pet.stage } }));
+      showRpgEvent({ icon: pet.icon, title: pet.stage === 1 ? `${pet.name}が生まれた！` : `${pet.name}が進化した！`, sub: `${pet.stageName}になった` });
+    }
+  }, [state, loaded]);
+
+  // 冒険の実績：条件を満たしたら1つずつ称号として付与
+  const rpgAwardedRef = useRef(new Set());
+  useEffect(() => {
+    if (!loaded) return;
+    const r = normRpg(state.rpg);
+    const st = calculateStatus(state);
+    const have = new Set(state.player.achievements.map((a) => a.id));
+    for (const a of RPG_ACHIEVEMENTS) {
+      if (have.has(a.id) || rpgAwardedRef.current.has(a.id)) continue;
+      if (a.test({ state, r, st })) {
+        rpgAwardedRef.current.add(a.id);
+        awardAchievement({ id: a.id, title: a.title, job: "冒険者", icon: a.icon, color: a.color, source: "rpg", description: a.desc, earnedAt: new Date().toISOString() });
+        break;
+      }
+    }
+  }, [state, loaded]);
   const updateBestStreak = (newStreak) => setState((s) => ({ ...s, player: { ...s.player, bestQaStreak: Math.max(s.player.bestQaStreak || 0, newStreak) } }));
   const awardAchievement = (achievement) => {
     setState((s) => {
@@ -1056,6 +1196,11 @@ function StudyRPG({ user }) {
     setState((s) => ({ ...s, questionBanks: s.questionBanks.map((b) => b.id !== bankId ? b : {
       ...b, clearHistory: [...(b.clearHistory || []), snapshot]
     })}));
+    // 完全制覇の報酬：100ゴールドと装備1つ
+    setTimeout(() => {
+      updateRpg((x) => ({ ...x, gold: x.gold + 100, goldEarned: x.goldEarned + 100 }));
+      grantItem(rollRpgItem(1), "完全制覇の報酬");
+    }, 900);
   };
 
   // 問題文の表示設定（フォント・文字サイズ）
@@ -1372,7 +1517,7 @@ function StudyRPG({ user }) {
                 <div className="mt-1 h-3 border relative overflow-hidden" style={{ background: "var(--sky-pale)", borderColor: "var(--rule)" }}>
                   <div className="h-full xp-shimmer transition-all duration-500" style={{ width: `${xpPercent}%` }} />
                 </div>
-                <div className="pixel text-[10px] mt-0.5" style={{ color: "var(--ink-soft)" }}>{player.xp} / {xpNeeded} EXP</div>
+                <div className="pixel text-[10px] mt-0.5" style={{ color: "var(--ink-soft)" }}>{player.xp} / {xpNeeded} EXP <span style={{ color: "var(--gold)" }}>💰{normRpg(state.rpg).gold.toLocaleString()}G</span></div>
               </div>
               {state.timer.startMs && (
                 <div className="text-right">
@@ -1388,6 +1533,7 @@ function StudyRPG({ user }) {
           {tab === "home" && <HomeTab state={state} liveSeconds={liveSeconds} setMainTitle={setMainTitle} setTab={setTab} todayCount={getTodayReviewItems().length} />}
           {tab === "today" && <TodayTab state={state} recordSRAnswer={recordSRAnswer} updateSrSettings={updateSrSettings} startTimer={startTimer} stopTimer={stopTimer} toggleQuestionMark={toggleQuestionMark} />}
           {tab === "status" && <StatusTab state={state} />}
+          {tab === "adventure" && <AdventureTab state={state} actions={rpgActions} recordAnswer={recordAnswer} startTimer={startTimer} stopTimer={stopTimer} />}
           {tab === "qual" && <QualTab state={state} addQual={addQual} updateQual={updateQual} deleteQual={deleteQual} acquireQual={acquireQual} />}
           {tab === "task" && <TaskTab state={state} addTask={addTask} completeTask={completeTask} deleteTask={deleteTask} addPreset={addPreset} deletePreset={deletePreset} updatePreset={updatePreset} />}
           {tab === "timer" && <TimerTab state={state} liveSeconds={liveSeconds} startTimer={startTimer} stopTimer={stopTimer} cancelTimer={cancelTimer} addManualLog={addManualLog} deleteLog={deleteLog} />}
@@ -1397,11 +1543,12 @@ function StudyRPG({ user }) {
       </div>
 
       <nav className="fixed bottom-0 left-0 right-0 z-40" style={{ background: "var(--paper)", borderTop: "2px solid var(--rule)", paddingBottom: "env(safe-area-inset-bottom)" }}>
-        <div className="max-w-3xl mx-auto grid grid-cols-8">
+        <div className="max-w-3xl mx-auto grid grid-cols-9">
           {[
             { id: "home",   label: "ホーム",     icon: <Home size={16} /> },
             { id: "today",  label: "今日",        icon: <Calendar size={16} /> },
             { id: "status", label: "ステータス",  icon: <StatusIcon size={16} /> },
+            { id: "adventure", label: "冒険",     icon: <Castle size={16} /> },
             { id: "qual",   label: "資格",        icon: <Award size={16} /> },
             { id: "task",   label: "タスク",      icon: <Sword size={16} /> },
             { id: "timer",  label: "時間",        icon: <Clock size={16} /> },
@@ -1413,7 +1560,7 @@ function StudyRPG({ user }) {
               <button key={t.id} onClick={() => setTab(t.id)} className="jp flex flex-col items-center gap-0.5 py-2 transition relative"
                 style={tab === t.id ? { background: "var(--sky-deep)", color: "var(--paper)" } : { background: "transparent", color: "var(--ink)" }}>
                 {t.icon}
-                <span className="text-[9px] md:text-[11px]">{t.label}</span>
+                <span className="text-[8px] md:text-[11px]" style={{ whiteSpace: "nowrap" }}>{t.label}</span>
                 {badge > 0 && (
                   <span className="absolute top-1 right-2 pixel text-[9px] px-1 min-w-[16px] text-center" style={{ background: "var(--brick)", color: "var(--paper)", borderRadius: "2px", lineHeight: "14px" }}>{badge}</span>
                 )}
@@ -1424,8 +1571,27 @@ function StudyRPG({ user }) {
       </nav>
 
       {floatXp.map((f) => (
-        <div key={f.id} className="float-xp pixel fixed left-1/2 top-1/3 z-50 text-2xl md:text-3xl pointer-events-none" style={{ color: "var(--sky-deep)", textShadow: "2px 2px 0 var(--paper)" }}>+{f.amount} EXP!</div>
+        <div key={f.id} className="float-xp pixel fixed left-1/2 top-1/3 z-50 text-2xl md:text-3xl pointer-events-none" style={{ color: "var(--sky-deep)", textShadow: "2px 2px 0 var(--paper)", textAlign: "center" }}>{f.crit && <div className="text-sm" style={{ color: "var(--brick)" }}>💥 会心の一撃！</div>}+{f.amount} EXP!{f.gold ? <div className="text-xs" style={{ color: "var(--gold)" }}>+{f.gold} G</div> : null}</div>
       ))}
+
+      {rpgToast && (
+        <div key={rpgToast.id} className="milestone-toast fixed left-1/2 top-20 z-50 pointer-events-none jp text-sm px-3 py-2" style={{ background: "var(--paper)", border: `2px solid ${rpgToast.color || "var(--gold)"}`, color: "var(--ink)", boxShadow: "2px 2px 0 rgba(0,0,0,0.15)", whiteSpace: "nowrap" }}>{rpgToast.text}</div>
+      )}
+
+      {rpgEvent && (
+        <div key={rpgEvent.id} className="fixed inset-0 z-50 pointer-events-none flex items-center justify-center">
+          <div className="absolute inset-0" style={{ background: "rgba(214,168,78,0.12)" }} />
+          <div className="level-up-anim absolute left-1/2 top-1/2 text-center" style={{ transform: "translate(-50%, -50%)" }}>
+            <div className="rpg-box p-1 inline-block">
+              <div className="rpg-inner-border px-6 py-5 md:px-10 md:py-7" style={{ minWidth: "260px" }}>
+                <div className="text-center text-4xl md:text-5xl mb-2" style={{ color: "#d6a84e", textShadow: "0 0 8px rgba(255,215,94,0.9)" }}>{rpgEvent.icon}</div>
+                <div className="jp text-base md:text-xl mb-1" style={{ color: "var(--ink)", fontWeight: "bold" }}>{rpgEvent.title}</div>
+                {rpgEvent.sub && <div className="jp text-xs" style={{ color: "var(--ink-soft)" }}>{rpgEvent.sub}</div>}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showLevelUp && (
         <div className="fixed inset-0 z-50 pointer-events-none flex items-center justify-center">
@@ -1484,6 +1650,7 @@ function applyDefaults(s) {
     sessionResume: s.sessionResume || null,
     srSettings: { ...SR_DEFAULTS, ...(s.srSettings || {}) },
     displaySettings: { ...DISPLAY_DEFAULTS, ...(s.displaySettings || {}) },
+    rpg: normRpg(s.rpg),
     questionBanks: (s.questionBanks || []).map((b, i) => ({
       ...b,
       clears: b.clears || 0,
@@ -1605,7 +1772,7 @@ function StatusTab({ state }) {
       <Box title="冒険者ステータス" icon={<StatusIcon size={18} />}>
         <div className="flex items-center gap-3 mb-3 p-3" style={{ background: "var(--sky-pale)", border: "1px solid var(--rule-soft)" }}>
           <div className="flex-shrink-0">
-            <CharacterDisplay level={player.level} job={displayJob} icon={displayIcon} size={110} showAura={true} />
+            <HeroPortrait state={state} size={130} />
           </div>
           <div className="flex-1 min-w-0">
             <div className="jp text-base md:text-lg" style={{ color: "var(--ink)", fontWeight: "bold" }}>{displayTitle}</div>
@@ -1623,6 +1790,8 @@ function StatusTab({ state }) {
           <StatBar cls="luk" label="LUK" sub="連続正解・取得資格で上昇 (運)" value={status.luk} max={barMax(status.luk, 100)} />
         </div>
       </Box>
+
+      <RpgBonusBox state={state} />
 
       <Box title="戦績" icon={<Sword size={18} />}>
         <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
@@ -5353,6 +5522,780 @@ function LapRecordsPanel({ state }) {
         </button>
       )}
     </Box>
+  );
+}
+
+// ============ 冒険（RPG・育成要素） ============
+// ゴールド・装備・消費アイテム・ボス戦・実績。データは state.rpg に保存する。
+const RARITY = {
+  N:   { color: "#8696b0", sell: 30 },
+  R:   { color: "#4f8eb3", sell: 150 },
+  SR:  { color: "#8a6ca6", sell: 500 },
+  SSR: { color: "#b8862c", sell: 1500 },
+};
+const RPG_ITEMS = [
+  // 武器
+  { id: "w-staff",     slot: "weapon",    name: "木の杖",         icon: "🪄", rarity: "N",   price: 100, fx: { bossDmgPct: 5 } },
+  { id: "w-pen",       slot: "weapon",    name: "鉄の羽ペン",     icon: "🖋️", rarity: "N",   price: 150, fx: { critPct: 2 } },
+  { id: "w-chain",     slot: "weapon",    name: "測量の鎖剣",     icon: "⛓️", rarity: "R",   price: 600, fx: { bossDmgPct: 15, critPct: 2 } },
+  { id: "w-holy",      slot: "weapon",    name: "登記の聖剣",     icon: "🗡️", rarity: "SR",  fx: { bossDmgPct: 30, critPct: 5 } },
+  { id: "w-divine",    slot: "weapon",    name: "地籍の神剣",     icon: "⚔️", rarity: "SSR", fx: { bossDmgPct: 50, critPct: 8, xpPct: 10 } },
+  // 防具
+  { id: "a-robe",      slot: "armor",     name: "布のローブ",     icon: "🥋", rarity: "N",   price: 100, fx: { hpPlus: 10 } },
+  { id: "a-vest",      slot: "armor",     name: "調査士のベスト", icon: "🦺", rarity: "N",   price: 150, fx: { dmgCutPct: 8 } },
+  { id: "a-coat",      slot: "armor",     name: "製図士のコート", icon: "🧥", rarity: "R",   price: 600, fx: { hpPlus: 20, dmgCutPct: 10 } },
+  { id: "a-border",    slot: "armor",     name: "境界の鎧",       icon: "🛡️", rarity: "SR",  fx: { hpPlus: 30, dmgCutPct: 25 } },
+  { id: "a-immovable", slot: "armor",     name: "不動の甲冑",     icon: "🏯", rarity: "SSR", fx: { hpPlus: 50, dmgCutPct: 40 } },
+  // アクセサリー
+  { id: "x-compass",   slot: "accessory", name: "幸運のコンパス", icon: "🧭", rarity: "N",   price: 200, fx: { critPct: 3 } },
+  { id: "x-glasses",   slot: "accessory", name: "学者の眼鏡",     icon: "👓", rarity: "R",   price: 700, fx: { xpPct: 10 } },
+  { id: "x-level",     slot: "accessory", name: "黄金の水準器",   icon: "📐", rarity: "SR",  fx: { goldPct: 30, xpPct: 10 } },
+  { id: "x-charm",     slot: "accessory", name: "公図の護符",     icon: "🗺️", rarity: "SSR", fx: { xpPct: 20, critPct: 5, goldPct: 20 } },
+];
+const RPG_SLOTS = [
+  { id: "weapon", label: "武器" },
+  { id: "armor", label: "防具" },
+  { id: "accessory", label: "アクセサリー" },
+];
+const RPG_CONSUMABLES = [
+  { id: "potion",     name: "回復薬",         icon: "🧪", price: 50,  desc: "ボス戦でHPを40回復する" },
+  { id: "xpBook",     name: "経験値の書",     icon: "📕", price: 300, desc: "30分間、獲得EXPが2倍になる" },
+  { id: "restTicket", name: "お休みチケット", icon: "🎫", price: 400, desc: "学習できなかった昨日を、連続学習日数に数える" },
+];
+const RPG_BOSSES = [
+  { id: "slime",  name: "境界のスライム", icon: "🟢", hp: 60,  atk: 12 },
+  { id: "ghost",  name: "地番の亡霊",     icon: "👻", hp: 90,  atk: 15 },
+  { id: "golem",  name: "分筆ゴーレム",   icon: "🗿", hp: 120, atk: 18 },
+  { id: "dragon", name: "合筆ドラゴン",   icon: "🐉", hp: 160, atk: 22 },
+  { id: "shadow", name: "登記官の影",     icon: "🦹", hp: 200, atk: 26 },
+  { id: "maou",   name: "地籍の魔王",     icon: "👹", hp: 260, atk: 30 },
+];
+const FX_LABELS = {
+  xpPct: (v) => `EXP+${v}%`, critPct: (v) => `会心率+${v}%`, goldPct: (v) => `ゴールド+${v}%`,
+  bossDmgPct: (v) => `攻撃+${v}%`, dmgCutPct: (v) => `被ダメージ-${v}%`, hpPlus: (v) => `HP+${v}`,
+};
+const fxText = (fx) => Object.entries(fx || {}).map(([k, v]) => (FX_LABELS[k] ? FX_LABELS[k](v) : "")).filter(Boolean).join("・");
+
+const RPG_DEFAULTS = {
+  gold: 0, goldEarned: 0, inventory: [], consumables: { potion: 1, xpBook: 0, restTicket: 0 },
+  equipped: { weapon: null, armor: null, accessory: null }, bossWins: 0, bossLosses: 0, bossLog: [],
+  boosts: { xpUntil: null }, restDays: [], crits: 0,
+  classId: null, pet: null, seen: { stars: 0, pet: 0 },
+};
+function normRpg(r) {
+  const x = { ...RPG_DEFAULTS, ...(r || {}) };
+  x.consumables = { ...RPG_DEFAULTS.consumables, ...(x.consumables || {}) };
+  x.equipped = { ...RPG_DEFAULTS.equipped, ...(x.equipped || {}) };
+  x.boosts = { ...RPG_DEFAULTS.boosts, ...(x.boosts || {}) };
+  x.inventory = Array.isArray(x.inventory) ? x.inventory : [];
+  x.bossLog = Array.isArray(x.bossLog) ? x.bossLog : [];
+  x.restDays = Array.isArray(x.restDays) ? x.restDays : [];
+  x.seen = { ...RPG_DEFAULTS.seen, ...(x.seen || {}) };
+  return x;
+}
+const rpgItemById = (id) => RPG_ITEMS.find((i) => i.id === id) || null;
+const rpgEquippedItems = (r) => RPG_SLOTS.map((s) => { const inv = r.inventory.find((v) => v.u === r.equipped[s.id]); return inv ? rpgItemById(inv.i) : null; }).filter(Boolean);
+
+// 装備とステータスから、実際の効果を計算する
+function getRpgBonuses(state) {
+  const r = normRpg(state.rpg);
+  const eq = rpgEquippedItems(r);
+  const gfx = getGrowthFx(state); // クラス・相棒・覚醒
+  const sum = (k) => eq.reduce((a, it) => a + ((it.fx && it.fx[k]) || 0), 0) + gfx.reduce((a, f) => a + (f[k] || 0), 0);
+  const st = calculateStatus(state);
+  const boostActive = !!(r.boosts.xpUntil && Date.now() < r.boosts.xpUntil);
+  return {
+    critPct: Math.min(35, 3 + Math.floor(st.luk / 25) + sum("critPct")),              // LUK・装備で会心率アップ
+    xpPct: sum("xpPct") + (boostActive ? 100 : 0),
+    goldPct: sum("goldPct"),
+    bossDmgPct: sum("bossDmgPct") + Math.min(50, Math.floor(st.int / 40)),            // INTで攻撃力アップ
+    dmgCutPct: Math.min(60, sum("dmgCutPct") + Math.min(20, Math.floor(st.def / 20))), // DEFで被ダメージ軽減
+    maxHp: Math.min(200, 60 + st.currentStreak * 5 + Math.floor(state.player.level * 2)) + sum("hpPlus"), // 連続学習・レベルでHPアップ
+    boostActive,
+  };
+}
+
+// レア度を抽選してアイテムを1つ選ぶ（luck が大きいほどレアが出やすい）
+function rollRpgItem(luck = 0) {
+  const w = { N: Math.max(20, 60 - luck * 8), R: 28 + luck * 3, SR: 10 + luck * 3, SSR: 2 + luck * 1.5 };
+  const total = w.N + w.R + w.SR + w.SSR;
+  let x = Math.random() * total;
+  let rarity = "N";
+  for (const k of ["N", "R", "SR", "SSR"]) { if (x < w[k]) { rarity = k; break; } x -= w[k]; }
+  const pool = RPG_ITEMS.filter((i) => i.rarity === rarity);
+  return pool[Math.floor(Math.random() * pool.length)].id;
+}
+
+// 次に戦うボス（倒すたびに強くなり、6体倒すと★付きで2周目へ）
+function getNextBoss(r) {
+  const idx = r.bossWins % RPG_BOSSES.length;
+  const loop = Math.floor(r.bossWins / RPG_BOSSES.length);
+  const b = RPG_BOSSES[idx];
+  return { ...b, idx, loop, hp: Math.round(b.hp * (1 + 0.35 * loop)), atk: Math.round(b.atk * (1 + 0.2 * loop)), label: `${b.name}${"★".repeat(Math.min(loop, 5))}` };
+}
+
+// ボス戦の出題：苦手な問題を優先し、足りなければ間違いの多い問題・定着の浅い問題で補う
+function buildBossPool(state, qualId, n = 10) {
+  const banks = state.questionBanks.filter((b) => qualId === "all" || (b.qualId || "_none_") === qualId);
+  const all = banks.flatMap((b) => (b.questions || []).filter((q) => !q.excluded).map((q) => ({ bankId: b.id, bankName: b.name, q })));
+  let pool = shuffle(all.filter((x) => isQuestionWeak(x.q))).slice(0, n);
+  if (pool.length < n) {
+    const rest = all.filter((x) => !isQuestionWeak(x.q))
+      .sort((a, b) => (b.q.wrong || 0) - (a.q.wrong || 0) || (((a.q.fs && a.q.fs.s) || 0) - ((b.q.fs && b.q.fs.s) || 0)));
+    pool = [...pool, ...rest.slice(0, n - pool.length)];
+  }
+  return shuffle(pool).map((x) => ({ bankId: x.bankId, bankName: x.bankName, qId: x.q.id }));
+}
+
+const RPG_ACHIEVEMENTS = [
+  { id: "rpg-lap1",      title: "初めての完全制覇", icon: "🎌", color: "#b8862c", desc: "問題集を初めて最後まで解き切った。",     hint: "問題集を1回完全制覇",     test: ({ st }) => st.totalClears >= 1 },
+  { id: "rpg-lap30",     title: "周回の鬼",         icon: "🌀", color: "#a04848", desc: "完全制覇を30回重ねた。",                 hint: "完全制覇を合計30回",       test: ({ st }) => st.totalClears >= 30 },
+  { id: "rpg-qa1000",    title: "千問の踏破者",     icon: "🥾", color: "#5d7894", desc: "1000問に挑んだ。",                       hint: "解答数1000問",             test: ({ state }) => (state.player.totalQaAnswered || 0) >= 1000 },
+  { id: "rpg-qa10000",   title: "万問の賢者",       icon: "🦉", color: "#8a6ca6", desc: "10000問に挑んだ。",                      hint: "解答数10000問",            test: ({ state }) => (state.player.totalQaAnswered || 0) >= 10000 },
+  { id: "rpg-streak7",   title: "継続は力なり",     icon: "🔥", color: "#a04848", desc: "7日連続で学習した。",                    hint: "7日連続で学習",            test: ({ st }) => st.currentStreak >= 7 },
+  { id: "rpg-streak30",  title: "不屈の三十日",     icon: "🌋", color: "#a04848", desc: "30日連続で学習した。",                   hint: "30日連続で学習",           test: ({ st }) => st.currentStreak >= 30 },
+  { id: "rpg-boss1",     title: "初陣の勝利",       icon: "⚔️", color: "#6d8454", desc: "初めてボスを倒した。",                   hint: "ボスを1体倒す",            test: ({ r }) => r.bossWins >= 1 },
+  { id: "rpg-boss10",    title: "ボスハンター",     icon: "🏹", color: "#6d8454", desc: "ボスを10体倒した。",                     hint: "ボスを10体倒す",           test: ({ r }) => r.bossWins >= 10 },
+  { id: "rpg-maou",      title: "魔王討伐者",       icon: "👑", color: "#b8862c", desc: "地籍の魔王を打ち倒した。",               hint: "6体目のボスを倒す",        test: ({ r }) => r.bossWins >= 6 },
+  { id: "rpg-collector", title: "収集家",           icon: "🎒", color: "#4f8eb3", desc: "8種類の装備を集めた。",                  hint: "装備を8種類集める",        test: ({ r }) => new Set(r.inventory.map((v) => v.i)).size >= 8 },
+  { id: "rpg-legend",    title: "伝説の担い手",     icon: "🌟", color: "#b8862c", desc: "SSRの装備を手に入れた。",                hint: "SSRの装備を手に入れる",    test: ({ r }) => r.inventory.some((v) => (rpgItemById(v.i) || {}).rarity === "SSR") },
+  { id: "rpg-rich",      title: "黄金の調査士",     icon: "💰", color: "#b8862c", desc: "累計10000ゴールドを稼いだ。",            hint: "累計10000ゴールド",        test: ({ r }) => r.goldEarned >= 10000 },
+  { id: "rpg-crit100",   title: "会心の使い手",     icon: "💥", color: "#a04848", desc: "会心の一撃を100回出した。",              hint: "会心の一撃を100回",        test: ({ r }) => r.crits >= 100 },
+];
+
+const RpgRarityTag = ({ rarity }) => (
+  <span className="pixel text-[9px] px-1" style={{ background: RARITY[rarity].color, color: "var(--paper)" }}>{rarity}</span>
+);
+
+// ── 冒険タブ ──
+function AdventureTab({ state, actions, recordAnswer, startTimer, stopTimer }) {
+  const r = normRpg(state.rpg);
+  const bonus = getRpgBonuses(state);
+  const boss = getNextBoss(r);
+  const [battle, setBattle] = useState(null);       // { boss, pool }
+  const [slotOpen, setSlotOpen] = useState(null);   // 装備を選んでいるスロット
+  const [qualId, setQualId] = useState("all");
+  const [msg, setMsg] = useState("");
+
+  if (battle) {
+    return <BossBattle state={state} boss={battle.boss} pool={battle.pool} actions={actions} recordAnswer={recordAnswer} startTimer={startTimer} stopTimer={stopTimer} onExit={() => setBattle(null)} />;
+  }
+
+  const quals = [...new Set(state.questionBanks.map((b) => b.qualId || "_none_"))];
+  const qualName = (k) => (k === "all" ? "すべての問題集" : k === "_none_" ? "資格未設定" : ((state.qualifications.find((q) => q.id === k) || {}).name || "資格"));
+  const weakCount = state.questionBanks.filter((b) => qualId === "all" || (b.qualId || "_none_") === qualId).reduce((n, b) => n + (b.questions || []).filter((q) => !q.excluded && isQuestionWeak(q)).length, 0);
+  const totalQ = state.questionBanks.reduce((n, b) => n + (b.questions || []).length, 0);
+  const startBattle = () => {
+    const pool = buildBossPool(state, qualId, 10);
+    if (pool.length === 0) { setMsg("出題できる問題がありません"); return; }
+    setBattle({ boss, pool });
+  };
+  const flash = (t) => { setMsg(t); setTimeout(() => setMsg(""), 2500); };
+  const mainAch = state.player.mainTitleId ? state.player.achievements.find((a) => a.id === state.player.mainTitleId) : null;
+  const eqMap = Object.fromEntries(RPG_SLOTS.map((s) => [s.id, (() => { const inv = r.inventory.find((v) => v.u === r.equipped[s.id]); return inv ? rpgItemById(inv.i) : null; })()]));
+  const owned = new Set(state.player.achievements.map((a) => a.id));
+  const boostLeft = bonus.boostActive ? Math.ceil((r.boosts.xpUntil - Date.now()) / 60000) : 0;
+
+  return (
+    <div className="space-y-4">
+      {msg && <div className="jp text-sm p-2 text-center" style={{ background: "var(--cream)", border: "1px solid var(--gold)", color: "var(--ink)" }}>{msg}</div>}
+
+      {/* 拠点 */}
+      <Box title="冒険の拠点" icon={<Castle size={18} />}>
+        <div className="flex items-center gap-3 p-2" style={{ background: "var(--sky-pale)", border: "1px solid var(--rule-soft)" }}>
+          <div className="flex-shrink-0"><HeroPortrait state={state} size={150} /></div>
+          <div className="flex-1 min-w-0">
+            <div className="pixel text-sm mb-1" style={{ color: "var(--gold)" }}>💰 {r.gold.toLocaleString()} G</div>
+            <div className="flex gap-1 mb-1 text-xl">{RPG_SLOTS.map((s) => <span key={s.id} title={s.label} style={{ opacity: eqMap[s.id] ? 1 : 0.25 }}>{eqMap[s.id] ? eqMap[s.id].icon : "▫️"}</span>)}</div>
+            <div className="jp text-[10px]" style={{ color: "var(--ink-soft)" }}>
+              会心率 {bonus.critPct}% ・ EXP+{bonus.xpPct}% ・ ゴールド+{bonus.goldPct}%
+            </div>
+            {bonus.boostActive && <div className="jp text-[10px] mt-1 px-1 inline-block" style={{ background: "var(--plum)", color: "var(--paper)" }}>📕 EXP2倍 あと{boostLeft}分</div>}
+          </div>
+        </div>
+        <p className="jp text-[10px] mt-2" style={{ color: "var(--ink-mute)" }}>問題に正解するとEXPと一緒にゴールドがたまり、まれにアイテムが落ちます。完全制覇やボス討伐でも装備が手に入ります。</p>
+      </Box>
+
+      {/* 覚醒・転職の神殿・相棒 */}
+      <GrowthPanels state={state} actions={actions} />
+
+      {/* ボス戦 */}
+      <Box title="ボス戦" icon={<Skull size={18} />}>
+        <div className="flex items-center gap-3 mb-3">
+          <div className="text-5xl">{boss.icon}</div>
+          <div className="flex-1">
+            <div className="jp text-base" style={{ color: "var(--brick)", fontWeight: "bold" }}>{boss.label}</div>
+            <div className="pixel text-[10px]" style={{ color: "var(--ink-soft)" }}>HP {boss.hp} ・ ATK {boss.atk}</div>
+            <div className="jp text-[10px]" style={{ color: "var(--ink-mute)" }}>戦績 {r.bossWins}勝 {r.bossLosses}敗</div>
+          </div>
+        </div>
+        {quals.length > 1 && (
+          <select className="rpg-input mb-2 text-sm" value={qualId} onChange={(e) => setQualId(e.target.value)}>
+            <option value="all">すべての問題集から出題</option>
+            {quals.map((k) => <option key={k} value={k}>{qualName(k)}から出題</option>)}
+          </select>
+        )}
+        <button onClick={startBattle} disabled={totalQ === 0} className="jp btn-danger w-full py-3 text-base">⚔ 挑む（10問）</button>
+        <p className="jp text-[10px] mt-2" style={{ color: "var(--ink-mute)" }}>
+          苦手な問題から優先して出題されます（いま苦手 {weakCount}問）。正解でボスにダメージ、不正解で自分がダメージを受けます。「◎確実」で答えると攻撃力が上がり、会心の一撃が出ると2倍です。ボス戦の回答も復習の記録に反映されます。
+        </p>
+        {r.bossLog.length > 0 && (
+          <div className="mt-2">
+            <div className="jp text-[10px] mb-1" style={{ color: "var(--ink-soft)" }}>最近の戦い</div>
+            {r.bossLog.slice(-5).reverse().map((l, i) => {
+              const b = RPG_BOSSES.find((x) => x.id === l.b) || { icon: "❔", name: "?" };
+              return <div key={i} className="jp text-[11px]" style={{ color: l.w ? "var(--sage)" : "var(--ink-mute)" }}>{l.d} {b.icon}{b.name}{"★".repeat(Math.min(l.l || 0, 5))} … {l.w ? "勝利" : "敗北"}</div>;
+            })}
+          </div>
+        )}
+      </Box>
+
+      {/* 装備 */}
+      <Box title="装備" icon={<Sword size={18} />}>
+        <div className="space-y-1">
+          {RPG_SLOTS.map((s) => {
+            const it = eqMap[s.id];
+            const candidates = r.inventory.filter((v) => (rpgItemById(v.i) || {}).slot === s.id);
+            return (
+              <div key={s.id} style={{ border: "1px solid var(--rule-soft)", background: "var(--paper)" }}>
+                <button onClick={() => setSlotOpen(slotOpen === s.id ? null : s.id)} className="w-full text-left p-2 flex items-center gap-2" style={{ background: "transparent", border: "none" }}>
+                  <span className="jp text-[10px] w-16 flex-shrink-0" style={{ color: "var(--ink-mute)" }}>{s.label}</span>
+                  {it ? <><span className="text-lg">{it.icon}</span><span className="jp text-sm flex-1" style={{ color: "var(--ink)" }}>{it.name}</span><RpgRarityTag rarity={it.rarity} /></> : <span className="jp text-xs flex-1" style={{ color: "var(--ink-mute)" }}>なし</span>}
+                  <span className="jp text-[10px]" style={{ color: "var(--ink-mute)" }}>{slotOpen === s.id ? "▲" : `変更(${candidates.length})`}</span>
+                </button>
+                {it && <div className="jp text-[10px] px-2 pb-1" style={{ color: "var(--sky-deep)" }}>{fxText(it.fx)}</div>}
+                {slotOpen === s.id && (
+                  <div className="px-2 pb-2 space-y-1">
+                    {candidates.length === 0 && <p className="jp text-[11px]" style={{ color: "var(--ink-mute)" }}>この部位の装備を持っていません。ショップやボス討伐で手に入ります。</p>}
+                    {r.equipped[s.id] && <button onClick={() => { actions.equip(s.id, null); setSlotOpen(null); }} className="jp text-[11px] w-full py-1" style={{ border: "1px dashed var(--rule-soft)", background: "transparent", color: "var(--ink-soft)" }}>外す</button>}
+                    {candidates.map((v) => {
+                      const ci = rpgItemById(v.i);
+                      const on = r.equipped[s.id] === v.u;
+                      return (
+                        <div key={v.u} className="flex items-center gap-2 p-1" style={{ background: on ? "var(--sky-pale)" : "transparent" }}>
+                          <span className="text-lg">{ci.icon}</span>
+                          <div className="flex-1 min-w-0">
+                            <div className="jp text-xs" style={{ color: "var(--ink)" }}>{ci.name} <RpgRarityTag rarity={ci.rarity} /></div>
+                            <div className="jp text-[10px]" style={{ color: "var(--sky-deep)" }}>{fxText(ci.fx)}</div>
+                          </div>
+                          {on ? <span className="jp text-[10px]" style={{ color: "var(--sage)" }}>装備中</span>
+                            : <button onClick={() => { actions.equip(s.id, v.u); setSlotOpen(null); }} className="jp btn-sky text-[11px] px-2 py-1">装備</button>}
+                          {!on && <button onClick={() => { if (confirm(`${ci.name}を${RARITY[ci.rarity].sell}Gで売りますか？`)) actions.sell(v.u); }} className="jp text-[10px] px-1.5 py-1" style={{ border: "1px solid var(--rule-soft)", background: "var(--paper)", color: "var(--ink-soft)" }}>売る</button>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+        <div className="jp text-[10px] mt-2 p-2" style={{ background: "var(--cream)", color: "var(--ink-soft)" }}>
+          いまの効果：会心率 {bonus.critPct}% ／ EXP+{bonus.xpPct}% ／ ゴールド+{bonus.goldPct}% ／ ボスへの攻撃+{bonus.bossDmgPct}% ／ 被ダメージ-{bonus.dmgCutPct}% ／ 最大HP {bonus.maxHp}
+          <br />会心率はLUK、攻撃はINT、被ダメージ軽減はDEF、HPは連続学習日数とレベルでも上がります。
+        </div>
+      </Box>
+
+      {/* 道具 */}
+      <Box title="道具" icon={<Bookmark size={18} />}>
+        <div className="space-y-1">
+          {RPG_CONSUMABLES.map((c) => (
+            <div key={c.id} className="flex items-center gap-2 p-1.5" style={{ border: "1px solid var(--rule-soft)", background: "var(--paper)" }}>
+              <span className="text-xl">{c.icon}</span>
+              <div className="flex-1 min-w-0">
+                <div className="jp text-xs" style={{ color: "var(--ink)" }}>{c.name} ×{r.consumables[c.id] || 0}</div>
+                <div className="jp text-[10px]" style={{ color: "var(--ink-mute)" }}>{c.desc}</div>
+              </div>
+              {c.id !== "potion" && <button disabled={!(r.consumables[c.id] > 0)} onClick={() => flash(actions.useConsumable(c.id))} className="jp btn-sky text-[11px] px-2 py-1">使う</button>}
+              <button disabled={r.gold < c.price} onClick={() => flash(actions.buy("consumable", c.id))} className="jp btn-primary text-[11px] px-2 py-1">{c.price}G</button>
+            </div>
+          ))}
+        </div>
+      </Box>
+
+      {/* ショップ */}
+      <Box title="ショップ" icon={<Crown size={18} />}>
+        <div className="space-y-1">
+          {RPG_ITEMS.filter((it) => it.price).map((it) => (
+            <div key={it.id} className="flex items-center gap-2 p-1.5" style={{ border: "1px solid var(--rule-soft)", background: "var(--paper)" }}>
+              <span className="text-xl">{it.icon}</span>
+              <div className="flex-1 min-w-0">
+                <div className="jp text-xs" style={{ color: "var(--ink)" }}>{it.name} <RpgRarityTag rarity={it.rarity} /> <span className="text-[10px]" style={{ color: "var(--ink-mute)" }}>{RPG_SLOTS.find((s) => s.id === it.slot).label}</span></div>
+                <div className="jp text-[10px]" style={{ color: "var(--sky-deep)" }}>{fxText(it.fx)}</div>
+              </div>
+              <button disabled={r.gold < it.price} onClick={() => flash(actions.buy("item", it.id))} className="jp btn-primary text-[11px] px-2 py-1">{it.price}G</button>
+            </div>
+          ))}
+        </div>
+        <p className="jp text-[10px] mt-2" style={{ color: "var(--ink-mute)" }}>SR・SSRの装備はお店では買えません。ボス討伐や完全制覇の報酬で狙いましょう。</p>
+      </Box>
+
+      {/* 実績 */}
+      <Box title="冒険の実績" icon={<Award size={18} />}>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-1">
+          {RPG_ACHIEVEMENTS.map((a) => {
+            const got = owned.has(a.id);
+            return (
+              <div key={a.id} className="flex items-center gap-2 p-1.5" style={{ border: "1px solid var(--rule-soft)", background: got ? "var(--paper)" : "var(--cream)", opacity: got ? 1 : 0.7 }}>
+                <span className="text-xl" style={{ filter: got ? "none" : "grayscale(1)" }}>{got ? a.icon : "🔒"}</span>
+                <div className="flex-1 min-w-0">
+                  <div className="jp text-xs" style={{ color: got ? "var(--ink)" : "var(--ink-mute)" }}>{a.title}</div>
+                  <div className="jp text-[10px]" style={{ color: "var(--ink-mute)" }}>{got ? a.desc : `条件：${a.hint}`}</div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <p className="jp text-[10px] mt-2" style={{ color: "var(--ink-mute)" }}>手に入れた実績は称号として、ホーム画面で設定できます。</p>
+      </Box>
+    </div>
+  );
+}
+
+// ── ボス戦 ──
+function BossBattle({ state, boss, pool, actions, recordAnswer, startTimer, stopTimer, onExit }) {
+  const bonus = getRpgBonuses(state);
+  const st = calculateStatus(state);
+  const r = normRpg(state.rpg);
+  const [idx, setIdx] = useState(0);
+  const [showAnswer, setShowAnswer] = useState(false);
+  const [bossHp, setBossHp] = useState(boss.hp);
+  const [hp, setHp] = useState(bonus.maxHp);
+  const [maxHp] = useState(bonus.maxHp);
+  const [log, setLog] = useState([`${boss.icon} ${boss.label}があらわれた！`]);
+  const [hit, setHit] = useState(null); // "boss" | "me"
+  const [result, setResult] = useState(null); // { won, gold, xp, itemId, fled }
+  const timerStartedByMe = useRef(false);
+  const finished = useRef(false);
+
+  useEffect(() => {
+    if (!state.timer.startMs) { startTimer(null, "qa"); timerStartedByMe.current = true; }
+    return () => { if (timerStartedByMe.current) { stopTimer(); timerStartedByMe.current = false; } };
+  }, []);
+
+  const item = pool[idx];
+  const bank = item ? state.questionBanks.find((b) => b.id === item.bankId) : null;
+  const q = bank ? (bank.questions || []).find((x) => x.id === item.qId) : null;
+
+  const finish = (won, fled) => {
+    if (finished.current) return;
+    finished.current = true;
+    if (timerStartedByMe.current) { stopTimer(); timerStartedByMe.current = false; }
+    const gold = won ? 60 + 40 * boss.idx + 30 * boss.loop : 10;
+    const xp = won ? 80 + 30 * boss.idx + 20 * boss.loop : 0;
+    const itemId = won ? rollRpgItem(1 + boss.idx * 0.6 + boss.loop) : null;
+    actions.bossFinish({ won, bossId: boss.id, loop: boss.loop, gold, xp, itemId });
+    setResult({ won, fled, gold, xp, itemId });
+  };
+
+  const addLog = (t) => setLog((l) => [...l, t].slice(-4));
+  const flashHit = (who) => { setHit(who); setTimeout(() => setHit(null), 450); };
+
+  const answer = (correct, meta) => {
+    if (!q || result) return;
+    recordAnswer(item.bankId, q.id, correct, meta);
+    let nb = bossHp, nh = hp;
+    if (correct) {
+      const base = 12 + Math.min(30, Math.floor(st.int / 40));
+      const mult = meta && meta.conf === "unsure" ? 0.6 : 1;
+      const crit = Math.random() * 100 < bonus.critPct;
+      const dmg = Math.max(1, Math.round(base * mult * (1 + bonus.bossDmgPct / 100) * (crit ? 2 : 1)));
+      nb = Math.max(0, bossHp - dmg);
+      setBossHp(nb);
+      flashHit("boss");
+      addLog(crit ? `💥 会心の一撃！ ${dmg}のダメージ！` : `⚔ ${boss.name}に${dmg}のダメージ！`);
+    } else {
+      const raw = boss.atk * (meta && meta.confident ? 1.3 : 1);
+      const dmg = Math.max(1, Math.round(raw * (1 - bonus.dmgCutPct / 100)));
+      nh = Math.max(0, hp - dmg);
+      setHp(nh);
+      flashHit("me");
+      addLog(`${boss.icon} ${boss.name}の攻撃！ ${dmg}のダメージを受けた`);
+    }
+    setShowAnswer(false);
+    if (nb <= 0) { addLog(`🎉 ${boss.name}を倒した！`); finish(true, false); return; }
+    if (nh <= 0) { addLog("💀 力尽きた…"); finish(false, false); return; }
+    if (idx + 1 >= pool.length) { addLog(`${boss.name}は逃げていった…`); finish(false, true); return; }
+    setIdx(idx + 1);
+  };
+
+  const usePotion = () => {
+    if (!(r.consumables.potion > 0) || hp >= maxHp) return;
+    actions.useConsumable("potion");
+    setHp(Math.min(maxHp, hp + 40));
+    addLog("🧪 回復薬を使った！ HPが40回復した");
+  };
+
+  const bar = (v, max, color) => (
+    <div style={{ height: 10, background: "rgba(53,65,86,0.1)", border: "1px solid var(--rule-soft)" }}>
+      <div style={{ width: `${Math.max(0, (v / max) * 100)}%`, height: "100%", background: color, transition: "width .4s" }} />
+    </div>
+  );
+
+  if (result) {
+    const it = result.itemId ? rpgItemById(result.itemId) : null;
+    return (
+      <Box title={result.won ? "勝利！" : "敗北…"} icon={result.won ? <Award size={18} /> : <Skull size={18} />}>
+        <div className="text-center py-3">
+          <div className="text-6xl mb-2" style={{ filter: result.won ? "grayscale(1) opacity(0.4)" : "none" }}>{boss.icon}</div>
+          <div className="jp text-base mb-2" style={{ color: result.won ? "var(--sage)" : "var(--brick)" }}>
+            {result.won ? `${boss.label}を倒した！` : result.fled ? `${boss.label}は逃げていった…` : "力尽きてしまった…"}
+          </div>
+          <div className="pixel text-sm" style={{ color: "var(--gold)" }}>+{result.gold} G{result.xp ? ` ・ +${result.xp} EXP` : ""}</div>
+          {it && (
+            <div className="mt-3 p-2 inline-block" style={{ border: `2px solid ${RARITY[it.rarity].color}`, background: "var(--paper)" }}>
+              <div className="jp text-[10px]" style={{ color: "var(--ink-mute)" }}>戦利品</div>
+              <div className="text-3xl">{it.icon}</div>
+              <div className="jp text-sm" style={{ color: "var(--ink)" }}>{it.name} <RpgRarityTag rarity={it.rarity} /></div>
+              <div className="jp text-[10px]" style={{ color: "var(--sky-deep)" }}>{fxText(it.fx)}</div>
+            </div>
+          )}
+          {!result.won && <p className="jp text-[11px] mt-3" style={{ color: "var(--ink-soft)" }}>出題された問題は苦手として記録されています。復習してから再挑戦しましょう。</p>}
+        </div>
+        <button onClick={onExit} className="jp btn-primary w-full py-2">拠点に戻る</button>
+      </Box>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      <style>{`@keyframes sqShake{0%,100%{transform:translateX(0)}20%{transform:translateX(-8px)}40%{transform:translateX(8px)}60%{transform:translateX(-5px)}80%{transform:translateX(5px)}}.sq-shake{animation:sqShake .45s}`}</style>
+      <div className="flex items-center justify-between">
+        <button onClick={() => { if (confirm("戦いから逃げますか？（敗北として記録されます）")) finish(false, true); }} className="jp text-xs flex items-center gap-1" style={{ color: "var(--ink-soft)" }}><XIcon size={14} /> 逃げる</button>
+        <div className="pixel text-xs" style={{ color: "var(--brick)" }}>⚔ {idx + 1}/{pool.length}</div>
+      </div>
+      <div className="rpg-box p-1">
+        <div className="rpg-inner-border">
+          <div className="flex items-center gap-3">
+            <div className={`text-5xl ${hit === "boss" ? "sq-shake" : ""}`}>{boss.icon}</div>
+            <div className="flex-1">
+              <div className="jp text-sm mb-1" style={{ color: "var(--brick)", fontWeight: "bold" }}>{boss.label}</div>
+              {bar(bossHp, boss.hp, "linear-gradient(90deg, var(--brick), #c66060)")}
+              <div className="pixel text-[10px] mt-0.5" style={{ color: "var(--ink-soft)" }}>HP {bossHp}/{boss.hp}</div>
+            </div>
+          </div>
+          <div className={`flex items-center gap-3 mt-3 ${hit === "me" ? "sq-shake" : ""}`}>
+            <div className="flex-shrink-0 flex items-end" title="あなた">
+              <CharacterDisplay level={state.player.level} job="" icon="" size={44} showAura={false} />
+              {(() => { const pt = getPetInfo(state); return pt ? <span style={{ fontSize: 18, marginLeft: -6 }}>{pt.icon}</span> : null; })()}
+            </div>
+            <div className="flex-1">
+              {bar(hp, maxHp, "linear-gradient(90deg, var(--sage), var(--mint))")}
+              <div className="pixel text-[10px] mt-0.5" style={{ color: "var(--ink-soft)" }}>HP {hp}/{maxHp}</div>
+            </div>
+            <button disabled={!(r.consumables.potion > 0) || hp >= maxHp} onClick={usePotion} className="jp text-[11px] px-2 py-1 btn-ghost">🧪×{r.consumables.potion || 0}</button>
+          </div>
+          <div className="jp text-[11px] mt-2 p-1.5" style={{ background: "var(--cream)", color: "var(--ink)", minHeight: 40 }}>
+            {log.map((l, i) => <div key={i} style={{ opacity: i === log.length - 1 ? 1 : 0.55 }}>{l}</div>)}
+          </div>
+        </div>
+      </div>
+      {q ? (
+        <div className="rpg-box p-1">
+          <div className="rpg-inner-border min-h-[160px] flex flex-col">
+            <div className="jp text-[10px] mb-2" style={{ color: "var(--ink-mute)" }}>{item.bankName}</div>
+            <div className="qtext jp text-base md:text-lg flex-1 break-words" style={{ color: "var(--ink)" }}>{renderFormattedText(q.q, q.q_formats)}</div>
+            <QuestionImages bankId={item.bankId} question={q} side="q" />
+            {showAnswer ? (
+              <>
+                <div className="jp text-[10px] mt-3 mb-1" style={{ color: "var(--gold)" }}>答え</div>
+                <div className="qtext jp text-base md:text-lg break-words p-2" style={{ background: "var(--sky-pale)", border: "1px solid var(--gold)", color: "var(--ink)" }}>{renderFormattedText(q.a, q.a_formats)}</div>
+                <QuestionImages bankId={item.bankId} question={q} side="a" />
+                <LawRefChips q={q} />
+                <AnswerPanel onAnswer={answer} question={q} srSettings={state.srSettings} correctLabel="攻撃" wrongLabel="不正解" />
+              </>
+            ) : (
+              <button onClick={() => setShowAnswer(true)} className="jp btn-info mt-3 py-2 flex items-center justify-center gap-1"><Eye size={16} /> 答えを見る</button>
+            )}
+          </div>
+        </div>
+      ) : (
+        <p className="jp text-xs" style={{ color: "var(--ink-mute)" }}>問題が見つかりません。</p>
+      )}
+    </div>
+  );
+}
+
+// ステータス画面に出す「装備と効果」
+function RpgBonusBox({ state }) {
+  const r = normRpg(state.rpg);
+  const b = getRpgBonuses(state);
+  const eq = rpgEquippedItems(r);
+  return (
+    <Box title="装備と効果" icon={<Castle size={18} />}>
+      <div className="flex gap-2 mb-2 flex-wrap">
+        {eq.length === 0 && <span className="jp text-xs" style={{ color: "var(--ink-mute)" }}>装備なし（冒険タブで装備できます）</span>}
+        {eq.map((it) => <span key={it.id} className="jp text-xs px-1.5 py-0.5" style={{ border: `1px solid ${RARITY[it.rarity].color}` }}>{it.icon} {it.name}</span>)}
+      </div>
+      {(() => {
+        const c = getClassInfo(state), p = getPetInfo(state), aw = getAwakening(state);
+        return (
+          <div className="jp text-[11px] mb-2" style={{ color: "var(--ink-soft)" }}>
+            クラス：{c ? `${c.icon}${c.rankName}（${c.bonusText(c.rank)}）` : "未選択"} ／ 相棒：{p ? `${p.icon}${p.name}（${p.stageName}）` : "なし"} ／ 覚醒：{aw.stars > 0 ? "★".repeat(aw.stars) : "なし"}
+          </div>
+        );
+      })()}
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+        <Stat label="💰 所持金" value={`${r.gold.toLocaleString()}G`} accent="var(--gold)" />
+        <Stat label="会心率" value={`${b.critPct}%`} accent="var(--brick)" />
+        <Stat label="EXPボーナス" value={`+${b.xpPct}%`} accent="var(--sky-deep)" />
+        <Stat label="ボスへの攻撃" value={`+${b.bossDmgPct}%`} accent="var(--plum)" />
+        <Stat label="被ダメージ軽減" value={`-${b.dmgCutPct}%`} accent="var(--slate)" />
+        <Stat label="ボス戦の最大HP" value={b.maxHp} accent="var(--sage)" />
+      </div>
+    </Box>
+  );
+}
+
+// ============ キャラクターの育成（クラス・相棒・背景・覚醒） ============
+const TIER_ORDER = ["tier1", "tier2", "tier3", "tier4", "tier5", "tier6"];
+const tierIndex = (level) => TIER_ORDER.indexOf(getCharacterTier(level)); // 0〜5
+
+// ── クラス（Lv10から転職できる） ──
+const RPG_CLASSES = [
+  { id: "sage",   name: "賢者", icon: "🔮", color: "#8a6ca6", ranks: ["見習い魔導士", "魔導士", "賢者", "大賢者", "星詠みの賢者"], style: "正解数が多い", bonusText: (k) => `EXP+${5 + 2 * k}%`,                        fx: (k) => ({ xpPct: 5 + 2 * k }) },
+  { id: "knight", name: "騎士", icon: "🛡️", color: "#4f8eb3", ranks: ["見習い騎士", "騎士", "聖騎士", "守護騎士長", "不動の守護神"],       style: "学習時間が長い", bonusText: (k) => `被ダメージ-${8 + 2 * k}%・HP+${10 + 5 * k}`, fx: (k) => ({ dmgCutPct: 8 + 2 * k, hpPlus: 10 + 5 * k }) },
+  { id: "ranger", name: "狩人", icon: "🏹", color: "#6d8454", ranks: ["見習い狩人", "狩人", "疾風の狩人", "千里眼の射手", "天翔ける狩神"], style: "連続正解・会心が多い", bonusText: (k) => `会心率+${3 + k}%`,                   fx: (k) => ({ critPct: 3 + k }) },
+  { id: "hero",   name: "勇者", icon: "⚔️", color: "#b8862c", ranks: ["見習い勇者", "勇者", "歴戦の勇者", "覇者", "伝説の勇者"],           style: "ボス討伐・完全制覇が多い", bonusText: (k) => `ボスへの攻撃+${10 + 4 * k}%`, fx: (k) => ({ bossDmgPct: 10 + 4 * k }) },
+];
+const CLASS_CHANGE_COST = 300;
+const classById = (id) => RPG_CLASSES.find((c) => c.id === id) || null;
+const classRankIndex = (level) => Math.max(0, Math.min(4, tierIndex(level) - 1)); // Lv10〜：0、Lv50〜：4
+function getClassAptitude(state) {
+  const st = calculateStatus(state);
+  const r = normRpg(state.rpg);
+  return {
+    sage: st.totalCorrect / 300,
+    knight: st.totalHours / 25,
+    ranger: (st.longestQaStreak * 2 + r.crits) / 80,
+    hero: r.bossWins / 3 + st.totalClears / 15,
+  };
+}
+function getClassInfo(state) {
+  const r = normRpg(state.rpg);
+  const c = classById(r.classId);
+  if (!c) return null;
+  const k = classRankIndex(state.player.level);
+  return { ...c, rank: k, rankName: c.ranks[k] };
+}
+
+// ── 相棒 ──
+const PET_TYPES = {
+  dragon: { label: "ドラゴン", stages: [["🥚", "竜のタマゴ"], ["🦎", "おさな竜"], ["🐲", "わか竜"], ["🐉", "竜"], ["🐉", "古竜"]], bonusText: (s) => `ボスへの攻撃+${s * 5}%`, fx: (s) => ({ bossDmgPct: s * 5 }) },
+  bird:   { label: "鳥",       stages: [["🥚", "鳥のタマゴ"], ["🐣", "ひな"], ["🐥", "こどり"], ["🐦", "わかどり"], ["🦅", "大鷲"]],    bonusText: (s) => `ゴールド+${s * 5}%`,     fx: (s) => ({ goldPct: s * 5 }) },
+};
+const PET_THRESHOLDS = [0, 30, 150, 500, 1500]; // 育成ポイント
+function getPetInfo(state) {
+  const r = normRpg(state.rpg);
+  const p = r.pet;
+  if (!p || !PET_TYPES[p.type]) return null;
+  const type = PET_TYPES[p.type];
+  const days = new Set(state.studyLog.filter((l) => l.date >= (p.since || "")).map((l) => l.date)).size;
+  const correctSince = Math.max(0, calculateStatus(state).totalCorrect - (p.baseCorrect || 0));
+  const points = days * 10 + Math.floor(correctSince / 5); // 学習した日1日＝10、正解5問＝1
+  let stage = 0;
+  PET_THRESHOLDS.forEach((t, i) => { if (points >= t) stage = i; });
+  const next = PET_THRESHOLDS[stage + 1] ?? null;
+  const studiedToday = state.studyLog.some((l) => l.date === todayStr());
+  return { ...p, type, points, stage, next, icon: type.stages[stage][0], stageName: type.stages[stage][1], days, studiedToday, maxed: stage === PET_THRESHOLDS.length - 1 };
+}
+
+// ── 覚醒★（記憶が定着した問題の数） ──
+const AWAKEN_THRESHOLDS = [100, 300, 700, 1500, 3000];
+const MASTERED_STABILITY = 21; // FSRSの安定度（日）
+function getAwakening(state) {
+  let mastered = 0;
+  for (const b of state.questionBanks) for (const q of b.questions || []) if (q.fs && q.fs.s >= MASTERED_STABILITY) mastered++;
+  let stars = 0;
+  AWAKEN_THRESHOLDS.forEach((t, i) => { if (mastered >= t) stars = i + 1; });
+  return { mastered, stars, next: AWAKEN_THRESHOLDS[stars] ?? null };
+}
+
+// クラス・相棒・覚醒による効果（getRpgBonuses から使う）
+function getGrowthFx(state) {
+  const fx = [];
+  const c = getClassInfo(state);
+  if (c) fx.push(c.fx(c.rank));
+  const p = getPetInfo(state);
+  if (p && p.stage > 0) fx.push(p.type.fx(p.stage));
+  const aw = getAwakening(state);
+  if (aw.stars > 0) fx.push({ xpPct: aw.stars * 3, critPct: aw.stars });
+  return fx;
+}
+
+// ── 背景 ──
+const RPG_SCENES = {
+  tier1: { name: "はじまりの村", bg: "linear-gradient(#cfe6f5 0%, #e8f3d8 62%, #9cc27a 62%, #7fa85e 100%)", deco: ["🏠", "🌳"] },
+  tier2: { name: "風の草原",     bg: "linear-gradient(#a9d4ef 0%, #d9eefa 58%, #a6cf7a 58%, #86b45a 100%)", deco: ["⛰️", "🌾"] },
+  tier3: { name: "古の砦",       bg: "linear-gradient(#8fb6d8 0%, #c9dcec 58%, #9aa48a 58%, #7d876d 100%)", deco: ["🏯", "🌲"] },
+  tier4: { name: "王都の城",     bg: "linear-gradient(#f6d79a 0%, #fbe9c6 56%, #b9a77f 56%, #9b8a63 100%)", deco: ["🏰", "🚩"] },
+  tier5: { name: "灼熱の火山",   bg: "linear-gradient(#5b2a3a 0%, #a0485a 55%, #6a3a2a 55%, #432318 100%)", deco: ["🌋", "🔥"] },
+  tier6: { name: "天空の聖域",   bg: "linear-gradient(#2a3a7a 0%, #7a6ab8 50%, #e9defa 50%, #cdbff0 100%)", deco: ["☁️", "🌟"] },
+};
+
+// キャラクター・背景・オーラ・光の粒・相棒・★をまとめて描く
+function HeroPortrait({ state, size = 160 }) {
+  const level = state.player.level;
+  const tier = getCharacterTier(level);
+  const ti = tierIndex(level);
+  const scene = RPG_SCENES[tier] || RPG_SCENES.tier1;
+  const cls = getClassInfo(state);
+  const pet = getPetInfo(state);
+  const aw = getAwakening(state);
+  const auraColor = cls ? cls.color : "#7eb6d6";
+  const sparkleCount = aw.stars * 2 + Math.max(0, ti - 2) * 2;
+  const sparkles = Array.from({ length: sparkleCount }, (_, i) => ({ left: (i * 37 + 11) % 90 + 3, top: (i * 53 + 7) % 60 + 4, delay: (i * 0.37) % 2.4, size: 8 + (i % 3) * 3 }));
+  return (
+    <div style={{ width: size, display: "inline-block" }}>
+      <style>{`@keyframes sqTwinkle{0%,100%{opacity:0;transform:scale(.4)}50%{opacity:1;transform:scale(1)}}@keyframes sqBob{0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)}}@keyframes sqPulse{0%,100%{opacity:.55}50%{opacity:.95}}`}</style>
+      <div style={{ width: size, height: size, position: "relative", overflow: "hidden", background: scene.bg, border: `3px solid ${aw.stars > 0 ? "#d6a84e" : "var(--rule)"}`, boxShadow: aw.stars >= 3 ? "0 0 10px rgba(214,168,78,0.8)" : "none" }}>
+        {/* 背景の飾り */}
+        <span style={{ position: "absolute", left: "4%", bottom: "30%", fontSize: size * 0.16, opacity: 0.85 }}>{scene.deco[0]}</span>
+        <span style={{ position: "absolute", right: "4%", bottom: "34%", fontSize: size * 0.13, opacity: 0.85 }}>{scene.deco[1]}</span>
+        {/* クラスのオーラ */}
+        {(cls || aw.stars > 0) && (
+          <div style={{ position: "absolute", left: "50%", top: "52%", width: size * 0.9, height: size * 0.9, transform: "translate(-50%,-50%)", borderRadius: "50%", background: `radial-gradient(circle, ${auraColor}aa 0%, ${auraColor}33 45%, transparent 70%)`, animation: "sqPulse 2.6s ease-in-out infinite", pointerEvents: "none" }} />
+        )}
+        {/* 光の粒 */}
+        {sparkles.map((sp, i) => (
+          <span key={i} style={{ position: "absolute", left: `${sp.left}%`, top: `${sp.top}%`, fontSize: sp.size, color: aw.stars > 0 ? "#ffe9a0" : "#ffffff", animation: `sqTwinkle 2.4s ease-in-out ${sp.delay}s infinite`, pointerEvents: "none", textShadow: "0 0 4px rgba(255,230,150,0.9)" }}>✦</span>
+        ))}
+        {/* キャラクター */}
+        <div style={{ position: "absolute", left: "50%", bottom: "2%", transform: "translateX(-50%)" }}>
+          <CharacterDisplay level={level} job="" icon="" size={Math.round(size * 0.74)} showAura={false} />
+        </div>
+        {/* 相棒 */}
+        {pet && (
+          <div style={{ position: "absolute", right: "5%", bottom: "4%", fontSize: size * (0.12 + pet.stage * 0.02), animation: "sqBob 1.8s ease-in-out infinite", filter: pet.maxed ? "drop-shadow(0 0 6px gold)" : "none" }} title={`${pet.name}（${pet.stageName}）`}>
+            {pet.icon}{!pet.studiedToday && pet.stage > 0 && <span style={{ fontSize: size * 0.07, position: "absolute", top: -size * 0.04, right: -size * 0.03 }}>💤</span>}
+          </div>
+        )}
+        {/* 覚醒の★ */}
+        {aw.stars > 0 && (
+          <div className="pixel" style={{ position: "absolute", top: 3, left: 0, right: 0, textAlign: "center", fontSize: Math.max(10, size * 0.08), color: "#ffd75e", textShadow: "1px 1px 0 #7a5a10, 0 0 6px rgba(255,215,94,0.9)" }}>{"★".repeat(aw.stars)}</div>
+        )}
+      </div>
+      <div className="jp text-center px-1 py-0.5" style={{ background: cls ? cls.color : "var(--slate)", color: "var(--paper)", fontSize: Math.max(10, size * 0.07) }}>
+        {cls ? `${cls.icon} ${cls.rankName}` : "クラス未選択"}
+      </div>
+      <div className="jp text-center" style={{ fontSize: Math.max(9, size * 0.06), color: "var(--ink-mute)" }}>📍{scene.name}</div>
+    </div>
+  );
+}
+
+// ── 冒険タブに出す育成パネル（転職の神殿・相棒・覚醒） ──
+function GrowthPanels({ state, actions }) {
+  const r = normRpg(state.rpg);
+  const level = state.player.level;
+  const cls = getClassInfo(state);
+  const apt = getClassAptitude(state);
+  const maxApt = Math.max(0.01, ...Object.values(apt));
+  const recommended = Object.entries(apt).sort((a, b) => b[1] - a[1])[0][0];
+  const pet = getPetInfo(state);
+  const aw = getAwakening(state);
+  const [petType, setPetType] = useState("dragon");
+  const [petName, setPetName] = useState("");
+  const [renaming, setRenaming] = useState(false);
+  const [msg, setMsg] = useState("");
+  const flash = (t) => { setMsg(t); setTimeout(() => setMsg(""), 2500); };
+  const firstFree = !r.classId;
+
+  return (
+    <>
+      {msg && <div className="jp text-sm p-2 text-center" style={{ background: "var(--cream)", border: "1px solid var(--gold)", color: "var(--ink)" }}>{msg}</div>}
+
+      {/* 覚醒 */}
+      <Box title="覚醒" icon={<Sparkles size={18} />}>
+        <div className="flex items-center gap-3 mb-2">
+          <div className="pixel text-lg" style={{ color: "#d6a84e", minWidth: 90 }}>{aw.stars > 0 ? "★".repeat(aw.stars) : "☆"}<span style={{ color: "var(--ink-mute)" }}>{"☆".repeat(5 - aw.stars)}</span></div>
+          <div className="flex-1">
+            <div className="jp text-xs" style={{ color: "var(--ink)" }}>しっかり覚えた問題：{aw.mastered.toLocaleString()}問</div>
+            {aw.next && <div className="stat-bar mt-1"><div style={{ width: `${Math.min(100, (aw.mastered / aw.next) * 100)}%` }} /></div>}
+            <div className="jp text-[10px] mt-0.5" style={{ color: "var(--ink-mute)" }}>{aw.next ? `次の★まで あと${aw.next - aw.mastered}問` : "最高の覚醒に到達しました！"}</div>
+          </div>
+        </div>
+        <p className="jp text-[10px]" style={{ color: "var(--ink-mute)" }}>
+          Ankiのアルゴリズムで「{MASTERED_STABILITY}日以上覚えていられる」と判定された問題の数です。★1つごとにEXP+3%・会心率+1%。★の数だけ光の粒が増え、★3からは額縁が輝きます。（★の条件：{AWAKEN_THRESHOLDS.map((t) => `${t}問`).join("・")}）
+        </p>
+      </Box>
+
+      {/* 転職の神殿 */}
+      <Box title="転職の神殿" icon={<Crown size={18} />}>
+        {level < 10 ? (
+          <p className="jp text-xs" style={{ color: "var(--ink-soft)" }}>Lv10になると転職できます（あと{10 - level}レベル）。それまでの学習のしかたで、向いているクラスが決まっていきます。</p>
+        ) : (
+          <>
+            <p className="jp text-[11px] mb-2" style={{ color: "var(--ink-soft)" }}>
+              {cls ? `いまのクラス：${cls.icon} ${cls.rankName}（${cls.bonusText(cls.rank)}）` : "あなたの学習のしかたから、向いているクラスが分かります。最初の転職は無料です。"}
+            </p>
+            <div className="space-y-1">
+              {RPG_CLASSES.map((c) => {
+                const k = classRankIndex(level);
+                const on = r.classId === c.id;
+                return (
+                  <div key={c.id} className="p-2" style={{ border: `1px solid ${on ? c.color : "var(--rule-soft)"}`, background: on ? "var(--sky-pale)" : "var(--paper)" }}>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xl">{c.icon}</span>
+                      <div className="flex-1 min-w-0">
+                        <div className="jp text-sm" style={{ color: c.color, fontWeight: "bold" }}>{c.name} {recommended === c.id && <span className="jp text-[9px] px-1" style={{ background: "var(--brick)", color: "var(--paper)" }}>おすすめ</span>}</div>
+                        <div className="jp text-[10px]" style={{ color: "var(--ink-mute)" }}>適性：{c.style} ／ 効果：{c.bonusText(k)}</div>
+                      </div>
+                      {on ? <span className="jp text-[10px]" style={{ color: "var(--sage)" }}>現在</span> : (
+                        <button disabled={!firstFree && r.gold < CLASS_CHANGE_COST} onClick={() => { if (confirm(`${c.name}に転職しますか？${firstFree ? "（無料）" : `（${CLASS_CHANGE_COST}G）`}`)) flash(actions.setClass(c.id)); }} className="jp btn-sky text-[11px] px-2 py-1">{firstFree ? "転職" : `${CLASS_CHANGE_COST}G`}</button>
+                      )}
+                    </div>
+                    <div className="stat-bar mt-1" style={{ height: 6 }}><div style={{ width: `${Math.min(100, (apt[c.id] / maxApt) * 100)}%`, background: c.color }} /></div>
+                  </div>
+                );
+              })}
+            </div>
+            <p className="jp text-[10px] mt-2" style={{ color: "var(--ink-mute)" }}>クラスの称号はレベルとともに上がります（Lv10・20・30・40・50）。</p>
+          </>
+        )}
+      </Box>
+
+      {/* 相棒 */}
+      <Box title="相棒" icon={<StarIcon size={18} />}>
+        {!pet ? (
+          <>
+            <p className="jp text-xs mb-2" style={{ color: "var(--ink-soft)" }}>タマゴを選んで、名前を付けてください。学習した日と正解した問題の数で育ち、5段階に進化します。</p>
+            <div className="grid grid-cols-2 gap-2 mb-2">
+              {Object.entries(PET_TYPES).map(([id, t]) => (
+                <button key={id} onClick={() => setPetType(id)} className="jp p-2 text-left" style={{ border: `2px solid ${petType === id ? "var(--sky-deep)" : "var(--rule-soft)"}`, background: "var(--paper)" }}>
+                  <div className="text-2xl">{t.stages.map((s) => s[0]).filter((v, i, a) => a.indexOf(v) === i).join("→")}</div>
+                  <div className="text-xs" style={{ color: "var(--ink)" }}>{t.label}</div>
+                  <div className="text-[10px]" style={{ color: "var(--ink-mute)" }}>育つと{t.bonusText(4)}まで</div>
+                </button>
+              ))}
+            </div>
+            <input className="rpg-input mb-2" value={petName} onChange={(e) => setPetName(e.target.value)} maxLength={12} placeholder="名前（例：ポチ）" />
+            <button disabled={!petName.trim()} onClick={() => flash(actions.adoptPet(petType, petName.trim()))} className="jp btn-primary w-full py-2">🥚 この子を迎える</button>
+          </>
+        ) : (
+          <>
+            <div className="flex items-center gap-3">
+              <div className="text-5xl" style={{ animation: "sqBob 1.8s ease-in-out infinite", filter: pet.maxed ? "drop-shadow(0 0 6px gold)" : "none" }}>{pet.icon}</div>
+              <div className="flex-1 min-w-0">
+                <div className="jp text-base" style={{ color: "var(--ink)", fontWeight: "bold" }}>{pet.name} <span className="jp text-xs" style={{ color: "var(--ink-soft)", fontWeight: "normal" }}>（{pet.stageName}）</span></div>
+                <div className="jp text-[10px]" style={{ color: "var(--ink-soft)" }}>育成ポイント {pet.points}{pet.next ? ` ／ 次の進化まで あと${pet.next - pet.points}` : "（最終進化）"}</div>
+                {pet.next && <div className="stat-bar mt-1"><div style={{ width: `${Math.min(100, ((pet.points - PET_THRESHOLDS[pet.stage]) / (pet.next - PET_THRESHOLDS[pet.stage])) * 100)}%` }} /></div>}
+                <div className="jp text-[10px] mt-1" style={{ color: "var(--sky-deep)" }}>{pet.stage > 0 ? `効果：${pet.type.bonusText(pet.stage)}` : "孵化すると効果が付きます"}</div>
+                <div className="jp text-[10px]" style={{ color: pet.studiedToday ? "var(--sage)" : "var(--ink-mute)" }}>{pet.studiedToday ? "😊 今日もいっしょに勉強した！" : "💤 今日はまだ勉強していません"}</div>
+              </div>
+            </div>
+            {renaming ? (
+              <div className="flex gap-1 mt-2">
+                <input className="rpg-input flex-1" value={petName} onChange={(e) => setPetName(e.target.value)} maxLength={12} />
+                <button disabled={!petName.trim()} onClick={() => { actions.renamePet(petName.trim()); setRenaming(false); }} className="jp btn-primary text-xs px-2">保存</button>
+              </div>
+            ) : (
+              <button onClick={() => { setPetName(pet.name); setRenaming(true); }} className="jp text-[10px] mt-2" style={{ background: "transparent", border: "none", color: "var(--ink-mute)", textDecoration: "underline" }}>名前を変える</button>
+            )}
+            <p className="jp text-[10px] mt-1" style={{ color: "var(--ink-mute)" }}>学習した日1日で10ポイント、正解5問で1ポイント。進化の段階：{PET_THRESHOLDS.slice(1).join("・")}ポイント</p>
+          </>
+        )}
+      </Box>
+    </>
   );
 }
 
