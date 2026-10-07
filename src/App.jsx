@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, createContext, useContext } from "react";
+import { useState, useEffect, useRef, createContext, useContext, Fragment } from "react";
 import { createPortal } from "react-dom";
 import { fsrs as createFsrs, createEmptyCard, Rating, State } from "ts-fsrs";
 import Papa from "papaparse";
@@ -105,9 +105,308 @@ const fmtSec = (s) => { const h = Math.floor(s / 3600), m = Math.floor((s % 3600
 const daysUntil = (d) => { if (!d) return null; const t = new Date(); t.setHours(0,0,0,0); const x = new Date(d); x.setHours(0,0,0,0); return Math.ceil((x - t) / 86400000); };
 const todayStr = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; };
 
+// ============ クラシックテーマ（RPGメニュー風・落ち着いたコバルト） ============
+// 色はCSS変数（--paper, --ink など）を差し替えて、アプリ全体をまとめて切り替える。
+// 立ち絵は public/hero.jpg を使う（無い場合はドット絵のキャラクターで代用）。
+const HERO_URL = `${(import.meta.env && import.meta.env.BASE_URL) || "/"}hero.jpg`;
+const readPref = (key, fallback) => { try { return localStorage.getItem(key) || fallback; } catch (e) { return fallback; } };
+const writePref = (key, value) => { try { localStorage.setItem(key, value); } catch (e) { /* 保存できなくても動作は続ける */ } };
+
+const CLASSIC_CSS = `
+html[data-theme="classic"]{--ink:#eef1f6;--ink-soft:#c3cede;--ink-mute:#8f9cb8;--paper:#18264a;--cream:#1f3058;--beige:#26395f;--greige:#33476e;--rule:#c9d3e6;--rule-soft:#4a5d86;--gold:#dcbc6e;--gold-light:#e9cf8e;--sage:#8fc4a6;--brick:#e0948a;--slate:#a3b6da;--sky:#8fa9d6;--sky-light:#2c4378;--sky-pale:#22386a;--sky-deep:#a9c4ea;--mint:#8fd0bd;--plum:#bba7dc;--hl:rgba(220,188,110,0.32);--memo-bg:rgba(220,188,110,0.12);background:#0d1428;color-scheme:dark}
+html[data-theme="classic"] body{background:transparent !important;color:var(--ink);font-family:'M PLUS Rounded 1c','Hiragino Maru Gothic ProN',sans-serif}
+html[data-theme="classic"] body::before{content:"";position:fixed;left:-48px;top:-48px;right:-48px;bottom:-48px;z-index:-2;background:#0d1428 url("${HERO_URL}") center 20%/cover no-repeat;filter:blur(26px) brightness(.32) saturate(.55)}
+html[data-theme="classic"] body::after{content:"";position:fixed;left:0;top:0;right:0;bottom:0;z-index:-1;background:rgba(22,32,68,.55);box-shadow:inset 0 0 220px rgba(0,0,0,.6)}
+html[data-theme="classic"] .jp{font-family:'M PLUS Rounded 1c','Hiragino Maru Gothic ProN',sans-serif}
+html[data-theme="classic"] .pixel{font-family:'M PLUS Rounded 1c','Hiragino Maru Gothic ProN',sans-serif;font-weight:800;letter-spacing:.02em}
+html[data-theme="classic"] .rpg-box{background:linear-gradient(180deg,rgba(61,87,145,.94) 0%,rgba(39,63,120,.94) 50%,rgba(23,37,72,.96) 100%);border:2px solid #e4e9f2;border-radius:6px;box-shadow:inset 0 0 0 2px #0a1226,inset 0 0 0 3px rgba(160,185,215,.6),0 4px 0 rgba(0,0,0,.35)}
+html[data-theme="classic"] .rpg-inner-border{border:none;padding:14px}
+html[data-theme="classic"] .rpg-input{background:#0f1a36;color:var(--ink);border:1px solid #6d80a8;border-radius:3px}
+html[data-theme="classic"] .rpg-input:focus{outline:2px solid #a9c4ea}
+html[data-theme="classic"] .btn-primary{background:linear-gradient(180deg,#e2c47a,#b48f45);color:#1d1608;border:1px solid #f0dca6;border-radius:3px}
+html[data-theme="classic"] .btn-sky,html[data-theme="classic"] .btn-info{background:linear-gradient(180deg,#4b6aa6,#2f4880);color:#eef1f6;border:1px solid #a9c4ea;border-radius:3px}
+html[data-theme="classic"] .btn-success{background:linear-gradient(180deg,#4d8a6c,#2f604a);color:#eef7f1;border:1px solid #8fc4a6;border-radius:3px}
+html[data-theme="classic"] .btn-danger{background:linear-gradient(180deg,#9a4d48,#6e302d);color:#fbeceb;border:1px solid #e0948a;border-radius:3px}
+html[data-theme="classic"] .btn-plum{background:linear-gradient(180deg,#6f5a9a,#4c3c72);color:#f3eefb;border:1px solid #bba7dc;border-radius:3px}
+html[data-theme="classic"] .btn-ghost{background:rgba(255,255,255,.04);color:var(--ink);border:1px solid #6d80a8;border-radius:3px}
+html[data-theme="classic"] .btn-ghost:hover{background:rgba(160,185,215,.14)}
+html[data-theme="classic"] .stamp{background:rgba(255,255,255,.06)}
+html[data-theme="classic"] .stat-bar{background:#0a1020;border-color:#4a5d86}
+html[data-theme="classic"] .swirl{display:none}
+html[data-theme="classic"] .boot{color:#c3cede}
+html[data-theme="classic"] ::placeholder{color:#7f8aa6}
+@keyframes sqBlink{0%,100%{opacity:1}50%{opacity:.25}}
+@keyframes sqCaret{0%,100%{transform:translateY(0);opacity:1}50%{transform:translateY(3px);opacity:.55}}
+@keyframes sqFadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+@keyframes sqTwinkleT{0%,100%{opacity:0;transform:scale(.5)}50%{opacity:.9;transform:scale(1)}}
+`;
+const CLASSIC_FONTS = "https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@400;700;800&family=Cinzel:wght@700;900&family=Shippori+Mincho+B1:wght@500;700&display=swap";
+
+// テーマの適用（html要素に data-theme を付け、フォントとCSSを読み込む）
+function ClassicThemeStyle({ active }) {
+  useEffect(() => {
+    const el = document.documentElement;
+    if (active) {
+      el.setAttribute("data-theme", "classic");
+      if (!document.getElementById("sq-classic-fonts")) {
+        const link = document.createElement("link");
+        link.id = "sq-classic-fonts"; link.rel = "stylesheet"; link.href = CLASSIC_FONTS;
+        document.head.appendChild(link);
+      }
+    } else {
+      el.removeAttribute("data-theme");
+    }
+  }, [active]);
+  return active ? <style>{CLASSIC_CSS}</style> : null;
+}
+
+// クラシックテーマ用の文字スタイル
+const CL = {
+  label: { color: "#a3c3da" },
+  gold: { color: "#dcbc6e" },
+  logo: { fontFamily: "'Cinzel', 'Times New Roman', serif", fontWeight: 900, background: "linear-gradient(180deg, #f6ecc8 0%, #dcbc6e 48%, #9b7634 100%)", WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent", filter: "drop-shadow(0 2px 0 #1a1408) drop-shadow(0 0 12px rgba(220,188,110,0.3))" },
+  mincho: { fontFamily: "'Shippori Mincho B1', serif", color: "#d8cba2" },
+  rowOn: { background: "linear-gradient(90deg, rgba(140,165,210,0.32), rgba(140,165,210,0.05))", boxShadow: "inset 0 0 0 1px rgba(190,205,230,0.7)" },
+  rowOff: { background: "transparent", boxShadow: "none" },
+};
+
+// ゲージ（EXP・今日の復習・記憶の定着）
+function ClassicGauge({ label, value, max, text, colors, compact = false }) {
+  const pct = max > 0 ? Math.max(0, Math.min(100, (value / max) * 100)) : 0;
+  return (
+    <div>
+      <div className="flex justify-between items-baseline jp">
+        <span className={compact ? "text-[11px]" : "text-sm"} style={{ ...CL.label, fontWeight: 700 }}>{label}</span>
+        <span className={compact ? "text-xs" : "text-base"} style={{ fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>{text}</span>
+      </div>
+      <div style={{ height: compact ? 8 : 11, marginTop: 4, borderRadius: 2, background: "#0a1020", boxShadow: "inset 0 0 0 1px rgba(160,185,215,0.4)", overflow: "hidden" }}>
+        <div style={{ width: `${pct}%`, height: "100%", background: `linear-gradient(90deg, ${colors[0]}, ${colors[1]})`, transition: "width .5s" }} />
+      </div>
+    </div>
+  );
+}
+
+// ── タイトル画面（起動時の待ち受け） ──
+function TitleScreen({ loading, saveInfo, onContinue, onSettings, onLogout }) {
+  const [stage, setStage] = useState("press"); // press | menu
+  const [sel, setSel] = useState("continue");
+  const items = ["continue", "settings", "logout"];
+  const choose = (id) => { if (id === "continue") onContinue(); else if (id === "settings") onSettings(); else onLogout(); };
+  useEffect(() => {
+    const onKey = (e) => {
+      if (loading) return;
+      if (stage === "press" && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); setStage("menu"); return; }
+      if (stage !== "menu") return;
+      if (e.key === "ArrowDown") { e.preventDefault(); setSel((s) => items[(items.indexOf(s) + 1) % items.length]); }
+      else if (e.key === "ArrowUp") { e.preventDefault(); setSel((s) => items[(items.indexOf(s) + items.length - 1) % items.length]); }
+      else if (e.key === "Enter") { e.preventDefault(); choose(sel); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [stage, sel, loading]);
+
+  const row = (id, children, minH) => (
+    <button key={id} type="button" onClick={() => choose(id)} onMouseEnter={() => setSel(id)} onFocus={() => setSel(id)}
+      className="jp flex items-center gap-2 w-full text-left" style={{ ...(sel === id ? CL.rowOn : CL.rowOff), minHeight: minH, padding: "6px 12px 6px 6px", border: "none", borderRadius: 3, color: "#eef1f6", cursor: "pointer" }}>
+      <span style={{ width: 14, fontSize: 12, color: sel === id ? "#c8d6ea" : "transparent" }}>▶</span>
+      {children}
+    </button>
+  );
+
+  return (
+    <div className="fixed inset-0 overflow-hidden" style={{ zIndex: 60, background: "#0d1428", color: "#eef1f6" }}>
+      <div style={{ position: "absolute", left: -60, top: -60, right: -60, bottom: -60, background: `#0d1428 url("${HERO_URL}") center 20%/cover no-repeat`, filter: "blur(26px) brightness(0.32) saturate(0.55)" }} />
+      <div style={{ position: "absolute", inset: 0, background: "rgba(22,32,68,0.55)" }} />
+      <img src={HERO_URL} alt="" onError={(e) => { e.currentTarget.style.display = "none"; }}
+        className="absolute left-1/2 -translate-x-1/2 md:left-auto md:translate-x-0 md:right-[5%] top-[15%] md:top-[1%] h-[62vh] md:h-[98vh]"
+        style={{ aspectRatio: "2 / 3", objectFit: "cover", WebkitMaskImage: "radial-gradient(ellipse 50% 50% at 50% 46%, #000 58%, transparent 100%)", maskImage: "radial-gradient(ellipse 50% 50% at 50% 46%, #000 58%, transparent 100%)", filter: "saturate(0.85) brightness(0.95)" }} />
+      <div style={{ position: "absolute", inset: 0, boxShadow: "inset 0 0 200px rgba(0,0,0,0.75)", pointerEvents: "none" }} />
+      {[[12, 22, 0], [86, 28, 1.1], [70, 62, 2], [22, 66, 0.6]].map(([l, t, d], i) => (
+        <span key={i} style={{ position: "absolute", left: `${l}%`, top: `${t}%`, fontSize: 11, color: "#e6d6a6", animation: `sqTwinkleT 3s ease-in-out ${d}s infinite` }}>✦</span>
+      ))}
+
+      <div className="relative h-full flex flex-col items-center justify-between md:items-start md:justify-center md:gap-14 px-6 md:pl-[8vw] pt-12 md:pt-0 pb-14 md:pb-0">
+        <div className="flex flex-col items-center md:items-start gap-1">
+          <div className="flex items-center gap-3 text-[15px] md:text-[22px]" style={{ ...CL.mincho, fontWeight: 700, letterSpacing: "0.35em" }}>
+            <span style={{ display: "block", width: 40, height: 1, background: "linear-gradient(90deg, rgba(216,203,162,0), #d8cba2)" }} />学びの冒険<span style={{ display: "block", width: 40, height: 1, background: "linear-gradient(90deg, #d8cba2, rgba(216,203,162,0))" }} />
+          </div>
+          <h1 className="m-0 text-center md:text-left text-[46px] md:text-[96px]" style={{ ...CL.logo, lineHeight: 1.05, letterSpacing: "0.04em" }}>
+            STUDY<br className="hidden md:inline" /> QUEST
+          </h1>
+          <div className="flex items-center gap-2 mt-1" style={{ color: "#8f9cb8", fontSize: 12 }}>
+            <span style={{ display: "block", width: 120, height: 1, background: "rgba(160,185,215,0.45)" }} />◆<span style={{ display: "block", width: 120, height: 1, background: "rgba(160,185,215,0.45)" }} />
+          </div>
+        </div>
+
+        <div className="w-full max-w-[440px]">
+          {loading && (
+            <div className="jp text-center md:text-left text-sm" style={{ color: "#a3c3da", letterSpacing: "0.2em", animation: "sqBlink 1.6s ease-in-out infinite" }}>冒険の記録を読み込んでいます…</div>
+          )}
+          {!loading && stage === "press" && (
+            <button type="button" onClick={() => setStage("menu")} className="w-full md:w-auto text-center md:text-left" style={{ minHeight: 64, padding: "0 12px", border: "none", background: "transparent", color: "#e4e9f2", fontFamily: "'Cinzel', serif", fontSize: 20, fontWeight: 700, letterSpacing: "0.3em", cursor: "pointer", animation: "sqBlink 1.6s ease-in-out infinite" }}>
+              ― PRESS START ―
+              <span className="jp block mt-1" style={{ fontSize: 12, letterSpacing: "0.2em", color: "#a3c3da" }}>タップしてはじめる</span>
+            </button>
+          )}
+          {!loading && stage === "menu" && (
+            <div className="rpg-box p-2 flex flex-col gap-0.5" style={{ animation: "sqFadeIn .35s ease-out" }}>
+              {row("continue", (
+                <span className="flex flex-col gap-0.5">
+                  <span className="text-[18px]" style={{ fontWeight: 800, letterSpacing: "0.1em" }}>つづきから</span>
+                  <span className="text-[11px]" style={CL.label}>{saveInfo}</span>
+                </span>
+              ), 60)}
+              {row("settings", <span className="text-[16px]" style={{ fontWeight: 700, letterSpacing: "0.1em" }}>設定</span>, 46)}
+              {row("logout", <span className="text-[16px]" style={{ fontWeight: 700, letterSpacing: "0.1em" }}>ログアウト</span>, 46)}
+            </div>
+          )}
+        </div>
+      </div>
+      <div className="absolute left-0 right-0 bottom-4 md:bottom-6 flex justify-center md:justify-between gap-4 px-6 md:px-[8vw] jp" style={{ fontSize: 11, color: "#7f8aa6", letterSpacing: "0.15em" }}>
+        <span>© {new Date().getFullYear()} STUDY QUEST</span><span>Ver. 2.0</span>
+      </div>
+    </div>
+  );
+}
+
+// ── 上部の情報ウィンドウ（現在地・レベル・所持金・タイマー） ──
+function ClassicInfoBar({ state, liveSeconds, onStatus }) {
+  const player = state.player;
+  const xpNeeded = getXpForNextLevel(player.level);
+  const scene = (RPG_SCENES[getCharacterTier(player.level)] || RPG_SCENES.tier1).name;
+  const st = calculateStatus(state);
+  const gold = normRpg(state.rpg).gold;
+  return (
+    <div className="rpg-box mb-3 px-3 py-2 flex flex-wrap items-center gap-x-5 gap-y-1 jp">
+      <button onClick={onStatus} title="ステータス画面へ" className="flex-shrink-0" style={{ background: "transparent", border: "none", padding: 0, cursor: "pointer" }}>
+        <CharacterDisplay level={player.level} job="" icon="" size={38} showAura={false} />
+      </button>
+      <div className="flex items-baseline gap-2"><span className="text-[11px]" style={CL.label}>現在地</span><span className="text-sm" style={{ fontWeight: 700 }}>{scene}</span></div>
+      <div className="flex items-center gap-2">
+        <span className="text-[11px]" style={CL.label}>Lv</span><span className="text-lg" style={{ ...CL.gold, fontWeight: 800 }}>{player.level}</span>
+        <div style={{ width: 80, height: 6, borderRadius: 2, background: "#0a1020", boxShadow: "inset 0 0 0 1px rgba(160,185,215,0.4)", overflow: "hidden" }}>
+          <div style={{ width: `${Math.min(100, (player.xp / xpNeeded) * 100)}%`, height: "100%", background: "linear-gradient(90deg, #3d5c9e, #9db6dc)" }} />
+        </div>
+      </div>
+      <div className="flex items-baseline gap-2"><span className="text-[11px]" style={CL.label}>連続学習</span><span className="text-sm" style={{ fontWeight: 700 }}>{st.currentStreak}日</span></div>
+      {state.timer.startMs && <div className="text-sm" style={{ color: "#e0948a", fontWeight: 700, animation: "sqBlink 1.6s ease-in-out infinite" }}>⏱ {fmtSec(liveSeconds)}</div>}
+      <div className="ml-auto flex items-baseline gap-1"><span className="text-base" style={{ fontWeight: 800, fontVariantNumeric: "tabular-nums" }}>{gold.toLocaleString()}</span><span className="text-sm" style={{ ...CL.gold, fontWeight: 800 }}>G</span></div>
+    </div>
+  );
+}
+
+// ── ホームのメニュー画面（コマンド・立ち絵・ゲージ・メッセージ） ──
+const MENU_COMMANDS = [
+  { id: "today", label: "今日の復習" },
+  { id: "qbank", label: "問題集", desc: "問題集を選んで学習します。周回の記録や苦手問題の書き出しもここから。" },
+  { id: "adventure", label: "冒険", desc: "装備・ショップ・ボス戦・転職の神殿・相棒の育成ができます。" },
+  { id: "status", label: "ステータス", desc: "能力値、正答率、学習時間の推移を確認します。" },
+  { id: "qual", label: "資格", desc: "目指す資格と試験日を管理します。" },
+  { id: "task", label: "タスク", desc: "今日やることを登録して、クリアするとEXPがもらえます。" },
+  { id: "timer", label: "タイマー", desc: "学習時間を計ります。" },
+  { id: "memo", label: "メモ", desc: "フォルダごとに学習メモをまとめます。" },
+  { id: "law", label: "条文", desc: "条文番号やキーワードで、条文と問題をまとめて探します。" },
+  { id: "option", label: "設定", desc: "テーマ、文字の大きさ・フォント、タイトル画面の表示を変えられます。" },
+];
+function MenuHome({ state, todayCount, onCommand }) {
+  const [focus, setFocus] = useState(null);
+  const [imgOk, setImgOk] = useState(true);
+  const player = state.player;
+  const xpNeeded = getXpForNextLevel(player.level);
+  const mainAch = player.mainTitleId ? player.achievements.find((a) => a.id === player.mainTitleId) : null;
+  const title = mainAch ? mainAch.title : getLevelTitle(player.level);
+  const cls = getClassInfo(state);
+  const pet = getPetInfo(state);
+  const aw = getAwakening(state);
+  const r = normRpg(state.rpg);
+  const eqRows = RPG_SLOTS.map((s) => { const inv = r.inventory.find((v) => v.u === r.equipped[s.id]); return { slot: s, it: inv ? rpgItemById(inv.i) : null }; });
+  // 今日すでに解いた問題数（回答の記録から）
+  const d = new Date();
+  const code = `${String(d.getFullYear()).slice(2)}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
+  let doneToday = 0;
+  for (const b of state.questionBanks) for (const q of b.questions || []) if (Array.isArray(q.ah) && q.ah.some((c) => c.startsWith(code))) doneToday++;
+  const greet = todayCount > 0 ? `今日の復習が あと${todayCount}問 残っています。` : "今日の復習は完了！ 冒険に出かけよう。";
+  const active = focus || "today";
+  const cmd = MENU_COMMANDS.find((c) => c.id === active);
+  const message = focus ? (cmd.id === "today" ? (todayCount > 0 ? `期限が来た問題と未学習の問題に挑みます。今日の復習は あと${todayCount}問。` : "今日の復習は完了しています。未学習の問題に進むこともできます。") : cmd.desc) : greet;
+  const subLine = [cls ? `クラス：${cls.rankName}` : null, mainAch && mainAch.job ? `称号：${mainAch.job}` : null].filter(Boolean).join("　／　");
+
+  return (
+    <div className="space-y-3 mb-4">
+      <div className="grid gap-3 md:grid-cols-[210px_1fr]">
+        {/* コマンド */}
+        <div className="flex flex-col gap-3 order-2 md:order-1">
+          <div className="rpg-box p-2">
+            <div className="grid grid-cols-2 md:grid-cols-1 gap-0.5">
+              {MENU_COMMANDS.map((c) => {
+                const on = active === c.id;
+                const badge = c.id === "today" && todayCount > 0 ? todayCount : null;
+                return (
+                  <button key={c.id} onClick={() => onCommand(c.id)} onMouseEnter={() => setFocus(c.id)} onFocus={() => setFocus(c.id)}
+                    className="jp flex items-center gap-1.5 text-left" style={{ ...(on ? CL.rowOn : CL.rowOff), minHeight: 44, padding: "0 10px 0 6px", border: "none", borderRadius: 3, color: "#eef1f6", fontSize: 15, fontWeight: 700, cursor: "pointer" }}>
+                    <span style={{ width: 12, fontSize: 11, color: on ? "#c8d6ea" : "transparent" }}>▶</span>
+                    <span className="flex-1">{c.label}</span>
+                    {badge && <span className="text-[11px] px-1.5" style={{ background: "#a24a45", color: "#fff", borderRadius: 999, minWidth: 22, textAlign: "center" }}>{badge}</span>}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          <div className="rpg-box px-4 py-3 jp flex flex-col gap-1.5">
+            <div className="flex justify-between items-baseline"><span className="text-xs" style={CL.label}>覚醒</span><span style={{ ...CL.gold, letterSpacing: 2 }}>{"★".repeat(aw.stars)}<span style={{ color: "#4c5a75" }}>{"★".repeat(5 - aw.stars)}</span></span></div>
+            <div className="flex justify-between items-baseline gap-2"><span className="text-xs" style={CL.label}>相棒</span><span className="text-sm truncate" style={{ fontWeight: 700 }}>{pet ? `${pet.icon} ${pet.name}（${pet.stageName}）` : "まだいません"}</span></div>
+          </div>
+        </div>
+
+        {/* パーティ */}
+        <div className="rpg-box p-3 md:p-4 order-1 md:order-2">
+          <div className="flex flex-col sm:flex-row gap-4">
+            <button onClick={() => onCommand("status")} title="ステータス画面へ" className="flex-shrink-0 w-full sm:w-[220px] h-[240px] sm:h-[330px] overflow-hidden relative" style={{ border: "2px solid #e4e9f2", borderRadius: 4, boxShadow: "0 0 0 3px #0a1226, 0 0 0 4px rgba(160,185,215,0.6), 0 0 14px rgba(90,115,170,0.25)", background: "#141c36", padding: 0, cursor: "pointer" }}>
+              {imgOk ? (
+                <img src={HERO_URL} alt="主人公の立ち絵" onError={() => setImgOk(false)} style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "center 12%", display: "block" }} />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center"><HeroPortrait state={state} size={200} /></div>
+              )}
+            </button>
+            <div className="flex-1 min-w-0 flex flex-col gap-3 jp">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-xl md:text-2xl" style={{ fontWeight: 800, letterSpacing: 1 }}>{title}</span>
+                {cls && <span className="text-xs px-2 py-0.5" style={{ background: "#34508c", border: "1px solid #b6c6e0", borderRadius: 3, fontWeight: 700 }}>{cls.icon} {cls.name}</span>}
+                <span className="ml-auto text-sm" style={CL.label}>Lv</span><span className="text-3xl" style={{ ...CL.gold, fontWeight: 800 }}>{player.level}</span>
+              </div>
+              {subLine && <div className="text-sm" style={{ color: "#c9d4e2" }}>{subLine}</div>}
+              <ClassicGauge label="EXP" value={player.xp} max={xpNeeded} text={`${player.xp} / ${xpNeeded}`} colors={["#3d5c9e", "#9db6dc"]} />
+              <ClassicGauge label="今日の復習" value={doneToday} max={doneToday + todayCount} text={`${doneToday} / ${doneToday + todayCount}`} colors={["#a87d45", "#dcc287"]} />
+              <ClassicGauge label={aw.next ? "記憶の定着（次の★まで）" : "記憶の定着"} value={aw.mastered} max={aw.next || aw.mastered || 1} text={aw.next ? `${aw.mastered} / ${aw.next}` : `${aw.mastered}問`} colors={["#3e7468", "#9cc8bb"]} />
+              <div style={{ height: 1, background: "linear-gradient(90deg, rgba(160,185,215,0), rgba(160,185,215,0.55), rgba(160,185,215,0))" }} />
+              <div>
+                <div className="text-sm mb-1.5" style={{ ...CL.label, fontWeight: 700 }}>装備</div>
+                <div className="grid gap-1.5" style={{ gridTemplateColumns: "88px 1fr" }}>
+                  {eqRows.map(({ slot, it }) => (
+                    <Fragment key={slot.id}>
+                      <span className="text-xs" style={CL.label}>{slot.label}</span>
+                      <span className="text-sm truncate" style={{ fontWeight: 700, color: it ? "#eef1f6" : "#7f8aa6" }}>{it ? `${it.icon} ${it.name}` : "なし"}{it && <span className="text-[11px] ml-2" style={{ color: "#c9d4e2", fontWeight: 400 }}>{fxText(it.fx)}</span>}</span>
+                    </Fragment>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* メッセージ */}
+      <div className="rpg-box px-5 py-3 relative jp" style={{ minHeight: 70 }}>
+        <span className="text-[15px] md:text-[17px] leading-relaxed">{message}</span>
+        <span style={{ position: "absolute", right: 16, bottom: 8, fontSize: 12, color: "#c4d4e8", animation: "sqCaret 1s ease-in-out infinite" }}>▼</span>
+      </div>
+    </div>
+  );
+}
+
 // ============ 問題文の表示（フォント・文字サイズ） ============
 const QFONTS = [
-  { id: "dot", label: "ドット文字（いつもの）", css: "'DotGothic16', 'Hiragino Kaku Gothic ProN', sans-serif" },
+  { id: "dot", label: "標準（テーマに合わせる）", css: "'DotGothic16', 'Hiragino Kaku Gothic ProN', sans-serif" },
   { id: "mincho", label: "明朝体（BIZ UD明朝）", css: "'BIZ UDMincho', 'Yu Mincho', 'YuMincho', 'Hiragino Mincho ProN', 'MS Mincho', serif", web: "BIZ+UDMincho" },
   { id: "mincho-sys", label: "明朝体（端末の標準）", css: "'Yu Mincho', 'YuMincho', 'Hiragino Mincho ProN', 'MS Mincho', serif" },
   { id: "gothic", label: "ゴシック体（BIZ UDPゴシック）", css: "'BIZ UDPGothic', 'Yu Gothic', 'YuGothic', 'Hiragino Sans', 'Meiryo', sans-serif", web: "BIZ+UDPGothic" },
@@ -118,12 +417,14 @@ const QSIZES = [
   { id: "l", label: "大", px: 20 },
   { id: "xl", label: "特大", px: 23 },
 ];
-const DISPLAY_DEFAULTS = { qFont: "dot", qSize: "auto" };
+const DISPLAY_DEFAULTS = { qFont: "dot", qSize: "auto", theme: "classic", showTitle: true };
 
 // 問題文・答え（class="qtext"）にフォントとサイズを当てる
 function QTextStyle({ settings }) {
   const ds = { ...DISPLAY_DEFAULTS, ...(settings || {}) };
-  const font = QFONTS.find((f) => f.id === ds.qFont) || QFONTS[0];
+  let font = QFONTS.find((f) => f.id === ds.qFont) || QFONTS[0];
+  // クラシックテーマでは「標準」を丸ゴシックにする
+  if (font.id === "dot" && ds.theme === "classic") font = { id: "dot", css: "'M PLUS Rounded 1c', 'Hiragino Maru Gothic ProN', sans-serif" };
   const size = QSIZES.find((z) => z.id === ds.qSize) || QSIZES[0];
   useEffect(() => {
     if (!font.web) return;
@@ -146,10 +447,19 @@ function DisplaySettingsPanel({ settings, onChange, onClose }) {
     <div className="rpg-box mb-4 p-1">
       <div className="rpg-inner-border">
         <div className="flex items-center justify-between mb-2">
-          <div className="jp text-sm" style={{ color: "var(--ink)" }}>Aa 問題文の文字</div>
+          <div className="jp text-sm" style={{ color: "var(--ink)" }}>Aa 表示の設定</div>
           <button onClick={onClose} className="jp text-[10px] px-1.5 py-0.5" style={{ border: "1px solid var(--rule-soft)", background: "var(--paper)", color: "var(--ink-soft)" }}>✕ 閉じる</button>
         </div>
-        <div className="jp text-xs mb-1" style={{ color: "var(--ink-soft)" }}>フォント</div>
+        <div className="jp text-xs mb-1" style={{ color: "var(--ink-soft)" }}>テーマ</div>
+        <div className="grid grid-cols-2 gap-1 mb-2">
+          {[["classic", "クラシック（新）"], ["dot", "ドット（旧）"]].map(([id, label]) => (
+            <button key={id} onClick={() => onChange({ theme: id })} className="jp py-1.5 px-1 text-xs" style={{ background: ds.theme === id ? "var(--sky-deep)" : "var(--paper)", color: ds.theme === id ? "var(--paper)" : "var(--ink)", border: "1px solid var(--rule)" }}>{label}</button>
+          ))}
+        </div>
+        <button onClick={() => onChange({ showTitle: ds.showTitle === false })} className="jp w-full text-left text-xs px-2 py-1.5 mb-3" style={{ background: "var(--paper)", color: "var(--ink)", border: "1px solid var(--rule-soft)" }}>
+          {ds.showTitle === false ? "☐" : "☑"} 起動時にタイトル画面を表示する（クラシックのみ）
+        </button>
+        <div className="jp text-xs mb-1" style={{ color: "var(--ink-soft)" }}>問題文のフォント</div>
         <div className="grid grid-cols-2 gap-1 mb-3">
           {QFONTS.map((f) => (
             <button key={f.id} onClick={() => onChange({ qFont: f.id })} className="py-1.5 px-1 text-xs" style={{ fontFamily: f.css, background: ds.qFont === f.id ? "var(--sky-deep)" : "var(--paper)", color: ds.qFont === f.id ? "var(--paper)" : "var(--ink)", border: "1px solid var(--rule)" }}>{f.label}</button>
@@ -165,7 +475,7 @@ function DisplaySettingsPanel({ settings, onChange, onClose }) {
         <div className="qtext jp text-base md:text-lg p-2" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)", color: "var(--ink)" }}>
           甲建物の附属建物を分割して乙建物の附属建物に合併する建物の分割の登記及び建物の合併の登記の申請は、一の申請情報によってすることができる。
         </div>
-        <p className="jp text-[10px] mt-2" style={{ color: "var(--ink-mute)" }}>問題文と答えの表示が変わります。設定はほかの端末にも同期されます。</p>
+        <p className="jp text-[10px] mt-2" style={{ color: "var(--ink-mute)" }}>フォントと大きさは問題文と答えの表示に使われます。設定はほかの端末にも同期されます。</p>
       </div>
     </div>
   );
@@ -392,7 +702,7 @@ function loadUserLocalState(uid) {
 }
 
 // ============ Auth Screen ============
-function AuthScreen({ onAuthed }) {
+function AuthScreen({ onAuthed, classic }) {
   const [mode, setMode] = useState("login"); // login | signup
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -423,10 +733,19 @@ function AuthScreen({ onAuthed }) {
       <div className="rpg-box p-1 w-full max-w-md">
         <div className="rpg-inner-border">
           <div className="text-center mb-4">
-            <h1 className="pixel text-base md:text-xl mb-1" style={{ color: "var(--sky-deep)", textShadow: "1px 1px 0 var(--ink)" }}>
-              STUDY QUEST
-            </h1>
-            <p className="jp text-xs" style={{ color: "var(--ink-soft)" }}>～ 学びの冒険 ～</p>
+            {classic ? (
+              <>
+                <div className="text-[13px] mb-1" style={{ ...CL.mincho, fontWeight: 700, letterSpacing: "0.35em" }}>学びの冒険</div>
+                <h1 className="m-0 text-[40px]" style={{ ...CL.logo, lineHeight: 1.05 }}>STUDY QUEST</h1>
+              </>
+            ) : (
+              <>
+                <h1 className="pixel text-base md:text-xl mb-1" style={{ color: "var(--sky-deep)", textShadow: "1px 1px 0 var(--ink)" }}>
+                  STUDY QUEST
+                </h1>
+                <p className="jp text-xs" style={{ color: "var(--ink-soft)" }}>～ 学びの冒険 ～</p>
+              </>
+            )}
           </div>
 
           <div className="grid grid-cols-2 gap-1 p-1 mb-4" style={{ background: "var(--paper)", border: "1px solid var(--rule)" }}>
@@ -510,10 +829,11 @@ function App() {
     return () => unsub();
   }, []);
 
+  const classicPre = readPref("sq-theme", "classic") === "classic";
   if (!authChecked) {
-    return <div className="boot">CHECKING AUTH...</div>;
+    return <><ClassicThemeStyle active={classicPre} /><div className="boot">CHECKING AUTH...</div></>;
   }
-  if (!user) return <AuthScreen />;
+  if (!user) return <><ClassicThemeStyle active={classicPre} /><AuthScreen classic={classicPre} /></>;
   return <StudyRPG user={user} />;
 }
 
@@ -525,6 +845,7 @@ function StudyRPG({ user }) {
   const [tab, setTab] = useState("home");
   const [showDisplaySettings, setShowDisplaySettings] = useState(false); // 「Aa 文字」パネル
   const [showLawSearch, setShowLawSearch] = useState(false);             // 「📜 条文」パネル
+  const [titleOpen, setTitleOpen] = useState(() => readPref("sq-title", "on") !== "off"); // 起動時のタイトル画面
   const [showLevelUp, setShowLevelUp] = useState(null);
   const [showAchievement, setShowAchievement] = useState(null);
   const [floatXp, setFloatXp] = useState([]);
@@ -891,6 +1212,14 @@ function StudyRPG({ user }) {
       if (xp) setTimeout(() => awardXp(xp), 300);
     },
   };
+
+  // テーマ設定を端末にも保存（次回の起動時、読み込み前から反映するため）
+  useEffect(() => {
+    if (!loaded) return;
+    const ds = state.displaySettings || {};
+    writePref("sq-theme", ds.theme || "classic");
+    writePref("sq-title", ds.showTitle === false ? "off" : "on");
+  }, [loaded, state.displaySettings && state.displaySettings.theme, state.displaySettings && state.displaySettings.showTitle]);
 
   // 覚醒・相棒の進化のお知らせ
   const [rpgEvent, setRpgEvent] = useState(null);
@@ -1439,8 +1768,15 @@ function StudyRPG({ user }) {
     }
   }, [loaded]);
 
+  // テーマ（読み込み前は端末に保存した設定を使う）
+  const themeNow = loaded ? ((state.displaySettings && state.displaySettings.theme) || "classic") : readPref("sq-theme", "classic");
+  const classic = themeNow === "classic";
+  const showTitleNow = classic && titleOpen && (loaded ? !(state.displaySettings && state.displaySettings.showTitle === false) : true);
+
   if (!loaded) {
+    if (showTitleNow) return <><ClassicThemeStyle active={true} /><TitleScreen loading={true} /></>;
     return <div className="min-h-screen flex items-center justify-center jp" style={{color: "var(--sky-deep)"}}>
+      <ClassicThemeStyle active={classic} />
       <div className="text-center">
         <div className="pixel text-sm mb-2">SYNCING...</div>
         <div className="jp text-xs" style={{ color: "var(--ink-soft)" }}>クラウドからデータを読み込んでいます</div>
@@ -1464,34 +1800,51 @@ function StudyRPG({ user }) {
   return (
     <QImageContext.Provider value={qImageCtx}>
     <div className="min-h-screen w-full pb-24 relative overflow-hidden">
+      <ClassicThemeStyle active={classic} />
+      {showTitleNow && (
+        <TitleScreen
+          loading={false}
+          saveInfo={`${(RPG_SCENES[getCharacterTier(player.level)] || RPG_SCENES.tier1).name}　Lv${player.level}　${displayTitle}　連続${calculateStatus(state).currentStreak}日`}
+          onContinue={() => setTitleOpen(false)}
+          onSettings={() => { setTitleOpen(false); setShowDisplaySettings(true); }}
+          onLogout={logout}
+        />
+      )}
       <DecorSwirls />
 
-      <div className="max-w-3xl mx-auto px-3 md:px-6 pt-4 relative z-10">
-        <div className="text-center mb-2">
-          <h1 className="pixel text-base md:text-2xl" style={{ color: "var(--sky-deep)", textShadow: "1px 1px 0 var(--ink), 3px 3px 0 rgba(53,65,86,0.16)" }}>STUDY QUEST</h1>
-          <p className="jp text-xs mt-1" style={{ color: "var(--ink-soft)" }}>～ 学びの冒険 ～</p>
-        </div>
+      <div className={`${classic ? "max-w-5xl" : "max-w-3xl"} mx-auto px-3 md:px-6 pt-4 relative z-10`}>
+        {classic ? (
+          <div className="text-center mb-2">
+            <div className="text-[11px]" style={{ ...CL.mincho, fontWeight: 700, letterSpacing: "0.35em" }}>学びの冒険</div>
+            <h1 className="m-0 text-[26px] md:text-[32px]" style={{ ...CL.logo, lineHeight: 1.1, letterSpacing: "0.04em" }}>STUDY QUEST</h1>
+          </div>
+        ) : (
+          <div className="text-center mb-2">
+            <h1 className="pixel text-base md:text-2xl" style={{ color: "var(--sky-deep)", textShadow: "1px 1px 0 var(--ink), 3px 3px 0 rgba(53,65,86,0.16)" }}>STUDY QUEST</h1>
+            <p className="jp text-xs mt-1" style={{ color: "var(--ink-soft)" }}>～ 学びの冒険 ～</p>
+          </div>
+        )}
 
         {/* Sync + user bar */}
-        <div className="flex items-center justify-between mb-3 jp text-[10px]" style={{ color: "var(--ink-soft)" }}>
-          <div className="flex items-center gap-1">
+        <div className="flex flex-wrap items-center justify-between gap-y-1.5 mb-3 jp text-[10px]" style={{ color: "var(--ink-soft)" }}>
+          <div className="flex flex-wrap items-center gap-1">
             <span className={`sync-dot ${syncStatus}`}></span>
-            <span>
+            <span className="whitespace-nowrap">
               {syncStatus === "synced" && "同期済み"}
               {syncStatus === "syncing" && "同期中..."}
               {syncStatus === "offline" && "オフライン"}
               {syncStatus === "error" && (cloudLoadFailed.current ? "読込失敗・保存停止中（再読込してください）" : "同期エラー")}
             </span>
-            <button onClick={forcePush} title="このデータをクラウドに強制保存" className="ml-1 px-1.5 py-0.5 text-[10px]" style={{ background: "var(--gold)", border: "none", color: "var(--paper)", cursor: "pointer" }}>📤 保存</button>
-            <button onClick={forceSync} title="クラウドから強制再読み込み" className="px-1.5 py-0.5 text-[10px]" style={{ background: "var(--sky-pale)", border: "1px solid var(--sky-deep)", color: "var(--sky-deep)", cursor: "pointer" }}>📥 読込</button>
-            <button onClick={exportJson} title="データをJSONファイルに書き出し（端末間移行用）" className="px-1.5 py-0.5 text-[10px]" style={{ background: "var(--sage)", border: "none", color: "var(--paper)", cursor: "pointer" }}>📦 書出</button>
-            <button onClick={importJson} title="JSONファイルからデータを読み込み" className="px-1.5 py-0.5 text-[10px]" style={{ background: "var(--ink-soft)", border: "none", color: "var(--paper)", cursor: "pointer" }}>📂 読込</button>
-            <button onClick={() => setShowDisplaySettings(!showDisplaySettings)} title="問題文のフォント・文字サイズ" className="px-1.5 py-0.5 text-[10px]" style={{ background: showDisplaySettings ? "var(--sky-deep)" : "var(--paper)", border: "1px solid var(--sky-deep)", color: showDisplaySettings ? "var(--paper)" : "var(--sky-deep)", cursor: "pointer" }}>Aa 文字</button>
-            <button onClick={() => setShowLawSearch(!showLawSearch)} title="条文・キーワード検索" className="px-1.5 py-0.5 text-[10px]" style={{ background: showLawSearch ? "var(--gold)" : "var(--paper)", border: "1px solid var(--gold)", color: showLawSearch ? "var(--paper)" : "var(--gold)", cursor: "pointer" }}>📜 条文</button>
+            <button onClick={forcePush} title="このデータをクラウドに強制保存" className="ml-1 px-1.5 py-0.5 text-[10px] whitespace-nowrap" style={{ background: "var(--gold)", border: "none", color: "var(--paper)", cursor: "pointer" }}>📤 保存</button>
+            <button onClick={forceSync} title="クラウドから強制再読み込み" className="px-1.5 py-0.5 text-[10px] whitespace-nowrap" style={{ background: "var(--sky-pale)", border: "1px solid var(--sky-deep)", color: "var(--sky-deep)", cursor: "pointer" }}>📥 読込</button>
+            <button onClick={exportJson} title="データをJSONファイルに書き出し（端末間移行用）" className="px-1.5 py-0.5 text-[10px] whitespace-nowrap" style={{ background: "var(--sage)", border: "none", color: "var(--paper)", cursor: "pointer" }}>📦 書出</button>
+            <button onClick={importJson} title="JSONファイルからデータを読み込み" className="px-1.5 py-0.5 text-[10px] whitespace-nowrap" style={{ background: "var(--ink-soft)", border: "none", color: "var(--paper)", cursor: "pointer" }}>📂 読込</button>
+            <button onClick={() => setShowDisplaySettings(!showDisplaySettings)} title="問題文のフォント・文字サイズ" className="px-1.5 py-0.5 text-[10px] whitespace-nowrap" style={{ background: showDisplaySettings ? "var(--sky-deep)" : "var(--paper)", border: "1px solid var(--sky-deep)", color: showDisplaySettings ? "var(--paper)" : "var(--sky-deep)", cursor: "pointer" }}>Aa 文字</button>
+            <button onClick={() => setShowLawSearch(!showLawSearch)} title="条文・キーワード検索" className="px-1.5 py-0.5 text-[10px] whitespace-nowrap" style={{ background: showLawSearch ? "var(--gold)" : "var(--paper)", border: "1px solid var(--gold)", color: showLawSearch ? "var(--paper)" : "var(--gold)", cursor: "pointer" }}>📜 条文</button>
           </div>
           <div className="flex items-center gap-2">
             <span className="truncate max-w-[140px] md:max-w-[240px]">{user.email}</span>
-            <button onClick={logout} className="jp btn-ghost px-2 py-1 text-[10px]">
+            <button onClick={logout} className="jp btn-ghost px-2 py-1 text-[10px] whitespace-nowrap">
               <LogoutIcon size={10} /> ログアウト
             </button>
           </div>
@@ -1501,8 +1854,9 @@ function StudyRPG({ user }) {
         {showDisplaySettings && <DisplaySettingsPanel settings={state.displaySettings} onChange={updateDisplaySettings} onClose={() => setShowDisplaySettings(false)} />}
         {showLawSearch && <LawSearchPanel banks={state.questionBanks} onClose={() => setShowLawSearch(false)} />}
 
+        {classic && <ClassicInfoBar state={state} liveSeconds={liveSeconds} onStatus={() => setTab("status")} />}
         {/* Status bar */}
-        <div className="rpg-box mb-4 p-1">
+        {!classic && <div className="rpg-box mb-4 p-1">
           <div className="rpg-inner-border">
             <div className="flex items-center gap-3">
               <button onClick={() => setTab("status")} className="flex-shrink-0" title="ステータス画面へ" style={{ background: "transparent", border: "none", padding: 0, cursor: "pointer" }}>
@@ -1527,10 +1881,17 @@ function StudyRPG({ user }) {
               )}
             </div>
           </div>
-        </div>
+        </div>}
 
         <div className="mb-4">
-          {tab === "home" && <HomeTab state={state} liveSeconds={liveSeconds} setMainTitle={setMainTitle} setTab={setTab} todayCount={getTodayReviewItems().length} />}
+          {tab === "home" && classic && (
+            <MenuHome state={state} todayCount={getTodayReviewItems().length} onCommand={(id) => {
+              if (id === "law") { setShowLawSearch(true); window.scrollTo(0, 0); }
+              else if (id === "option") { setShowDisplaySettings(true); window.scrollTo(0, 0); }
+              else { setTab(id); window.scrollTo(0, 0); }
+            }} />
+          )}
+          {tab === "home" && <HomeTab state={state} liveSeconds={liveSeconds} setMainTitle={setMainTitle} setTab={setTab} todayCount={getTodayReviewItems().length} hideBanner={classic} />}
           {tab === "today" && <TodayTab state={state} recordSRAnswer={recordSRAnswer} updateSrSettings={updateSrSettings} startTimer={startTimer} stopTimer={stopTimer} toggleQuestionMark={toggleQuestionMark} />}
           {tab === "status" && <StatusTab state={state} />}
           {tab === "adventure" && <AdventureTab state={state} actions={rpgActions} recordAnswer={recordAnswer} startTimer={startTimer} stopTimer={stopTimer} />}
@@ -1542,7 +1903,7 @@ function StudyRPG({ user }) {
         </div>
       </div>
 
-      <nav className="fixed bottom-0 left-0 right-0 z-40" style={{ background: "var(--paper)", borderTop: "2px solid var(--rule)", paddingBottom: "env(safe-area-inset-bottom)" }}>
+      <nav className="fixed bottom-0 left-0 right-0 z-40" style={{ background: classic ? "linear-gradient(180deg, rgba(39,63,120,0.97), rgba(23,37,72,0.98))" : "var(--paper)", borderTop: "2px solid var(--rule)", boxShadow: classic ? "inset 0 2px 0 #0a1226, inset 0 3px 0 rgba(160,185,215,0.5)" : "none", paddingBottom: "env(safe-area-inset-bottom)" }}>
         <div className="max-w-3xl mx-auto grid grid-cols-9">
           {[
             { id: "home",   label: "ホーム",     icon: <Home size={16} /> },
@@ -1558,7 +1919,7 @@ function StudyRPG({ user }) {
             const badge = t.id === "today" ? getTodayReviewItems().length : 0;
             return (
               <button key={t.id} onClick={() => setTab(t.id)} className="jp flex flex-col items-center gap-0.5 py-2 transition relative"
-                style={tab === t.id ? { background: "var(--sky-deep)", color: "var(--paper)" } : { background: "transparent", color: "var(--ink)" }}>
+                style={tab === t.id ? (classic ? { ...CL.rowOn, color: "#ffffff" } : { background: "var(--sky-deep)", color: "var(--paper)" }) : { background: "transparent", color: "var(--ink)" }}>
                 {t.icon}
                 <span className="text-[8px] md:text-[11px]" style={{ whiteSpace: "nowrap" }}>{t.label}</span>
                 {badge > 0 && (
@@ -1896,7 +2257,7 @@ function SkillList({ state, status }) {
 }
 
 // ============ Home Tab ============
-function HomeTab({ state, liveSeconds, setMainTitle, setTab, todayCount }) {
+function HomeTab({ state, liveSeconds, setMainTitle, setTab, todayCount, hideBanner = false }) {
   const today = todayStr();
   const todayMin = state.studyLog.filter((l) => l.date === today).reduce((a, b) => a + b.minutes, 0) + (state.timer.startMs ? liveSeconds / 60 : 0);
   const last7 = (() => {
@@ -1913,7 +2274,7 @@ function HomeTab({ state, liveSeconds, setMainTitle, setTab, todayCount }) {
     <div className="space-y-4">
 
       {/* 今日の問題バナー */}
-      {todayCount > 0 ? (
+      {hideBanner ? null : todayCount > 0 ? (
         <button onClick={() => setTab("today")} className="w-full text-left" style={{ background: "linear-gradient(135deg, var(--sky-deep), var(--plum))", border: "none", padding: 0 }}>
           <div className="p-3 flex items-center gap-3">
             <div className="text-3xl">📅</div>
@@ -1968,7 +2329,7 @@ function HomeTab({ state, liveSeconds, setMainTitle, setTab, todayCount }) {
       <Box title="ここ1週間" icon={<TrendingUp size={18} />}>
         <div className="flex items-end justify-between gap-1 h-24 mb-2">
           {last7.map(([d, v]) => (
-            <div key={d} className="flex-1 flex flex-col items-center gap-1">
+            <div key={d} className="flex-1 h-full flex flex-col items-center justify-end gap-1">
               <div className="w-full transition-all" style={{ height: `${(v / maxDay) * 100}%`, minHeight: v > 0 ? "4px" : "0", background: "var(--sky)", border: "1px solid var(--sky-deep)" }} />
               <div className="pixel text-[8px]" style={{ color: "var(--ink-soft)" }}>{d.slice(5)}</div>
             </div>
@@ -3031,7 +3392,7 @@ function QBankTab(props) {
                       </div>
                       <div className="jp text-sm mb-1" style={{ color: "var(--ink)" }}>{question.q}</div>
                       <div className="jp text-sm p-1" style={{ background: "var(--paper)", border: "1px solid var(--gold)", color: "var(--ink)" }}>答: {question.a}</div>
-                      {question.memo && <div className="jp text-[11px] mt-1 p-1" style={{ background: "#fffbe6", border: "1px solid var(--gold)", color: "var(--ink-soft)" }}>📝 {question.memo}</div>}
+                      {question.memo && <div className="jp text-[11px] mt-1 p-1" style={{ background: "var(--memo-bg, #fffbe6)", border: "1px solid var(--gold)", color: "var(--ink-soft)" }}>📝 {question.memo}</div>}
                     </div>
                   ))}
                 </div>
@@ -3999,7 +4360,7 @@ function QStudySession({ bank, state, recordAnswer, awardXp, startTimer, stopTim
                   <div className="jp text-[10px]" style={{ color: "var(--brick)" }}>✕ 間違い {i + 1}</div>
                   <div className="jp text-sm" style={{ color: "var(--ink)" }}>{w.q}</div>
                   <div className="jp text-sm p-2" style={{ background: "var(--sky-pale)", border: "1px solid var(--gold)", color: "var(--ink)" }}>答え: {w.a}</div>
-                  {w.memo && <div className="jp text-[11px] p-1" style={{ background: "#fffbe6", border: "1px solid var(--gold)", color: "var(--ink-soft)" }}>📝 {w.memo}</div>}
+                  {w.memo && <div className="jp text-[11px] p-1" style={{ background: "var(--memo-bg, #fffbe6)", border: "1px solid var(--gold)", color: "var(--ink-soft)" }}>📝 {w.memo}</div>}
                 </div>
               </div>
             ))}
@@ -5171,12 +5532,12 @@ function LawArticleModal({ target, onClose }) {
                 {art.p.map((p, pi) => {
                   const on = hlPara && String(p.n) === String(hlPara);
                   return (
-                    <div key={pi} ref={on && !cur.item ? hlRef : null} className="mb-2 p-1" style={{ background: on && !cur.item ? "#fff3b0" : "transparent" }}>
+                    <div key={pi} ref={on && !cur.item ? hlRef : null} className="mb-2 p-1" style={{ background: on && !cur.item ? "var(--hl, #fff3b0)" : "transparent" }}>
                       <span style={{ fontWeight: "bold" }}>{art.p.length > 1 ? `${p.n}　` : ""}</span>{p.s}
                       {(p.i || []).map((it, ii) => {
                         const ion = on && cur.item && String(it.n) === String(cur.item);
                         return (
-                          <div key={ii} ref={ion ? hlRef : null} className="ml-3 mt-1 p-1" style={{ background: ion ? "#fff3b0" : "transparent" }}>
+                          <div key={ii} ref={ion ? hlRef : null} className="ml-3 mt-1 p-1" style={{ background: ion ? "var(--hl, #fff3b0)" : "transparent" }}>
                             {it.t}　{it.s}
                             {(it.x || []).map((x, xi) => <div key={xi} className="ml-3">{x}</div>)}
                           </div>
@@ -5316,7 +5677,7 @@ function LawSearchPanel({ banks, onClose }) {
                   <button key={law + a.n} onClick={() => setOpen({ law, art: a.n, para: null, item: null })} className="w-full text-left p-1.5" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)" }}>
                     <div className="jp text-[11px]" style={{ color: "var(--sky-deep)" }}>{LAW_BY_KEY[law].name} {a.t}{a.c}</div>
                     <div className="qtext-list jp text-[11px]" style={{ color: "var(--ink-soft)" }}>
-                      …{snippet.slice(0, at)}<mark style={{ background: "#fff3b0" }}>{snippet.slice(at, at + qn.length)}</mark>{snippet.slice(at + qn.length)}…
+                      …{snippet.slice(0, at)}<mark style={{ background: "var(--hl, #fff3b0)" }}>{snippet.slice(at, at + qn.length)}</mark>{snippet.slice(at + qn.length)}…
                     </div>
                   </button>
                 ))}
@@ -6053,10 +6414,10 @@ const tierIndex = (level) => TIER_ORDER.indexOf(getCharacterTier(level)); // 0�
 
 // ── クラス（Lv10から転職できる） ──
 const RPG_CLASSES = [
-  { id: "sage",   name: "賢者", icon: "🔮", color: "#8a6ca6", ranks: ["見習い魔導士", "魔導士", "賢者", "大賢者", "星詠みの賢者"], style: "正解数が多い", bonusText: (k) => `EXP+${5 + 2 * k}%`,                        fx: (k) => ({ xpPct: 5 + 2 * k }) },
-  { id: "knight", name: "騎士", icon: "🛡️", color: "#4f8eb3", ranks: ["見習い騎士", "騎士", "聖騎士", "守護騎士長", "不動の守護神"],       style: "学習時間が長い", bonusText: (k) => `被ダメージ-${8 + 2 * k}%・HP+${10 + 5 * k}`, fx: (k) => ({ dmgCutPct: 8 + 2 * k, hpPlus: 10 + 5 * k }) },
-  { id: "ranger", name: "狩人", icon: "🏹", color: "#6d8454", ranks: ["見習い狩人", "狩人", "疾風の狩人", "千里眼の射手", "天翔ける狩神"], style: "連続正解・会心が多い", bonusText: (k) => `会心率+${3 + k}%`,                   fx: (k) => ({ critPct: 3 + k }) },
-  { id: "hero",   name: "勇者", icon: "⚔️", color: "#b8862c", ranks: ["見習い勇者", "勇者", "歴戦の勇者", "覇者", "伝説の勇者"],           style: "ボス討伐・完全制覇が多い", bonusText: (k) => `ボスへの攻撃+${10 + 4 * k}%`, fx: (k) => ({ bossDmgPct: 10 + 4 * k }) },
+  { id: "sage",   name: "賢者", icon: "🔮", color: "#9b7fc8", ranks: ["見習い魔導士", "魔導士", "賢者", "大賢者", "星詠みの賢者"], style: "正解数が多い", bonusText: (k) => `EXP+${5 + 2 * k}%`,                        fx: (k) => ({ xpPct: 5 + 2 * k }) },
+  { id: "knight", name: "騎士", icon: "🛡️", color: "#5a9ccc", ranks: ["見習い騎士", "騎士", "聖騎士", "守護騎士長", "不動の守護神"],       style: "学習時間が長い", bonusText: (k) => `被ダメージ-${8 + 2 * k}%・HP+${10 + 5 * k}`, fx: (k) => ({ dmgCutPct: 8 + 2 * k, hpPlus: 10 + 5 * k }) },
+  { id: "ranger", name: "狩人", icon: "🏹", color: "#7fae66", ranks: ["見習い狩人", "狩人", "疾風の狩人", "千里眼の射手", "天翔ける狩神"], style: "連続正解・会心が多い", bonusText: (k) => `会心率+${3 + k}%`,                   fx: (k) => ({ critPct: 3 + k }) },
+  { id: "hero",   name: "勇者", icon: "⚔️", color: "#c99a3a", ranks: ["見習い勇者", "勇者", "歴戦の勇者", "覇者", "伝説の勇者"],           style: "ボス討伐・完全制覇が多い", bonusText: (k) => `ボスへの攻撃+${10 + 4 * k}%`, fx: (k) => ({ bossDmgPct: 10 + 4 * k }) },
 ];
 const CLASS_CHANGE_COST = 300;
 const classById = (id) => RPG_CLASSES.find((c) => c.id === id) || null;
@@ -6207,7 +6568,7 @@ function GrowthPanels({ state, actions }) {
       {/* 覚醒 */}
       <Box title="覚醒" icon={<Sparkles size={18} />}>
         <div className="flex items-center gap-3 mb-2">
-          <div className="pixel text-lg" style={{ color: "#d6a84e", minWidth: 90 }}>{aw.stars > 0 ? "★".repeat(aw.stars) : "☆"}<span style={{ color: "var(--ink-mute)" }}>{"☆".repeat(5 - aw.stars)}</span></div>
+          <div className="pixel text-lg" style={{ color: "#d6a84e", minWidth: 90 }}>{"★".repeat(aw.stars)}<span style={{ color: "var(--ink-mute)" }}>{"☆".repeat(5 - aw.stars)}</span></div>
           <div className="flex-1">
             <div className="jp text-xs" style={{ color: "var(--ink)" }}>しっかり覚えた問題：{aw.mastered.toLocaleString()}問</div>
             {aw.next && <div className="stat-bar mt-1"><div style={{ width: `${Math.min(100, (aw.mastered / aw.next) * 100)}%` }} /></div>}
