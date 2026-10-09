@@ -539,6 +539,11 @@ function mentorStatusLines(state, todayCount) {
   ];
   const next = (state.qualifications || []).filter((q) => !q.acquired && q.examDate).map((q) => ({ q, d: daysUntil(q.examDate) })).filter((x) => x.d !== null && x.d >= 0).sort((a, b) => a.d - b.d)[0];
   if (next) lines.unshift(next.d === 0 ? `今日は${next.q.name}の試験日ですね。これまで積み重ねてきた力を、信じてください。` : `${next.q.name}の試験まで、あと${next.d}日です。今日の一問一問が、合格へつながっていますよ。`);
+  // 合格力（最終決戦のゲージ）
+  const qual = mainQual(state);
+  const linked = qual && state.questionBanks.some((b) => b.qualId === qual.id);
+  const pp = passPower(state, linked ? qual.id : null);
+  if (pp.total > 0) lines.push(pp.power >= PASS_LINE ? `合格力は${pctTxt(pp.power)}。魔王を倒せる力が宿っています。この力を試験の日まで保ちましょうね。` : `いまの合格力は${pctTxt(pp.power)}です。合格ラインの${Math.round(PASS_LINE * 100)}%まで、一緒に進みましょう。`);
   return lines;
 }
 const shuffled = (arr) => { const a = [...arr]; for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
@@ -1677,14 +1682,73 @@ function StudyRPG({ user }) {
       });
       return { ok: success, plus: success ? p + 1 : p, msg: success ? `${it.name} +${p + 1} に強化成功！` : "強化に失敗…（素材は失われました）" };
     },
+    // デイリークエストの報酬（ゴールドと欠片）
+    claimQuest: (id) => {
+      const cur = stateRef.current;
+      const r = normRpg(cur.rpg);
+      const d = dailyOf(r);
+      const qst = questsToday().find((q) => q.id === id);
+      if (!qst || d.claimed.includes(id)) return "";
+      if (questProgress(qst, d, getTodayReviewItems().length) < qst.target) return "まだ達成していません";
+      const frag = FRAG_IDS[hashStr(todayStr() + id) % (FRAG_IDS.length - 1)];
+      updateRpg((x) => {
+        const dd = dailyOf(x);
+        if (dd.claimed.includes(id)) return x;
+        return { ...x, gold: x.gold + QUEST_REWARD.gold, goldEarned: x.goldEarned + QUEST_REWARD.gold, materials: { ...x.materials, [frag]: (x.materials[frag] || 0) + QUEST_REWARD.frag }, daily: { ...dd, claimed: [...dd.claimed, id] } };
+      });
+      return `クエスト達成！ ${QUEST_REWARD.gold}G と ${(matById(frag) || {}).name}×${QUEST_REWARD.frag}`;
+    },
+    // 3つ全部受け取ったら宝箱（ゴールド・星霊石・まれに装備）
+    claimChest: () => {
+      const r = normRpg(stateRef.current.rpg);
+      const d = dailyOf(r);
+      if (d.chest || !questsToday().every((q) => d.claimed.includes(q.id))) return "";
+      const item = Math.random() < CHEST_REWARD.itemChance;
+      updateRpg((x) => {
+        const dd = dailyOf(x);
+        if (dd.chest) return x;
+        return { ...x, gold: x.gold + CHEST_REWARD.gold, goldEarned: x.goldEarned + CHEST_REWARD.gold, materials: { ...x.materials, "m-star": (x.materials["m-star"] || 0) + CHEST_REWARD.star }, daily: { ...dd, chest: true } };
+      });
+      if (item) setTimeout(() => grantItem(rollRpgItem(1), "宝箱"), 500);
+      return `宝箱を開けた！ ${CHEST_REWARD.gold}G と 星霊石×${CHEST_REWARD.star}${item ? " と 装備！" : ""}`;
+    },
   };
+
+  // 物語：合格力が上がって新しい章が開いたら、全画面で知らせる
+  useEffect(() => {
+    if (!loaded) return;
+    const qual = mainQual(state);
+    const linked = qual && state.questionBanks.some((b) => b.qualId === qual.id);
+    const pp = passPower(state, linked ? qual.id : null);
+    if (pp.total === 0) return;
+    const idx = storyIndex(pp.power);
+    const r = normRpg(state.rpg);
+    if (idx > r.storySeen) {
+      updateRpg((x) => ({ ...x, storySeen: idx }));
+      const ch = STORY_CHAPTERS[idx];
+      setTimeout(() => showEvolution({ big: idx === 0 ? "物語の始まり" : "新しい章", from: null, to: ch.title.replace("　", " "), sub: ch.text.split("\n")[0], stage: heroStage(state.player.level) }), 1200);
+    }
+  }, [state.questionBanks, loaded]);
 
   // 戦闘の戦利品（素材・必殺技のEXP）を記録する（BattleStage から battleBus で届く）
   useEffect(() => {
     if (!battleBus) return undefined;
     const on = (e) => {
-      const { mats, xp } = e.detail || {};
-      if (mats && Object.keys(mats).length) updateRpg((x) => { const m = { ...x.materials }; Object.entries(mats).forEach(([k, n]) => { m[k] = (m[k] || 0) + n; }); return { ...x, materials: m }; });
+      const { mats, xp, stat } = e.detail || {};
+      if ((mats && Object.keys(mats).length) || stat) updateRpg((x) => {
+        const m = { ...x.materials };
+        Object.entries(mats || {}).forEach(([k, n]) => { m[k] = (m[k] || 0) + n; });
+        if (!stat) return { ...x, materials: m };
+        // デイリークエストの進み具合（日付が変わったら0から）
+        const d = dailyOf(x);
+        const k = { ...d.k };
+        k.defeated = (k.defeated || 0) + 1;
+        if (stat.elite) k.elite = (k.elite || 0) + 1;
+        if (stat.fresh) k.fresh = (k.fresh || 0) + 1;
+        if (stat.crit) k.crits = (k.crits || 0) + 1;
+        k.maxCombo = Math.max(k.maxCombo || 0, stat.combo || 0);
+        return { ...x, materials: m, daily: { ...d, k } };
+      });
       if (xp) setTimeout(() => awardXp(xp), 120);
     };
     battleBus.addEventListener("reward", on);
@@ -2386,10 +2450,11 @@ function StudyRPG({ user }) {
         <div className="mb-4">
           {tab === "home" && classic && <MenuHome state={state} todayCount={getTodayReviewItems().length} onCommand={homeCommand} />}
           {tab === "home" && isWhite && <SignpostHome state={state} todayCount={getTodayReviewItems().length} onCommand={homeCommand} />}
+          {tab === "home" && <div className="mb-4"><DailyQuests state={state} actions={rpgActions} todayCount={getTodayReviewItems().length} compact /></div>}
           {tab === "home" && <HomeTab state={state} liveSeconds={liveSeconds} setMainTitle={setMainTitle} setTab={setTab} todayCount={getTodayReviewItems().length} hideBanner={fancy} />}
           {tab === "today" && <TodayTab state={state} recordSRAnswer={recordSRAnswer} updateSrSettings={updateSrSettings} startTimer={startTimer} stopTimer={stopTimer} toggleQuestionMark={toggleQuestionMark} />}
           {tab === "status" && <StatusTab state={state} />}
-          {tab === "adventure" && <AdventureTab state={state} actions={rpgActions} recordAnswer={recordAnswer} startTimer={startTimer} stopTimer={stopTimer} />}
+          {tab === "adventure" && <AdventureTab state={state} actions={rpgActions} recordAnswer={recordAnswer} startTimer={startTimer} stopTimer={stopTimer} todayCount={getTodayReviewItems().length} />}
           {tab === "qual" && <QualTab state={state} addQual={addQual} updateQual={updateQual} deleteQual={deleteQual} acquireQual={acquireQual} />}
           {tab === "task" && <TaskTab state={state} addTask={addTask} completeTask={completeTask} deleteTask={deleteTask} addPreset={addPreset} deletePreset={deletePreset} updatePreset={updatePreset} />}
           {tab === "timer" && <TimerTab state={state} liveSeconds={liveSeconds} startTimer={startTimer} stopTimer={stopTimer} cancelTimer={cancelTimer} addManualLog={addManualLog} deleteLog={deleteLog} />}
@@ -6540,7 +6605,7 @@ const RPG_DEFAULTS = {
   equipped: { weapon: null, armor: null, accessory: null }, bossWins: 0, bossLosses: 0, bossLog: [],
   boosts: { xpUntil: null }, restDays: [], crits: 0,
   classId: null, pet: null, seen: { stars: 0, pet: 0 },
-  materials: {}, skills: [], forgeLog: { ok: 0, ng: 0 },
+  materials: {}, skills: [], forgeLog: { ok: 0, ng: 0 }, daily: null, storySeen: -1,
 };
 function normRpg(r) {
   const x = { ...RPG_DEFAULTS, ...(r || {}) };
@@ -6554,6 +6619,7 @@ function normRpg(r) {
   x.materials = { ...(x.materials || {}) };
   x.skills = Array.isArray(x.skills) ? x.skills : [];
   x.forgeLog = { ...RPG_DEFAULTS.forgeLog, ...(x.forgeLog || {}) };
+  if (typeof x.storySeen !== "number") x.storySeen = -1;
   return x;
 }
 const rpgItemById = (id) => RPG_ITEMS.find((i) => i.id === id) || null;
@@ -6929,8 +6995,257 @@ function MonsterDex({ state }) {
   );
 }
 
+// ============ 世界と物語：合格力・最終ボス・世界地図・物語・デイリークエスト ============
+// 合格力＝資格の問題すべてについて「いま思い出せる確率」（FSRSの想起率）の平均。まだ解いていない問題は0、習得済み（除外）は0.95として数える。
+const PASS_LINE = 0.85; // 合格ライン（土地家屋調査士：択一17問／20問の目安）
+const BASE_LINE = 0.75; // 基準点（択一15問／20問の目安）
+const passCache = new Map();
+function passPower(state, qualId) {
+  const day = todayStr();
+  const key = qualId || "_all_";
+  const c = passCache.get(key);
+  if (c && c.banks === state.questionBanks && c.day === day && c.sr === state.srSettings) return c.res;
+  const sch = getFsrsScheduler(state.srSettings);
+  const now = new Date();
+  const regions = {};
+  let total = 0, seen = 0, sumR = 0, weak = 0;
+  state.questionBanks.filter((b) => !qualId || b.qualId === qualId).forEach((b) => {
+    const th = MON_THEMES.find((t) => t.re.test(b.name || "")) || MON_THEME_DEFAULT;
+    const g = regions[th.region] || (regions[th.region] = { th, name: th.region, banks: [], total: 0, seen: 0, sumR: 0, weak: 0 });
+    g.banks.push(b);
+    (b.questions || []).forEach((q) => {
+      let r = 0;
+      if (q.excluded) { r = 0.95; seen++; g.seen++; }
+      else if (q.fs || q.sr_nextReview) {
+        try { r = sch.get_retrievability(toFsrsCard(q, now), now, false); } catch (e) { r = 0; }
+        if (!(r >= 0 && r <= 1)) r = 0;
+        seen++; g.seen++;
+      }
+      if (!q.excluded && isQuestionWeak(q)) { weak++; g.weak++; }
+      total++; g.total++; sumR += r; g.sumR += r;
+    });
+  });
+  const res = { total, seen, sumR, weak, power: total ? sumR / total : 0, regions: Object.values(regions).map((g) => ({ ...g, power: g.total ? g.sumR / g.total : 0 })) };
+  passCache.set(key, { banks: state.questionBanks, day, sr: state.srSettings, res });
+  return res;
+}
+// いちばん近い試験日の資格（取得済みは除く）。問題集が1つも紐づいていなければ全問題で計算する
+function mainQual(state) {
+  const qs = (state.qualifications || []).filter((q) => !q.acquired);
+  return qs.filter((q) => q.examDate).sort((a, b) => (a.examDate < b.examDate ? -1 : 1))[0] || qs[0] || null;
+}
+const pctTxt = (v) => `${(Math.round(v * 1000) / 10).toFixed(1)}%`;
+
+// ── 物語：合格力に応じて章が開く（主人公が語る） ──
+const STORY_CHAPTERS = [
+  { at: 0, title: "序章　境界の消えた国", text: "この国では、魔物たちが土地の境界をかき消してしまいました。筆界も地番も、誰にもわからなくなってしまったのです。\nあなたと私で、知識の力で境界を取り戻しましょう。試験の日、城に棲む魔王を倒せば、この国に秩序が戻るはずです。" },
+  { at: 0.10, title: "第一章　最初の灯り", text: "見てください、王都に灯りがともりました。あなたが覚えた条文の一つひとつが、道しるべになっているんです。\nこの調子で、少しずつ地図を取り戻していきましょうね。" },
+  { at: 0.25, title: "第二章　森のささやき", text: "古の森の木々が、契約の言葉をささやいています。民法の知識は、すべての登記の土台です。\n迷ったときは、基本に立ち返りましょう。" },
+  { at: 0.40, title: "第三章　砦の門", text: "ついに砦の門が開きました。ここまで来られたのは、毎日の積み重ねのおかげです。\n魔王の城が、遠くにかすかに見えてきましたよ。" },
+  { at: 0.55, title: "第四章　星見台の約束", text: "星見台から、国じゅうの境界線が見渡せます。半分以上の地図が戻りました。\n手強い魔物も、何度でも挑めば必ず倒せます。" },
+  { at: BASE_LINE, title: "第五章　迷宮の出口", text: "書式の迷宮を抜けた先に、魔王の城が見えています。基準点には手が届きました。\n合格ラインまで、あと少し。最後まで一緒に走り抜けましょう。" },
+  { at: PASS_LINE, title: "終章　境界の回復", text: "やりました……！ 魔王を打ち倒せる力が、あなたに宿りました。この国の境界は、すべて元どおりです。\nあとは試験の日、その力をそのまま出し切るだけですよ。" },
+];
+const storyIndex = (power) => STORY_CHAPTERS.reduce((a, c, i) => (power >= c.at ? i : a), 0);
+
+// ── デイリークエスト：毎日3つ（「今日の復習を全部」＋日替わり2つ）。全部達成で宝箱 ──
+const DAILY_QUESTS = [
+  { id: "due", title: "今日の復習を全部終える", target: 1, key: null },
+  { id: "defeat", title: "魔物を20体倒す", target: 20, key: "defeated" },
+  { id: "elite", title: "手強い魔物を3体倒す", target: 3, key: "elite" },
+  { id: "fresh", title: "初見の魔物を5体倒す", target: 5, key: "fresh" },
+  { id: "combo", title: "10コンボを達成する", target: 10, key: "maxCombo" },
+  { id: "crit", title: "会心の一撃を10回出す", target: 10, key: "crits" },
+];
+const QUEST_REWARD = { gold: 60, frag: 2 };
+const CHEST_REWARD = { gold: 200, star: 1, itemChance: 0.3 };
+const dailyOf = (r) => (r.daily && r.daily.date === todayStr() ? r.daily : { date: todayStr(), k: {}, claimed: [], chest: false });
+function questsToday() {
+  const rest = DAILY_QUESTS.slice(1);
+  const h = hashStr(todayStr());
+  const i = h % rest.length;
+  let j = (h >>> 5) % (rest.length - 1);
+  if (j >= i) j++; // 同じクエストが2つ並ばないように
+  return [DAILY_QUESTS[0], rest[i], rest[j]];
+}
+const questProgress = (qst, daily, todayCount) => (qst.id === "due" ? ((todayCount === 0 && (daily.k.defeated || 0) > 0) ? 1 : 0) : Math.min(qst.target, daily.k[qst.key] || 0));
+
+function DailyQuests({ state, actions, todayCount, compact = false }) {
+  const r = normRpg(state.rpg);
+  const daily = dailyOf(r);
+  const qs = questsToday();
+  const done = qs.map((q) => questProgress(q, daily, todayCount) >= q.target);
+  const claimedAll = qs.every((q) => daily.claimed.includes(q.id));
+  const [msg, setMsg] = useState("");
+  const say = (m) => { if (!m) return; setMsg(m); setTimeout(() => setMsg(""), 2600); };
+  return (
+    <Box title="今日のクエスト" icon={<ScrollIcon size={18} />}>
+      <div className="space-y-1.5">
+        {qs.map((q, i) => {
+          const v = questProgress(q, daily, todayCount);
+          const claimed = daily.claimed.includes(q.id);
+          return (
+            <div key={q.id} className="jp flex items-center gap-2 px-2 py-1.5" style={{ background: claimed ? "var(--cream)" : "var(--paper)", border: `1px solid ${done[i] ? "var(--gold)" : "var(--rule-soft)"}` }}>
+              <span style={{ width: 18, height: 18, flexShrink: 0, borderRadius: "50%", border: `1.5px solid ${done[i] ? "var(--gold)" : "var(--rule-soft)"}`, background: done[i] ? "var(--gold)" : "transparent", color: "var(--paper)", fontSize: 11, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>{done[i] ? "✓" : ""}</span>
+              <div className="flex-1 min-w-0">
+                <div className="text-xs" style={{ color: "var(--ink)", fontWeight: 700, textDecoration: claimed ? "line-through" : "none" }}>{q.title}</div>
+                <div style={{ height: 4, borderRadius: 2, background: "var(--beige)", marginTop: 3, overflow: "hidden" }}><div style={{ width: `${(v / q.target) * 100}%`, height: "100%", background: "linear-gradient(90deg, #d6b56a, #b08a3e)" }} /></div>
+              </div>
+              <span className="text-[10px]" style={{ color: "var(--ink-mute)", minWidth: 34, textAlign: "right" }}>{v}/{q.target}</span>
+              {claimed ? <span className="text-[10px]" style={{ color: "var(--sage)" }}>受取済</span>
+                : <button disabled={!done[i]} onClick={() => { say(actions.claimQuest(q.id)); SFX.play("drop"); }} className="btn-primary text-[10px] px-2 py-1">受け取る</button>}
+            </div>
+          );
+        })}
+      </div>
+      <div className="jp flex items-center gap-2 mt-2 px-2 py-1.5" style={{ border: `1px dashed ${claimedAll && !daily.chest ? "var(--gold)" : "var(--rule-soft)"}`, background: "var(--paper)" }}>
+        <svg viewBox="0 0 40 32" width="34" height="28" aria-hidden="true" style={{ flexShrink: 0, filter: claimedAll && !daily.chest ? "drop-shadow(0 0 6px #f2c14e)" : undefined, animation: claimedAll && !daily.chest ? "sqbIdle 1.4s ease-in-out infinite" : undefined }}>
+          <path d="M4 14h32v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z" fill="#b98552" stroke="#5f3f1f" strokeWidth="1.4" />
+          <path d={daily.chest ? "M4 10c0-6 6-9 16-9s16 3 16 9l-2 4H6z" : "M4 14c0-6 6-10 16-10s16 4 16 10z"} fill="#a8743f" stroke="#5f3f1f" strokeWidth="1.4" transform={daily.chest ? "rotate(-14 4 14)" : undefined} />
+          <path d="M4 20h32M20 14v16" stroke="#d6b56a" strokeWidth="2.4" /><rect x="17" y="17" width="6" height="6" rx="1" fill="#f2c14e" stroke="#8f6f2c" />
+        </svg>
+        <div className="flex-1 text-[11px]" style={{ color: "var(--ink-soft)" }}>{daily.chest ? "今日の宝箱は開けました。また明日！" : `3つ全部受け取ると宝箱：${CHEST_REWARD.gold}G・星霊石・まれに装備`}</div>
+        {!daily.chest && <button disabled={!claimedAll} onClick={() => { say(actions.claimChest()); SFX.play("forgeOk"); }} className="btn-primary text-[11px] px-2 py-1 jp">開ける</button>}
+      </div>
+      {msg && <div className="jp text-xs text-center mt-2" style={{ color: "var(--gold)", fontWeight: 700, animation: "sqFadeIn .3s ease-out" }}>{msg}</div>}
+      {!compact && <p className="jp text-[10px] mt-2" style={{ color: "var(--ink-mute)" }}>クエストは毎日0時に入れ替わります。進み具合は、問題を解くときのバトルで記録されます。</p>}
+    </Box>
+  );
+}
+
+// ── 最終ボス（本番の試験）：合格力が合格ラインに届けば撃破できる ──
+function FinalBoss({ state, qual, pp }) {
+  const days = qual && qual.examDate ? daysUntil(qual.examDate) : null;
+  const need = Math.max(0, Math.ceil(PASS_LINE * pp.total - pp.sumR));
+  const hp = Math.max(0, (PASS_LINE - pp.power) / PASS_LINE);
+  const beaten = pp.power >= PASS_LINE;
+  const gauge = Math.min(100, pp.power * 100);
+  return (
+    <Box title="最終決戦" icon={<Skull size={18} />}>
+      <div className="relative overflow-hidden p-3" style={{ borderRadius: 8, background: "linear-gradient(180deg, #2a2440 0%, #3d2f55 55%, #5a3a48 100%)", color: "#fdfbf5" }}>
+        <style>{BATTLE_CSS}</style>
+        <div className="flex items-center gap-3">
+          <div style={{ position: "relative", flexShrink: 0, animation: beaten ? undefined : "sqbIdle 2.6s ease-in-out infinite", filter: beaten ? "grayscale(1) opacity(0.5)" : "drop-shadow(0 0 12px rgba(201,74,74,0.7))" }}>
+            <GameIcon ch="👹" id="maou" size={84} boss />
+          </div>
+          <div className="flex-1 min-w-0 jp">
+            <div className="text-[11px]" style={{ color: "#c9b5f0" }}>{qual ? `${qual.name}の試験` : "本番の試験"}{days !== null ? (days >= 0 ? `　決戦まで あと${days}日` : "　試験日を過ぎました") : "　（資格画面で試験日を設定できます）"}</div>
+            <div style={{ fontFamily: "'Shippori Mincho B1', serif", fontWeight: 800, fontSize: 20, letterSpacing: "0.08em" }}>試験の魔王{beaten ? "　― 撃破可能 ―" : ""}</div>
+            <div className="text-[10px] mt-1" style={{ color: "#e0948a" }}>魔王のHP</div>
+            <div style={{ height: 9, borderRadius: 5, background: "rgba(255,255,255,0.15)", overflow: "hidden" }}><div style={{ width: `${hp * 100}%`, height: "100%", background: "linear-gradient(90deg, #a24a45, #e0948a)", transition: "width .6s" }} /></div>
+          </div>
+        </div>
+        <div className="jp mt-3">
+          <div className="flex justify-between items-baseline text-[11px]" style={{ color: "#c9d4e2" }}><span>あなたの合格力</span><span><span style={{ fontSize: 22, fontWeight: 800, color: beaten ? "#f2c14e" : "#fdfbf5" }}>{pctTxt(pp.power)}</span></span></div>
+          <div style={{ position: "relative", height: 12, borderRadius: 6, background: "rgba(255,255,255,0.15)", overflow: "visible", marginTop: 2 }}>
+            <div style={{ width: `${gauge}%`, height: "100%", borderRadius: 6, background: "linear-gradient(90deg, #6fb8b4, #d6b56a)", transition: "width .6s" }} />
+            {[[BASE_LINE, "基準点"], [PASS_LINE, "合格"]].map(([v, l]) => (
+              <div key={l} style={{ position: "absolute", left: `${v * 100}%`, top: -3, bottom: -3, width: 2, background: v === PASS_LINE ? "#f2c14e" : "#c9b5f0" }}>
+                <span className="text-[9px]" style={{ position: "absolute", top: 16, left: -14, whiteSpace: "nowrap", color: v === PASS_LINE ? "#f2c14e" : "#c9b5f0" }}>{l}{Math.round(v * 100)}%</span>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="grid grid-cols-3 gap-1.5 mt-6 jp text-center">
+          {[["択一20問なら", `約${Math.round(pp.power * 20)}問`], ["出会った問題", `${pp.seen}/${pp.total}`], ["手強い魔物", `${pp.weak}体`]].map(([k, v]) => (
+            <div key={k} style={{ background: "rgba(255,255,255,0.08)", borderRadius: 6, padding: "5px 2px" }}><div className="text-[10px]" style={{ color: "#c9d4e2" }}>{k}</div><div className="text-sm" style={{ fontWeight: 800 }}>{v}</div></div>
+          ))}
+        </div>
+        <p className="jp text-xs mt-3" style={{ color: "#fdfbf5" }}>
+          {beaten ? "魔王を倒せる力が宿っています。この力を試験の日まで保ちましょう（毎日の復習が鍵です）。"
+            : `合格ラインまで あと約${need}問ぶん。${days && days > 0 ? `1日あたり約${Math.ceil(need / days)}問を「しっかり覚える」ペースです。` : ""}`}
+        </p>
+      </div>
+      <p className="jp text-[10px] mt-2" style={{ color: "var(--ink-mute)" }}>合格力は、{qual ? `「${qual.name}」の` : ""}問題すべてについて、いま思い出せる確率（Ankiと同じFSRSの計算）を平均したものです。まだ解いていない問題は0として数えます。復習を続けて新しい問題を覚えるほど上がり、復習をさぼると下がります。</p>
+    </Box>
+  );
+}
+
+// ── 世界地図：科目ごとの地域。合格力に応じて輪が満ちていく ──
+const REGION_ORDER = ["不動産登記法の王都", "民法の古の森", "区分所有の双子塔", "調査士法の砦", "測量の星見台", "書式の迷宮", "未踏の地"];
+const REGION_POS = [[70, 178], [170, 196], [270, 176], [300, 112], [196, 120], [86, 104], [52, 46]];
+function WorldMap({ pp }) {
+  const regs = [...pp.regions].sort((a, b) => REGION_ORDER.indexOf(a.name) - REGION_ORDER.indexOf(b.name));
+  const [sel, setSel] = useState(null);
+  const s = regs.find((g) => g.name === sel);
+  const pts = regs.map((g, i) => ({ g, x: REGION_POS[i % REGION_POS.length][0], y: REGION_POS[i % REGION_POS.length][1] }));
+  const castle = [196, 40];
+  return (
+    <Box title="世界地図" icon={<Castle size={18} />}>
+      {regs.length === 0 ? <p className="jp text-sm" style={{ color: "var(--ink-mute)" }}>問題集を取り込むと、科目ごとの地域が地図に現れます。</p> : (<>
+        <svg viewBox="0 0 360 254" width="100%" style={{ display: "block", maxWidth: 560, margin: "0 auto", borderRadius: 8, background: "radial-gradient(ellipse at 50% 40%, #f8f1de 0%, #ecdfbd 70%, #dcc89c 100%)", border: "1px solid #b08a3e" }}>
+          <path d="M10 150c30-20 50 10 80-6s40-40 80-30 60 30 90 10 50-20 90-6" fill="none" stroke="rgba(127,163,216,0.5)" strokeWidth="6" strokeLinecap="round" />
+          <path d={`M${pts.map((p) => `${p.x} ${p.y}`).join(" L")} L${castle[0]} ${castle[1]}`} fill="none" stroke="#b08a3e" strokeWidth="2" strokeDasharray="5 5" opacity=".7" />
+          <g transform={`translate(${castle[0]} ${castle[1]})`}>
+            <path d="M-22 14v-20h6v6h6v-12h6v-8l4-6 4 6v8h6v12h6v-6h6v20z" fill={pp.power >= PASS_LINE ? "#a7afc2" : "#3d2f55"} stroke="#22335c" strokeWidth="1.2" />
+            <text y="28" textAnchor="middle" fontSize="9" fontWeight="700" fill="#22335c" fontFamily="'Zen Kaku Gothic New', sans-serif">魔王城（試験）</text>
+          </g>
+          {pts.map(({ g, x, y }) => {
+            const prog = Math.min(1, g.power / PASS_LINE);
+            const C = 2 * Math.PI * 20;
+            return (
+              <g key={g.name} transform={`translate(${x} ${y})`} onClick={() => setSel(sel === g.name ? null : g.name)} style={{ cursor: "pointer" }}>
+                <circle r="24" fill={sel === g.name ? "#fff8e6" : "#fdfbf5"} stroke="#b08a3e" strokeWidth="1" />
+                <circle r="20" fill="none" stroke="rgba(0,0,0,0.08)" strokeWidth="4" />
+                <circle r="20" fill="none" stroke={g.th.body} strokeWidth="4" strokeDasharray={`${C * prog} ${C}`} transform="rotate(-90)" strokeLinecap="round" />
+                <path d="M-6 -8l9-2 5 8-5 11-10-2-3-8z" fill={g.th.body} stroke={g.th.dark} strokeWidth="1" opacity={g.seen ? 1 : 0.35} />
+                <text y="38" textAnchor="middle" fontSize="9" fontWeight="700" fill="#22335c" fontFamily="'Zen Kaku Gothic New', sans-serif">{g.name}</text>
+                <text y="48" textAnchor="middle" fontSize="8.5" fill="#5b6b8c" fontFamily="'Zen Kaku Gothic New', sans-serif">{pctTxt(g.power)}</text>
+              </g>
+            );
+          })}
+        </svg>
+        {s ? (
+          <div className="jp mt-2 p-2 text-xs" style={{ background: "var(--paper)", border: `1px solid ${s.th.body}`, animation: "sqFadeIn .25s ease-out" }}>
+            <div style={{ fontWeight: 800, color: s.th.dark }}>{s.name}</div>
+            <div style={{ color: "var(--ink-soft)" }}>合格力 {pctTxt(s.power)} ・ 出会った問題 {s.seen}/{s.total} ・ 手強い魔物 {s.weak}体</div>
+            <div className="text-[10px] mt-1" style={{ color: "var(--ink-mute)" }}>問題集：{s.banks.map((b) => b.name).join("、")}</div>
+          </div>
+        ) : <p className="jp text-[10px] mt-2" style={{ color: "var(--ink-mute)" }}>地域を選ぶと、その科目の合格力が見られます。輪が一周すると合格ライン（85%）です。地域は問題集の名前（登記・民法・区分所有・調査士法・測量・書式）から決まります。</p>}
+      </>)}
+    </Box>
+  );
+}
+
+function StoryPanel({ pp }) {
+  const cur = storyIndex(pp.power);
+  const [open, setOpen] = useState(cur);
+  return (
+    <Box title="物語" icon={<BookOpen size={18} />}>
+      <div className="space-y-1">
+        {STORY_CHAPTERS.map((c, i) => {
+          const unlocked = i <= cur;
+          return (
+            <div key={c.title} style={{ border: `1px solid ${i === cur ? "var(--gold)" : "var(--rule-soft)"}`, background: unlocked ? "var(--paper)" : "transparent" }}>
+              <button disabled={!unlocked} onClick={() => setOpen(open === i ? -1 : i)} className="w-full text-left jp px-2 py-1.5 flex items-center gap-2" style={{ background: "transparent", border: "none", cursor: unlocked ? "pointer" : "default" }}>
+                <span className="flex-1 text-sm" style={{ fontFamily: "'Shippori Mincho B1', serif", fontWeight: 800, color: unlocked ? "var(--ink)" : "var(--ink-mute)" }}>{unlocked ? c.title : "？？？"}</span>
+                <span className="text-[10px]" style={{ color: "var(--ink-mute)" }}>{unlocked ? (open === i ? "▲" : "▼") : `合格力${Math.round(c.at * 100)}%で解放`}</span>
+              </button>
+              {unlocked && open === i && <div className="jp text-sm px-3 pb-2 leading-relaxed" style={{ color: "var(--ink-soft)", whiteSpace: "pre-wrap", fontFamily: "'Shippori Mincho B1', serif", animation: "sqFadeIn .25s ease-out" }}>{c.text}</div>}
+            </div>
+          );
+        })}
+      </div>
+    </Box>
+  );
+}
+
+function WorldView({ state, actions, todayCount }) {
+  const qual = mainQual(state);
+  const linked = qual && state.questionBanks.some((b) => b.qualId === qual.id);
+  const pp = passPower(state, linked ? qual.id : null);
+  return (
+    <>
+      <FinalBoss state={state} qual={qual} pp={pp} />
+      <DailyQuests state={state} actions={actions} todayCount={todayCount} />
+      <WorldMap pp={pp} />
+      <StoryPanel pp={pp} />
+    </>
+  );
+}
+
 // ── 冒険タブ ──
-function AdventureTab({ state, actions, recordAnswer, startTimer, stopTimer }) {
+function AdventureTab({ state, actions, recordAnswer, startTimer, stopTimer, todayCount = 0 }) {
   const r = normRpg(state.rpg);
   const bonus = getRpgBonuses(state);
   const boss = getNextBoss(r);
@@ -6938,7 +7253,7 @@ function AdventureTab({ state, actions, recordAnswer, startTimer, stopTimer }) {
   const [slotOpen, setSlotOpen] = useState(null);   // 装備を選んでいるスロット
   const [qualId, setQualId] = useState("all");
   const [msg, setMsg] = useState("");
-  const [view, setView] = useState("base"); // base（拠点・ボス）| skill | forge
+  const [view, setView] = useState("world"); // world（世界）| base（拠点・ボス）| skill | forge | dex
 
   if (battle) {
     return <BossBattle state={state} boss={battle.boss} pool={battle.pool} actions={actions} recordAnswer={recordAnswer} startTimer={startTimer} stopTimer={stopTimer} onExit={() => setBattle(null)} />;
@@ -6962,8 +7277,8 @@ function AdventureTab({ state, actions, recordAnswer, startTimer, stopTimer }) {
   const msgBox = msg && <div className="jp text-sm p-2 text-center" style={{ background: "var(--cream)", border: "1px solid var(--gold)", color: "var(--ink)" }}>{msg}</div>;
   // 画面上部の切り替え（拠点・ボス／スキル／鍛冶場）
   const nav = (
-    <div className="grid grid-cols-4 gap-1.5">
-      {[["base", "拠点・ボス"], ["skill", "スキル"], ["forge", "鍛冶場"], ["dex", "図鑑・進化"]].map(([id, label]) => (
+    <div className="grid grid-cols-5 gap-1">
+      {[["world", "世界"], ["base", "拠点"], ["skill", "スキル"], ["forge", "鍛冶場"], ["dex", "図鑑"]].map(([id, label]) => (
         <button key={id} onClick={() => setView(id)} className={`jp py-2 text-sm relative ${view === id ? "btn-primary" : "btn-ghost"}`}>
           {label}
           {id === "skill" && spLeft > 0 && <span className="absolute -top-1.5 -right-1 text-[10px] px-1.5" style={{ background: "var(--brick)", color: "var(--paper)", borderRadius: 999 }}>{spLeft}</span>}
@@ -6974,6 +7289,7 @@ function AdventureTab({ state, actions, recordAnswer, startTimer, stopTimer }) {
   if (view === "skill") return <div className="space-y-4">{nav}{msgBox}<SkillPanel state={state} actions={actions} flash={flash} /></div>;
   if (view === "forge") return <div className="space-y-4">{nav}{msgBox}<ForgePanel state={state} actions={actions} /></div>;
   if (view === "dex") return <div className="space-y-4">{nav}<EvolutionRoad state={state} /><MonsterDex state={state} /></div>;
+  if (view === "world") return <div className="space-y-4">{nav}<WorldView state={state} actions={actions} todayCount={todayCount} /></div>;
 
   return (
     <div className="space-y-4">
@@ -7743,14 +8059,14 @@ const comboCut = (n) => COMBO_CUTS.find((c) => c.n === n) || (n > 30 && n % 10 =
 // ── 魔物：問題ごとに種族（形）は固定、色と名前は科目（問題集の名前）で決まる ──
 const hashStr = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619); return h >>> 0; };
 const MON_THEMES = [
-  { re: /区分所有/, prefix: "共用", mat: "m-kyoyo", body: "#a593d8", dark: "#5e4d93", light: "#e4dcf6" },
-  { re: /調査士法/, prefix: "懲戒", mat: "m-chokai", body: "#d6b56a", dark: "#8f6f2c", light: "#f6ead0" },
-  { re: /登記|不登/, prefix: "地番", mat: "m-chiban", body: "#7fa3d8", dark: "#34508c", light: "#dfe8f6" },
-  { re: /民法/, prefix: "契約", mat: "m-keiyaku", body: "#86bd70", dark: "#4f7a3a", light: "#e2f0da" },
-  { re: /測量|計算|座標/, prefix: "座標", mat: "m-zahyo", body: "#6fb8b4", dark: "#2f6f6c", light: "#d8efee" },
-  { re: /書式|作図|記述/, prefix: "書式", mat: "m-shoshiki", body: "#e3908a", dark: "#9a4d47", light: "#f8e0dd" },
+  { re: /区分所有/, prefix: "共用", mat: "m-kyoyo", region: "区分所有の双子塔", body: "#a593d8", dark: "#5e4d93", light: "#e4dcf6" },
+  { re: /調査士法/, prefix: "懲戒", mat: "m-chokai", region: "調査士法の砦", body: "#d6b56a", dark: "#8f6f2c", light: "#f6ead0" },
+  { re: /登記|不登/, prefix: "地番", mat: "m-chiban", region: "不動産登記法の王都", body: "#7fa3d8", dark: "#34508c", light: "#dfe8f6" },
+  { re: /民法/, prefix: "契約", mat: "m-keiyaku", region: "民法の古の森", body: "#86bd70", dark: "#4f7a3a", light: "#e2f0da" },
+  { re: /測量|計算|座標/, prefix: "座標", mat: "m-zahyo", region: "測量の星見台", body: "#6fb8b4", dark: "#2f6f6c", light: "#d8efee" },
+  { re: /書式|作図|記述/, prefix: "書式", mat: "m-shoshiki", region: "書式の迷宮", body: "#e3908a", dark: "#9a4d47", light: "#f8e0dd" },
 ];
-const MON_THEME_DEFAULT = { prefix: "迷宮の", mat: "m-meikyu", body: "#a7afc2", dark: "#5b6b8c", light: "#e6e9f0" };
+const MON_THEME_DEFAULT = { prefix: "迷宮の", mat: "m-meikyu", region: "未踏の地", body: "#a7afc2", dark: "#5b6b8c", light: "#e6e9f0" };
 const MON_UNKNOWN = { body: "#3d4258", dark: "#1f2233", light: "#5d6380", eye: "#f2c14e" };
 const EYE = "#22335c";
 const monEyes = (c, y = 58, gap = 10, r = 4) => (<>
@@ -7903,10 +8219,9 @@ function BattleStage({ state, q, bankName, battleKey }) {
         if (Math.random() < (m.rank === "elite" ? 0.3 : crit ? 0.03 : 0) * dropMul) mats["m-star"] = 1;
         if (cut && cut.n >= 10) mats["m-sage"] = 1;
         const xpBonus = cut && b.comboXp ? b.comboXp : 0;
-        if (Object.keys(mats).length || xpBonus) {
-          Object.entries(mats).forEach(([k, v]) => { BATTLE.mats[k] = (BATTLE.mats[k] || 0) + v; });
-          emitReward({ mats, xp: xpBonus });
-        }
+        Object.entries(mats).forEach(([k, v]) => { BATTLE.mats[k] = (BATTLE.mats[k] || 0) + v; });
+        // 戦利品と、デイリークエスト用の記録（倒した魔物の種類・会心・コンボ）
+        emitReward({ mats, xp: xpBonus, stat: { elite: m.rank === "elite", fresh: m.rank === "unknown", crit, combo: BATTLE.combo } });
         setFx({ n, ok: true, crit, dmg, cut, mon: m, drops: Object.keys(mats) });
         SFX.play(crit ? "crit" : "hit");
         if (Object.keys(mats).length) setTimeout(() => SFX.play("drop"), 320);

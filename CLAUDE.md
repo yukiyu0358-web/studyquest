@@ -86,6 +86,7 @@ state の主なキー：`player` / `qualifications` / `tasks` / `studyLog` / `fo
 - 育成：素材 `RPG_MATERIALS`（戦利品は `emitReward`→StudyRPG が記録）、スキル `SKILL_TREE`（SP＝レベル−1）、鍛冶 `forgeCost` `forgedFx` `rpgInvItem`（持ち物 `{u,i,p}` の p が強化段階）。`SkillPanel` `ForgePanel`。rpg に `materials` `skills` `forgeLog` を追加
 - 進化：`HERO_STAGES`（Lv1/10/20/30/40/50 の6つの姿。額縁・紋章・翼・星）`heroStage` `HeroDecor` `EvolutionScene`（全画面の進化演出。`showEvolution` で出す：主人公の段階変化・覚醒★・相棒）`EvolutionRoad`
 - モンスター図鑑：`MonsterDex` `dexStatus`（0未発見 1発見 2討伐 3制覇＝fs.s≥21）
+- 世界と物語（冒険の「世界」タブ）：合格力 `passPower`（FSRSの想起率の平均・未学習は0。`PASS_LINE` 0.85／`BASE_LINE` 0.75）`mainQual` `FinalBoss` `WorldMap`（`MON_THEMES.region`）`STORY_CHAPTERS` `StoryPanel`（章が開くと `showEvolution`）。デイリークエスト `DAILY_QUESTS` `DailyQuests` `dailyOf`（rpg.daily に日ごとの記録。BattleStage の `emitReward` の stat で数える）`claimQuest` `claimChest`
 - テーマ：`DISPLAY_DEFAULTS`（既定は white）`THEME_PAL`（classic/white の配色）`CLASSIC_CSS` `WHITE_CSS` `ClassicThemeStyle` `TitleScreen` `ClassicInfoBar` `MenuHome`（クラシック）`SignpostHome`（白金・道しるべ）`migrateDisplay`
 
 ## テーマの仕組み

@@ -36,8 +36,8 @@ function makeQuestions(prefix, offset) {
 }
 
 export const DEMO_BANKS = [
-  { id: "bank-r6", name: "令和6年 本試験 択一", year: "R6", qualId: "q-chousashi", order: 0, clears: 2, clearHistory: [{ date: ymd(day(-30)), accuracy: 62 }, { date: ymd(day(-10)), accuracy: 75 }], questions: makeQuestions("r6", 0) },
-  { id: "bank-r5", name: "令和5年 本試験 択一", year: "R5", qualId: "q-chousashi", order: 1, clears: 1, clearHistory: [{ date: ymd(day(-20)), accuracy: 58 }], questions: makeQuestions("r5", 3) },
+  { id: "bank-r6", name: "不動産登記法 過去問", year: "R6", qualId: "q-chousashi", order: 0, clears: 2, clearHistory: [{ date: ymd(day(-30)), accuracy: 62 }, { date: ymd(day(-10)), accuracy: 75 }], questions: makeQuestions("r6", 0) },
+  { id: "bank-r5", name: "民法 過去問", year: "R5", qualId: "q-chousashi", order: 1, clears: 1, clearHistory: [{ date: ymd(day(-20)), accuracy: 58 }], questions: makeQuestions("r5", 3) },
   { id: "bank-sokuryo", name: "測量士 午前 R6", year: "R6", qualId: "q-sokuryo", order: 0, clears: 0, clearHistory: [], questions: makeQuestions("sk", 1).slice(0, 6) },
 ];
 
