@@ -575,18 +575,18 @@ function MentorBubble({ state, todayCount, theme = "white", avatar, face, overri
   return (
     <div className="rpg-box px-3 py-3 md:px-4 jp">
       <div className="flex items-start gap-3">
-        <div aria-hidden="true" className="flex-shrink-0 w-14 h-14 md:w-16 md:h-16" style={{ borderRadius: "50%", backgroundColor: S.bubble, backgroundImage: `url(${avatar})`, backgroundSize: "300% auto", backgroundPosition: `${face[0]}% ${face[1]}%`, backgroundRepeat: "no-repeat", border: `2px solid ${S.ring}`, boxShadow: "0 2px 6px rgba(0,0,0,0.18)" }} />
-        <button onClick={() => setN(n + 1)} aria-label="次の言葉へ" className="relative flex-1 min-w-0 text-left" style={{ background: S.bubble, border: `1px solid ${S.border}`, borderRadius: 12, padding: "10px 30px 12px 14px", color: S.text, cursor: "pointer", minHeight: 64 }}>
+        <div aria-hidden="true" className="flex-shrink-0 w-16 h-16 md:w-20 md:h-20" style={{ borderRadius: "50%", backgroundColor: S.bubble, backgroundImage: `url(${avatar})`, backgroundSize: "300% auto", backgroundPosition: `${face[0]}% ${face[1]}%`, backgroundRepeat: "no-repeat", border: `2px solid ${S.ring}`, boxShadow: "0 2px 6px rgba(0,0,0,0.18)" }} />
+        <button onClick={() => setN(n + 1)} aria-label="次の言葉へ" className="relative flex-1 min-w-0 text-left" style={{ background: S.bubble, border: `1px solid ${S.border}`, borderRadius: 12, padding: "14px 34px 16px 18px", color: S.text, cursor: "pointer", minHeight: 80 }}>
           <span aria-hidden="true" style={{ position: "absolute", left: -7, top: 22, width: 12, height: 12, background: S.bubble, borderLeft: `1px solid ${S.border}`, borderBottom: `1px solid ${S.border}`, transform: "rotate(45deg)" }} />
           {override ? (
-            <span className="text-[15px] md:text-[17px] leading-relaxed" style={{ ...font, fontWeight: 700 }}>{override}</span>
+            <span className="text-[16px] md:text-[19px] leading-relaxed" style={{ ...font, fontWeight: 700 }}>{override}</span>
           ) : status ? (
-            <span key={n} className="block text-[15px] md:text-[17px] leading-relaxed" style={{ ...font, fontWeight: 700, animation: "sqFadeIn .3s ease-out" }}>{status[Math.floor(n / 4) % status.length]}</span>
+            <span key={n} className="block text-[18px] md:text-[22px] leading-relaxed" style={{ ...font, fontWeight: 700, animation: "sqFadeIn .3s ease-out" }}>{status[Math.floor(n / 4) % status.length]}</span>
           ) : (
             <span key={n} className="block" style={{ animation: "sqFadeIn .3s ease-out" }}>
-              <span className="block text-[16px] md:text-[19px] leading-relaxed" style={{ ...font, fontWeight: 800, letterSpacing: "0.03em" }}>「{quote.t}」</span>
-              <span className="block text-right text-[11px] md:text-xs mt-0.5" style={{ color: S.by, fontWeight: 700 }}>― {quote.by}</span>
-              <span className="block text-[13px] md:text-[15px] leading-relaxed mt-1" style={{ ...font, color: S.sub, fontWeight: 600 }}>{quote.say}</span>
+              <span className="block text-[21px] md:text-[27px] leading-snug" style={{ ...font, fontWeight: 800, letterSpacing: "0.03em" }}>「{quote.t}」</span>
+              <span className="block text-right text-xs md:text-sm mt-1" style={{ color: S.by, fontWeight: 700 }}>― {quote.by}</span>
+              <span className="block text-[15px] md:text-[18px] leading-relaxed mt-1.5" style={{ ...font, color: S.sub, fontWeight: 600 }}>{quote.say}</span>
             </span>
           )}
           <span aria-hidden="true" style={{ position: "absolute", right: 12, bottom: 8, fontSize: 11, color: S.caret, animation: "sqCaret 1.2s ease-in-out infinite" }}>{theme === "white" ? "◆" : "▼"}</span>
@@ -2619,11 +2619,10 @@ function StudyRPG({ user }) {
         <div className="mb-4">
           {tab === "home" && classic && <MenuHome state={state} todayCount={getTodayReviewItems().length} onCommand={homeCommand} />}
           {tab === "home" && isWhite && <SignpostHome state={state} todayCount={getTodayReviewItems().length} onCommand={homeCommand} />}
-          {tab === "home" && <div className="mb-4"><StoryContinueCard state={state} onGo={() => setTab("adventure")} /></div>}
-          {tab === "home" && <div className="mb-4"><DailyQuests state={state} actions={rpgActions} todayCount={getTodayReviewItems().length} compact /></div>}
-          {tab === "home" && <HomeTab state={state} liveSeconds={liveSeconds} setMainTitle={setMainTitle} setTab={setTab} todayCount={getTodayReviewItems().length} hideBanner={fancy} />}
+          {tab === "home" && <HomeDashboard state={state} actions={rpgActions} todayCount={getTodayReviewItems().length} liveSeconds={liveSeconds} onGo={(t) => setTab(t)} />}
+          {tab === "home" && <HomeTab state={state} liveSeconds={liveSeconds} setMainTitle={setMainTitle} setTab={setTab} todayCount={getTodayReviewItems().length} hideBanner dashboard />}
           {tab === "today" && <TodayTab state={state} recordSRAnswer={recordSRAnswer} updateSrSettings={updateSrSettings} startTimer={startTimer} stopTimer={stopTimer} toggleQuestionMark={toggleQuestionMark} />}
-          {tab === "status" && <StatusTab state={state} />}
+          {tab === "status" && <StatusTab state={state} setMainTitle={setMainTitle} />}
           {tab === "adventure" && <AdventureTab state={state} actions={rpgActions} recordAnswer={recordAnswer} startTimer={startTimer} stopTimer={stopTimer} todayCount={getTodayReviewItems().length} />}
           {tab === "qual" && <QualTab state={state} addQual={addQual} updateQual={updateQual} deleteQual={deleteQual} acquireQual={acquireQual} />}
           {tab === "task" && <TaskTab state={state} addTask={addTask} completeTask={completeTask} deleteTask={deleteTask} addPreset={addPreset} deletePreset={deletePreset} updatePreset={updatePreset} />}
@@ -2852,7 +2851,7 @@ function StudyCalendar({ data, title, emptyColor = "var(--rule-soft)", colorFn, 
   );
 }
 
-function StatusTab({ state }) {
+function StatusTab({ state, setMainTitle }) {
   const status = calculateStatus(state);
   const player = state.player;
   const mainAch = player.mainTitleId ? player.achievements.find((a) => a.id === player.mainTitleId) : null;
@@ -2884,6 +2883,19 @@ function StatusTab({ state }) {
           <StatBar cls="luk" label="LUK" sub="連続正解・取得資格で上昇 (運)" value={status.luk} max={barMax(status.luk, 100)} />
         </div>
       </Box>
+
+      {/* 称号 / ジョブ（ホームから移動） */}
+      {setMainTitle && (
+        <Box title="称号 / ジョブ" icon={<Crown size={18} />}>
+          <p className="jp text-[11px] mb-2" style={{ color: "var(--ink-soft)" }}>タップすると、ホームやステータスに出る主な称号を切り替えます。</p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+            <TitleCard active={!state.player.mainTitleId} onClick={() => setMainTitle(null)} icon="🧙" title={getLevelTitle(state.player.level)} sub={`レベル称号 (Lv.${state.player.level})`} />
+            {state.player.achievements.map((a) => (
+              <TitleCard key={a.id} active={state.player.mainTitleId === a.id} onClick={() => setMainTitle(a.id)} icon={a.icon} title={a.title} sub={a.job ? `ジョブ: ${a.job}` : ""} color={a.color} />
+            ))}
+          </div>
+        </Box>
+      )}
 
       <RpgBonusBox state={state} />
 
@@ -2990,16 +3002,9 @@ function SkillList({ state, status }) {
 }
 
 // ============ Home Tab ============
-function HomeTab({ state, liveSeconds, setMainTitle, setTab, todayCount, hideBanner = false }) {
+function HomeTab({ state, liveSeconds, setMainTitle, setTab, todayCount, hideBanner = false, dashboard = false }) {
   const today = todayStr();
   const todayMin = state.studyLog.filter((l) => l.date === today).reduce((a, b) => a + b.minutes, 0) + (state.timer.startMs ? liveSeconds / 60 : 0);
-  const last7 = (() => {
-    const days = {};
-    for (let i = 0; i < 7; i++) { const d = new Date(); d.setDate(d.getDate() - i); const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; days[key] = 0; }
-    state.studyLog.forEach((l) => { if (l.date in days) days[l.date] += l.minutes; });
-    return Object.entries(days).reverse();
-  })();
-  const maxDay = Math.max(...last7.map(([, v]) => v), 1);
   const acquiredQuals = state.qualifications.filter((q) => q.acquired);
   const status = calculateStatus(state);
 
@@ -3025,8 +3030,8 @@ function HomeTab({ state, liveSeconds, setMainTitle, setTab, todayCount, hideBan
         </div>
       )}
 
-      {/* 試験日カウントダウン */}
-      {state.qualifications.filter((q) => !q.acquired && q.examDate).map((qual) => {
+      {/* 試験日カウントダウン（新しいホームではダッシュボードに表示） */}
+      {!dashboard && state.qualifications.filter((q) => !q.acquired && q.examDate).map((qual) => {
         const days = daysUntil(qual.examDate);
         if (days === null || days < 0) return null;
         const totalQ = state.questionBanks.filter((b) => b.qualId === qual.id).reduce((a, b) => a + b.questions.length, 0);
@@ -3051,37 +3056,13 @@ function HomeTab({ state, liveSeconds, setMainTitle, setTab, todayCount, hideBan
         );
       })}
 
-      <Box title="今日の冒険" icon={<Calendar size={18} />}>
+      {!dashboard && <Box title="今日の冒険" icon={<Calendar size={18} />}>
         <div className="grid grid-cols-3 gap-2">
           <Stat label="今日" value={fmtMin(todayMin)} accent="var(--sky-deep)" />
           <Stat label="連続学習" value={`${status.currentStreak}日`} accent="var(--sage)" />
           <Stat label="クエスト" value={state.player.totalCompleted} accent="var(--brick)" />
         </div>
-      </Box>
-
-      <Box title="ここ1週間" icon={<TrendingUp size={18} />}>
-        <div className="flex items-end justify-between gap-1 h-24 mb-2">
-          {last7.map(([d, v]) => (
-            <div key={d} className="flex-1 h-full flex flex-col items-center justify-end gap-1">
-              <div className="w-full transition-all" style={{ height: `${(v / maxDay) * 100}%`, minHeight: v > 0 ? "4px" : "0", background: "var(--sky)", border: "1px solid var(--sky-deep)" }} />
-              <div className="pixel text-[8px]" style={{ color: "var(--ink-soft)" }}>{d.slice(5)}</div>
-            </div>
-          ))}
-        </div>
-        <button onClick={() => setTab("status")} className="jp btn-info w-full mt-2 py-2 text-sm flex items-center justify-center gap-1">
-          <StatusIcon size={14} /> 詳細ステータスを見る
-        </button>
-      </Box>
-
-      <Box title="称号 / ジョブ" icon={<Crown size={18} />}>
-        <p className="jp text-[11px] mb-2" style={{ color: "var(--ink-soft)" }}>タップで主称号を切替。</p>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-          <TitleCard active={!state.player.mainTitleId} onClick={() => setMainTitle(null)} icon="🧙" title={getLevelTitle(state.player.level)} sub={`レベル称号 (Lv.${state.player.level})`} />
-          {state.player.achievements.map((a) => (
-            <TitleCard key={a.id} active={state.player.mainTitleId === a.id} onClick={() => setMainTitle(a.id)} icon={a.icon} title={a.title} sub={a.job ? `ジョブ: ${a.job}` : ""} color={a.color} />
-          ))}
-        </div>
-      </Box>
+      </Box>}
 
       {state.qualifications.filter((q) => !q.acquired).length > 0 && (
         <Box title="資格の進捗" icon={<Award size={18} />}>
@@ -8057,24 +8038,66 @@ function StoryQuestView({ state, pp, onStart }) {
   );
 }
 
-// ホームに出す「ストーリーのつづき」（押すと冒険の世界タブへ）
-function StoryContinueCard({ state, onGo }) {
+// ストーリーの次の話（ホームの「今日の道しるべ」で使う）
+function storyNextInfo(state) {
   const r = normRpg(state.rpg);
   const qual = mainQual(state);
   const linked = qual && state.questionBanks.some((b) => b.qualId === qual.id);
   const regs = passPower(state, linked ? qual.id : null).regions.filter((g) => g.total > 0).sort((a, b) => REGION_ORDER.indexOf(a.name) - REGION_ORDER.indexOf(b.name));
   let next = null, reg = null, done = 0, all = 0;
   regs.forEach((g) => { const qs = regionQuests(g); all += qs.length; done += qs.filter((q) => sqStars(r, q.key) >= 1).length; if (!next) { const n = qs.find((q) => sqStars(r, q.key) < 1 && sqOpen(r, q)); if (n) { next = n; reg = g; } } });
-  if (!all) return null;
-  return (
-    <button onClick={onGo} className="rpg-box w-full text-left px-4 py-3 jp flex items-center gap-3" style={{ cursor: "pointer" }}>
-      <span style={{ width: 40, height: 40, flexShrink: 0, borderRadius: "50%", display: "inline-flex", alignItems: "center", justifyContent: "center", background: "var(--cream)", border: "1px solid var(--gold)", color: "var(--gold)" }}><BookOpen size={20} /></span>
+  return { next, reg, done, all };
+}
+
+// ── ホームの「今日の道しるべ」：今日やること（復習 → ストーリー → 最終決戦）と今日の記録を1枚にまとめる ──
+function HomeDashboard({ state, actions, todayCount, liveSeconds, onGo }) {
+  const status = calculateStatus(state);
+  const today = todayStr();
+  const todayMin = state.studyLog.filter((l) => l.date === today).reduce((a, b) => a + b.minutes, 0) + (state.timer.startMs ? liveSeconds / 60 : 0);
+  const qual = mainQual(state);
+  const linked = qual && state.questionBanks.some((b) => b.qualId === qual.id);
+  const pp = passPower(state, linked ? qual.id : null);
+  const days = qual && qual.examDate ? daysUntil(qual.examDate) : null;
+  const sn = storyNextInfo(state);
+  const Row = ({ no, icon, label, title, sub, action, onClick, gauge }) => (
+    <button onClick={onClick} className="w-full text-left jp flex items-center gap-3 px-3 py-2.5" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)", borderRadius: 8, cursor: "pointer" }}>
+      <span style={{ width: 38, height: 38, flexShrink: 0, borderRadius: "50%", display: "inline-flex", alignItems: "center", justifyContent: "center", background: "var(--cream)", border: "1px solid var(--gold)", color: "var(--gold)" }}>{icon}</span>
       <span className="flex-1 min-w-0">
-        <span className="block text-[10px]" style={{ color: "var(--ink-mute)" }}>ストーリーのつづき ・ 描いた土地 {done}/{all}</span>
-        <span className="block text-sm truncate" style={{ color: "var(--ink)", fontWeight: 800 }}>{next ? `${reg.name}：${next.bank.name} 第${next.idx + 1}話` : "すべての地図が完成しています！"}</span>
+        <span className="block text-[10px]" style={{ color: "var(--ink-mute)", letterSpacing: "0.05em" }}>{no}　{label}</span>
+        <span className="block text-[15px] truncate" style={{ color: "var(--ink)", fontWeight: 800 }}>{title}</span>
+        {sub && <span className="block text-[11px] truncate" style={{ color: "var(--ink-soft)" }}>{sub}</span>}
+        {gauge != null && (
+          <span className="block relative mt-1" style={{ height: 5, borderRadius: 3, background: "var(--beige)" }}>
+            <span className="block" style={{ width: `${Math.min(100, gauge * 100)}%`, height: "100%", borderRadius: 3, background: "linear-gradient(90deg, #6fb8b4, #d6b56a)" }} />
+            <span style={{ position: "absolute", left: `${PASS_LINE * 100}%`, top: -2, bottom: -2, width: 2, background: "var(--gold)" }} />
+          </span>
+        )}
       </span>
-      <span className="text-xs" style={{ color: "var(--gold)", fontWeight: 800 }}>進む ▶</span>
+      <span className="text-xs flex-shrink-0" style={{ color: "var(--gold)", fontWeight: 800 }}>{action} ▶</span>
     </button>
+  );
+  const chip = (k, v) => (
+    <div className="jp text-center" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)", borderRadius: 8, padding: "6px 2px" }}>
+      <div className="text-[10px]" style={{ color: "var(--ink-mute)" }}>{k}</div>
+      <div className="text-sm" style={{ color: "var(--ink)", fontWeight: 800 }}>{v}</div>
+    </div>
+  );
+  return (
+    <div className="grid gap-3 md:grid-cols-2 items-start mb-4">
+      <Box title="今日の道しるべ" icon={<Calendar size={18} />}>
+        <div className="space-y-2">
+          <Row no="一" icon={<Calendar size={18} />} label="今日の復習" title={todayCount > 0 ? `あと ${todayCount}問` : "今日の復習は完了です"} sub={todayCount > 0 ? "期限が来た問題と、まだ解いていない問題" : "おつかれさまでした。余力があればストーリーへ"} action={todayCount > 0 ? "はじめる" : "ひらく"} onClick={() => onGo("today")} />
+          {sn.all > 0 && <Row no="二" icon={<BookOpen size={18} />} label={`ストーリーのつづき（描いた土地 ${sn.done}/${sn.all}）`} title={sn.next ? `${sn.reg.name}` : "すべての地図が完成"} sub={sn.next ? `${sn.next.bank.name}　第${sn.next.idx + 1}話` : "★を集め直すこともできます"} action="進む" onClick={() => onGo("adventure")} />}
+          {pp.total > 0 && <Row no="三" icon={<Skull size={18} />} label="最終決戦" title={days !== null && days >= 0 ? `決戦まで あと${days}日` : "試験の魔王"} sub={`合格力 ${pctTxt(pp.power)}（合格ライン${Math.round(PASS_LINE * 100)}%）`} gauge={pp.power} action="見る" onClick={() => onGo("adventure")} />}
+        </div>
+        <div className="grid grid-cols-3 gap-2 mt-3">
+          {chip("今日の学習", fmtMin(todayMin))}
+          {chip("連続学習", `${status.currentStreak}日`)}
+          {chip("達成クエスト", `${state.player.totalCompleted}`)}
+        </div>
+      </Box>
+      <DailyQuests state={state} actions={actions} todayCount={todayCount} compact />
+    </div>
   );
 }
 
