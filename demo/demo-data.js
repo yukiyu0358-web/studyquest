@@ -65,6 +65,7 @@ export const DEMO_STATE = {
     materials: { "m-chiban": 14, "m-keiyaku": 6, "m-zahyo": 3, "m-star": 2, "m-sage": 1 },
     skills: ["a1", "b1"],
     journey: { pos: 6, acc: 7, lap: 0, log: [] },
+    powerLog: Array.from({ length: 40 }, (_, k) => { const i = 40 - k; const p = Math.min(0.8, 0.42 + (40 - i) * 0.007 + Math.sin(i / 3) * 0.01); return { d: ymd(day(-i)), p: Math.round(p * 1000) / 1000, g: { "不動産登記法の王都": Math.round((p + 0.05) * 1000) / 1000, "民法の古の森": Math.round((p - 0.08 + (40 - i) * 0.002) * 1000) / 1000 } }; }),
     dungeon: { best: { 20: 0.8 } },
   },
 };

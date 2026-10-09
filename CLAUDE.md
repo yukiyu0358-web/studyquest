@@ -49,10 +49,12 @@ RPG風の資格学習Webアプリ。利用者本人（Yuki）が、土地家屋�
 
 ## ファイル構成
 
-- `src/App.jsx`：**全画面・全機能が1ファイル**（約7,600行・約1MB）。500KB超のため Babel の "deoptimised the styling" という注意が出るが無害。
+- `src/App.jsx`：画面と機能の大部分（約1万行・約700KB）。500KB超のため Babel の "deoptimised the styling" という注意が出るが無害。少しずつ分割中。
+- 分割済み：`src/game/icons.jsx`（Ico・線のアイコン・GameIcon とメダル絵）、`src/game/sfx.js`（効果音 SFX）、`src/data/quotes.js`（名言 STUDY_QUOTES）、`src/data/story.js`（会話 STORY_TALKS・REGION_TALK）。App.jsx の先頭で import している。
+- **分割したら必ず `node scripts/check-names.mjs` で点検する**（定義も import もされていない名前を探す。ビルドでは見つからず、使っている途中にエラーになるため）。
 - `src/firebase.js`：Firebase初期化。`src/main.jsx`：起動。
-- `public/hero.jpg`：クラシックテーマの立ち絵（少年）。
-- `public/white-title.jpg`／`public/white-hero.jpg`：白金テーマのタイトル・背景の絵と、メニューの立ち絵（白髪の少女）。
+- `public/hero.jpg`：クラシックテーマの立ち絵（少年）。`public/sprites/tier1〜6.png`：ドット絵の主人公（以前は App.jsx に埋め込み）。
+- `public/white-title.jpg`／`public/white-hero.jpg`：白金テーマのタイトル・背景の絵と、メニューの立ち絵（白髪の少女）。`public/white-hero-s1〜s5.jpg` を置くと、Lv10/20/30/40/50 の姿の立ち絵に自動で切り替わる（無ければ前の姿→基本の絵）。
 - `public/laws/*.json`：条文データ（不動産登記法・令・規則、民法、区分所有法、土地家屋調査士法）。
 - `scripts/fetch-laws.mjs`：e-Gov法令API v2 から条文を取得するスクリプト。
 
@@ -90,6 +92,9 @@ state の主なキー：`player` / `qualifications` / `tasks` / `studyLog` / `fo
 - 週替わりボス：`weeklyBossFor`（合格力が最も低い地域）`WeeklyBossCard` `buildPoolFromBanks`、BossBattle の `boss.weekly` で `weeklyFinish`（rpg.weekly）。模試の塔：`DungeonCard` `DungeonRun` `dungeonFinish`（rpg.dungeon.best）
 - 魔王城への道（世界タブを「魔王城への道／クエスト／魔王城」に分割）：科目の判定は `themeOf`（フォルダ名＋問題集名。`syncFolderIndex` で対応表を更新）。地域の守護者 `REGION_INFO` `regionStatus`（霧・探索中・挑戦可・解放）`guardianFinish`（rpg.regions、紋章の効果は getRpgBonuses）。会話 `STORY_TALKS` `REGION_TALK` `StoryTalk`（`showEvolution` の afterTalk で続けて出す）。魔王城 `CASTLE_FLOORS` `CastleCard` `castleClimb`（rpg.castle.floor）。旅路 `journeyEvent` `JourneyCard`（rpg.journey、戦利品の記録で進む）。カテゴリ討伐 `CAT_TIERS` `CategoryQuests` `claimCat`（rpg.cats）
 - ストーリークエスト（世界タブの「ストーリー」）：問題集を出題順に区切って1話に（第1・2話10問、第3・4話12問、以降15問。`chunkBank` `SQ_SIZES` `regionQuests`）。題名は最も多く出る条文の見出し（`questTopic` `questTitle`、条文データを読み込む）。六角形の地図 `hexSpiral` `StoryQuestView`、1話の戦い `QuestRun`（最後の1問は BattleStage の boss）、結果 `storyQuestFinish`（rpg.sq[`${問題集id}:${話}`]＝{stars,best,clears}、地域の全話クリアで地図完成）。ホームは `HomeDashboard`（今日の道しるべ：復習・ストーリーのつづき `storyNextInfo`・最終決戦＋今日の記録）と今日のクエストを2列に。称号／ジョブはステータス画面へ移動、「ここ1週間」は削除。問題集の問題を並べ替え・追加すると話の区切りがずれる点に注意
+- 合格力の推移と週報：`PowerChart`（rpg.powerLog に1日1件）`weeklyReport`（週はじめに会話で。rpg.reportWeek）。会話は `talkQ` で順番待ち
+- 論点カルテ `topicKarte` `TopicKarte`（記憶率の低い話トップ5、集中攻撃）。書式の鍛錬場 `ShoshikiDojo`（rpg.shoshiki）。逆算プラン `examPlan` `newTodayCount`（ホームの今日の目標）
+- ログインボーナス `LoginBonus` `claimLogin`（rpg.login）。季節のイベント `SEASON_EVENTS` `activeEvents`（ボーナスは getRpgBonuses に加算）
 - テーマ：`DISPLAY_DEFAULTS`（既定は white）`THEME_PAL`（classic/white の配色）`CLASSIC_CSS` `WHITE_CSS` `ClassicThemeStyle` `TitleScreen` `ClassicInfoBar` `MenuHome`（クラシック）`SignpostHome`（白金・道しるべ）`migrateDisplay`
 
 ## テーマの仕組み
