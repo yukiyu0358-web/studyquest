@@ -7870,14 +7870,20 @@ function RegionDetail({ g, r, onGuardian }) {
 const SQ_TARGET = 15;
 const SQ_CLEAR = 0.7; // クリア（★1）の正答率
 const sqStarsOf = (acc) => (acc >= 0.999 ? 3 : acc >= PASS_LINE ? 2 : acc >= SQ_CLEAR ? 1 : 0);
+// 1話の問題数：最初は10問から始めて、少しずつ長くする（第1・2話10問、第3・4話12問、第5話から15問）
+const SQ_SIZES = [10, 10, 12, 12];
 function chunkBank(b) {
   const qs = b.questions || [];
   const n = qs.length;
   if (!n) return [];
-  const k = Math.max(1, Math.round(n / SQ_TARGET));
-  const size = Math.ceil(n / k);
   const out = [];
-  for (let i = 0; i < n; i += size) out.push(qs.slice(i, i + size));
+  for (let i = 0, k = 0; i < n; k++) {
+    const size = SQ_SIZES[k] || SQ_TARGET;
+    out.push(qs.slice(i, i + size));
+    i += size;
+  }
+  // 最後の話が短すぎる（5問未満）ときは、1つ前の話にまとめる
+  if (out.length > 1 && out[out.length - 1].length < 5) { const last = out.pop(); out[out.length - 1] = out[out.length - 1].concat(last); }
   return out;
 }
 const sqCache = new WeakMap();
