@@ -109,6 +109,9 @@ const todayStr = () => { const d = new Date(); return `${d.getFullYear()}-${Stri
 // 色はCSS変数（--paper, --ink など）を差し替えて、アプリ全体をまとめて切り替える。
 // 立ち絵は public/hero.jpg を使う（無い場合はドット絵のキャラクターで代用）。
 const HERO_URL = `${(import.meta.env && import.meta.env.BASE_URL) || "/"}hero.jpg`;
+// 白金テーマ：タイトル・背景の絵（white-title.jpg）と、メニューの立ち絵（white-hero.jpg）
+const WHITE_TITLE_URL = `${(import.meta.env && import.meta.env.BASE_URL) || "/"}white-title.jpg`;
+const WHITE_HERO_URL = `${(import.meta.env && import.meta.env.BASE_URL) || "/"}white-hero.jpg`;
 const readPref = (key, fallback) => { try { return localStorage.getItem(key) || fallback; } catch (e) { return fallback; } };
 const writePref = (key, value) => { try { localStorage.setItem(key, value); } catch (e) { /* 保存できなくても動作は続ける */ } };
 
@@ -140,14 +143,44 @@ html[data-theme="classic"] ::placeholder{color:#7f8aa6}
 @keyframes sqFadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
 @keyframes sqTwinkleT{0%,100%{opacity:0;transform:scale(.5)}50%{opacity:.9;transform:scale(1)}}
 `;
-const CLASSIC_FONTS = "https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@400;700;800&family=Cinzel:wght@700;900&family=Shippori+Mincho+B1:wght@500;700&display=swap";
+const WHITE_CSS = `
+html[data-theme="white"]{--ink:#22335c;--ink-soft:#4a5a7c;--ink-mute:#7a8aa8;--paper:#fdfbf5;--cream:#f6f0e2;--beige:#ece4d0;--greige:#d9cfb5;--rule:#b08a3e;--rule-soft:#d8c9a3;--gold:#b08a3e;--gold-light:#d6b56a;--sage:#4f8a72;--brick:#a24a45;--slate:#3d5a8c;--sky:#7fa6d6;--sky-light:#dfe8f3;--sky-pale:#eef2f8;--sky-deep:#2f4570;--mint:#7fb8a4;--plum:#7c6aa6;--hl:rgba(214,181,106,0.4);--memo-bg:#fbf3dc;background:#f6f2e8;color-scheme:light}
+html[data-theme="white"] body{background:transparent !important;color:var(--ink);font-family:'Zen Kaku Gothic New','Hiragino Kaku Gothic ProN',sans-serif}
+html[data-theme="white"] body::before{content:"";position:fixed;left:-48px;top:-48px;right:-48px;bottom:-48px;z-index:-2;background:#f6f2e8 url("${WHITE_TITLE_URL}") center 30%/cover no-repeat;filter:blur(24px) brightness(1.08) saturate(.8)}
+html[data-theme="white"] body::after{content:"";position:fixed;left:0;top:0;right:0;bottom:0;z-index:-1;background:rgba(250,247,238,.62)}
+html[data-theme="white"] .jp{font-family:'Zen Kaku Gothic New','Hiragino Kaku Gothic ProN',sans-serif}
+html[data-theme="white"] .pixel{font-family:'Shippori Mincho B1','Hiragino Mincho ProN',serif;font-weight:800;letter-spacing:.02em}
+html[data-theme="white"] .rpg-box{background:rgba(253,251,245,.93);border:1px solid #b08a3e;border-radius:4px;box-shadow:inset 0 0 0 3px #fdfbf5,inset 0 0 0 4px rgba(176,138,62,.45),0 8px 22px rgba(40,50,80,.12)}
+html[data-theme="white"] .rpg-box h2.jp{font-family:'Shippori Mincho B1','Hiragino Mincho ProN',serif;font-weight:800;letter-spacing:.08em}
+html[data-theme="white"] .rpg-inner-border{border:none;padding:14px}
+html[data-theme="white"] .rpg-input{background:#fffdf8;color:var(--ink);border:1px solid #c9b07a;border-radius:3px}
+html[data-theme="white"] .rpg-input:focus{outline:2px solid #b08a3e}
+html[data-theme="white"] .btn-primary{background:linear-gradient(180deg,#cfae62,#a8833a);color:#fffdf6;border:1px solid #8f6f2c;border-radius:3px}
+html[data-theme="white"] .btn-sky,html[data-theme="white"] .btn-info{background:linear-gradient(180deg,#3d5a8c,#2a4170);color:#fdfbf5;border:1px solid #22335c;border-radius:3px}
+html[data-theme="white"] .btn-success{background:linear-gradient(180deg,#5f977e,#467862);color:#fdfbf5;border:1px solid #3c6a56;border-radius:3px}
+html[data-theme="white"] .btn-danger{background:linear-gradient(180deg,#b35a54,#8e423d);color:#fdfbf5;border:1px solid #7a3631;border-radius:3px}
+html[data-theme="white"] .btn-plum{background:linear-gradient(180deg,#8c79b5,#6c5a96);color:#fdfbf5;border:1px solid #5a4a80;border-radius:3px}
+html[data-theme="white"] .btn-ghost{background:#fdfbf5;color:var(--ink);border:1px solid #d8c9a3;border-radius:3px}
+html[data-theme="white"] .btn-ghost:hover{background:#f6ead0}
+html[data-theme="white"] .stat-bar{background:#e9e4d6;border-color:#d8c9a3}
+html[data-theme="white"] .swirl{display:none}
+html[data-theme="white"] .boot{color:#4a5a7c}
+html[data-theme="white"] ::placeholder{color:#9aa4b8}
+@keyframes sqBlink{0%,100%{opacity:1}50%{opacity:.25}}
+@keyframes sqCaret{0%,100%{transform:translateY(0);opacity:1}50%{transform:translateY(3px);opacity:.55}}
+@keyframes sqFadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+@keyframes sqTwinkleT{0%,100%{opacity:0;transform:scale(.5)}50%{opacity:.9;transform:scale(1)}}
+`;
+const CLASSIC_FONTS = "https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@400;700;800&family=Cinzel:wght@700;900&family=Shippori+Mincho+B1:wght@500;700;800&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap";
 
 // テーマの適用（html要素に data-theme を付け、フォントとCSSを読み込む）
-function ClassicThemeStyle({ active }) {
+function ClassicThemeStyle({ active, theme }) {
+  const t = theme || (active ? "classic" : "dot");
+  const fancyTheme = t === "classic" || t === "white";
   useEffect(() => {
     const el = document.documentElement;
-    if (active) {
-      el.setAttribute("data-theme", "classic");
+    if (fancyTheme) {
+      el.setAttribute("data-theme", t);
       if (!document.getElementById("sq-classic-fonts")) {
         const link = document.createElement("link");
         link.id = "sq-classic-fonts"; link.rel = "stylesheet"; link.href = CLASSIC_FONTS;
@@ -156,38 +189,71 @@ function ClassicThemeStyle({ active }) {
     } else {
       el.removeAttribute("data-theme");
     }
-  }, [active]);
-  return active ? <style>{CLASSIC_CSS}</style> : null;
+  }, [t]);
+  if (t === "classic") return <style>{CLASSIC_CSS}</style>;
+  if (t === "white") return <style>{WHITE_CSS}</style>;
+  return null;
 }
 
-// クラシックテーマ用の文字スタイル
-const CL = {
-  label: { color: "#a3c3da" },
-  gold: { color: "#dcbc6e" },
-  logo: { fontFamily: "'Cinzel', 'Times New Roman', serif", fontWeight: 900, background: "linear-gradient(180deg, #f6ecc8 0%, #dcbc6e 48%, #9b7634 100%)", WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent", filter: "drop-shadow(0 2px 0 #1a1408) drop-shadow(0 0 12px rgba(220,188,110,0.3))" },
-  mincho: { fontFamily: "'Shippori Mincho B1', serif", color: "#d8cba2" },
-  rowOn: { background: "linear-gradient(90deg, rgba(140,165,210,0.32), rgba(140,165,210,0.05))", boxShadow: "inset 0 0 0 1px rgba(190,205,230,0.7)" },
-  rowOff: { background: "transparent", boxShadow: "none" },
+// テーマごとの配色（クラシック：落ち着いたコバルト／白金：象牙色・金・紺）
+const THEME_PAL = {
+  classic: {
+    label: { color: "#a3c3da" },
+    gold: { color: "#dcbc6e" },
+    logo: { fontFamily: "'Cinzel', 'Times New Roman', serif", fontWeight: 900, background: "linear-gradient(180deg, #f6ecc8 0%, #dcbc6e 48%, #9b7634 100%)", WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent", filter: "drop-shadow(0 2px 0 #1a1408) drop-shadow(0 0 12px rgba(220,188,110,0.3))" },
+    mincho: { fontFamily: "'Shippori Mincho B1', serif", color: "#d8cba2" },
+    heading: {},
+    rowOn: { background: "linear-gradient(90deg, rgba(140,165,210,0.32), rgba(140,165,210,0.05))", boxShadow: "inset 0 0 0 1px rgba(190,205,230,0.7)" },
+    rowOff: { background: "transparent", boxShadow: "none" },
+    text: "#eef1f6", sub: "#c9d4e2", muted: "#7f8aa6", cursor: "#c8d6ea", cursorChar: "▶",
+    track: "#0a1020", trackLine: "rgba(160,185,215,0.4)",
+    divider: "linear-gradient(90deg, rgba(160,185,215,0), rgba(160,185,215,0.55), rgba(160,185,215,0))",
+    starOff: "#4c5a75", badgeBg: "#a24a45", subtitleColor: "#d8cba2",
+    gaugeExp: ["#3d5c9e", "#9db6dc"], gaugeToday: ["#a87d45", "#dcc287"], gaugeMastery: ["#3e7468", "#9cc8bb"],
+    title: { bg: "#0d1428", image: HERO_URL, backdropFilter: "blur(26px) brightness(0.32) saturate(0.55)", overlay: "rgba(22,32,68,0.55)", imgFilter: "saturate(0.85) brightness(0.95)", vignette: "inset 0 0 200px rgba(0,0,0,0.75)", sparkle: "#e6d6a6", press: "#e4e9f2", pressSub: "#a3c3da", footer: "#7f8aa6", copy: null, mask: "radial-gradient(ellipse 50% 50% at 50% 46%, #000 58%, transparent 100%)" },
+  },
+  white: {
+    label: { color: "#6a7a9a" },
+    gold: { color: "#b08a3e" },
+    logo: { fontFamily: "'Cinzel', 'Times New Roman', serif", fontWeight: 900, color: "#22335c", textShadow: "0 2px 0 rgba(176,138,62,0.35), 0 0 22px rgba(255,255,255,0.95)" },
+    mincho: { fontFamily: "'Shippori Mincho B1', serif", color: "#b08a3e" },
+    heading: { fontFamily: "'Shippori Mincho B1', serif" },
+    rowOn: { background: "linear-gradient(90deg, rgba(176,138,62,0.22), rgba(176,138,62,0.02))", boxShadow: "inset 0 0 0 1px rgba(176,138,62,0.55)" },
+    rowOff: { background: "transparent", boxShadow: "none" },
+    text: "#22335c", sub: "#5b6b8c", muted: "#8a96b0", cursor: "#b08a3e", cursorChar: "◆",
+    track: "#e9e4d6", trackLine: "rgba(176,138,62,0.35)",
+    divider: "linear-gradient(90deg, rgba(176,138,62,0), rgba(176,138,62,0.8), rgba(176,138,62,0))",
+    starOff: "#cfc6ae", badgeBg: "#9a4d48", subtitleColor: "#b08a3e",
+    classBadge: { background: "#fdfbf5", border: "1px solid #b08a3e", borderRadius: 2, color: "#b08a3e" },
+    portraitFrame: { border: "1px solid #b08a3e", borderRadius: "150px 150px 4px 4px", padding: 5, background: "#fdfbf5", boxShadow: "0 6px 18px rgba(40,50,80,0.14)" },
+    gaugeExp: ["#2f4570", "#7fa6d6"], gaugeToday: ["#b08a3e", "#e6c98a"], gaugeMastery: ["#4f8a72", "#a7cdb8"],
+    title: { bg: "#f6f2e8", image: WHITE_TITLE_URL, backdropFilter: "blur(26px) brightness(1.08) saturate(0.85)", overlay: "rgba(250,247,238,0.6)", imgFilter: "none", vignette: "none", sparkle: "#c9a55a", press: "#22335c", pressSub: "#b08a3e", footer: "#5b6b8c", copy: "学ぶ、だから、どこまでも行ける。", mask: "radial-gradient(ellipse 62% 58% at 55% 47%, #000 64%, transparent 100%)" },
+  },
 };
+// クラシックテーマ用の文字スタイル（これまでの部品から使う）
+const CL = THEME_PAL.classic;
 
 // ゲージ（EXP・今日の復習・記憶の定着）
-function ClassicGauge({ label, value, max, text, colors, compact = false }) {
+function ClassicGauge({ label, value, max, text, colors, compact = false, theme = "classic" }) {
+  const P = THEME_PAL[theme] || THEME_PAL.classic;
   const pct = max > 0 ? Math.max(0, Math.min(100, (value / max) * 100)) : 0;
   return (
     <div>
       <div className="flex justify-between items-baseline jp">
-        <span className={compact ? "text-[11px]" : "text-sm"} style={{ ...CL.label, fontWeight: 700 }}>{label}</span>
-        <span className={compact ? "text-xs" : "text-base"} style={{ fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>{text}</span>
+        <span className={compact ? "text-[11px]" : "text-sm"} style={{ ...P.label, fontWeight: 700 }}>{label}</span>
+        <span className={compact ? "text-xs" : "text-base"} style={{ fontWeight: 700, fontVariantNumeric: "tabular-nums", color: P.text }}>{text}</span>
       </div>
-      <div style={{ height: compact ? 8 : 11, marginTop: 4, borderRadius: 2, background: "#0a1020", boxShadow: "inset 0 0 0 1px rgba(160,185,215,0.4)", overflow: "hidden" }}>
+      <div style={{ height: compact ? 8 : 11, marginTop: 4, borderRadius: theme === "white" ? 6 : 2, background: P.track, boxShadow: `inset 0 0 0 1px ${P.trackLine}`, overflow: "hidden" }}>
         <div style={{ width: `${pct}%`, height: "100%", background: `linear-gradient(90deg, ${colors[0]}, ${colors[1]})`, transition: "width .5s" }} />
       </div>
     </div>
   );
 }
 
-// ── タイトル画面（起動時の待ち受け） ──
-function TitleScreen({ loading, saveInfo, onContinue, onSettings, onLogout }) {
+// ── タイトル画面（起動時の待ち受け）：テーマごとに配色・絵・ロゴが変わる ──
+function TitleScreen({ loading, saveInfo, onContinue, onSettings, onLogout, theme = "classic" }) {
+  const P = THEME_PAL[theme] || THEME_PAL.classic;
+  const T = P.title;
   const [stage, setStage] = useState("press"); // press | menu
   const [sel, setSel] = useState("continue");
   const items = ["continue", "settings", "logout"];
@@ -207,62 +273,61 @@ function TitleScreen({ loading, saveInfo, onContinue, onSettings, onLogout }) {
 
   const row = (id, children, minH) => (
     <button key={id} type="button" onClick={() => choose(id)} onMouseEnter={() => setSel(id)} onFocus={() => setSel(id)}
-      className="jp flex items-center gap-2 w-full text-left" style={{ ...(sel === id ? CL.rowOn : CL.rowOff), minHeight: minH, padding: "6px 12px 6px 6px", border: "none", borderRadius: 3, color: "#eef1f6", cursor: "pointer" }}>
-      <span style={{ width: 14, fontSize: 12, color: sel === id ? "#c8d6ea" : "transparent" }}>▶</span>
+      className="jp flex items-center gap-2 w-full text-left" style={{ ...(sel === id ? P.rowOn : P.rowOff), minHeight: minH, padding: "6px 12px 6px 6px", border: "none", borderRadius: 3, color: P.text, cursor: "pointer" }}>
+      <span style={{ width: 14, fontSize: 12, color: sel === id ? P.cursor : "transparent" }}>{P.cursorChar}</span>
       {children}
     </button>
   );
 
   return (
-    <div className="fixed inset-0 overflow-hidden" style={{ zIndex: 60, background: "#0d1428", color: "#eef1f6" }}>
-      <div style={{ position: "absolute", left: -60, top: -60, right: -60, bottom: -60, background: `#0d1428 url("${HERO_URL}") center 20%/cover no-repeat`, filter: "blur(26px) brightness(0.32) saturate(0.55)" }} />
-      <div style={{ position: "absolute", inset: 0, background: "rgba(22,32,68,0.55)" }} />
-      <img src={HERO_URL} alt="" onError={(e) => { e.currentTarget.style.display = "none"; }}
-        className="absolute left-1/2 -translate-x-1/2 md:left-auto md:translate-x-0 md:right-[5%] top-[15%] md:top-[1%] h-[62vh] md:h-[98vh]"
-        style={{ aspectRatio: "2 / 3", objectFit: "cover", WebkitMaskImage: "radial-gradient(ellipse 50% 50% at 50% 46%, #000 58%, transparent 100%)", maskImage: "radial-gradient(ellipse 50% 50% at 50% 46%, #000 58%, transparent 100%)", filter: "saturate(0.85) brightness(0.95)" }} />
-      <div style={{ position: "absolute", inset: 0, boxShadow: "inset 0 0 200px rgba(0,0,0,0.75)", pointerEvents: "none" }} />
+    <div className="fixed inset-0 overflow-hidden" style={{ zIndex: 60, background: T.bg, color: P.text }}>
+      <div style={{ position: "absolute", left: -60, top: -60, right: -60, bottom: -60, background: `${T.bg} url("${T.image}") center 20%/cover no-repeat`, filter: T.backdropFilter }} />
+      <div style={{ position: "absolute", inset: 0, background: T.overlay }} />
+      <img src={T.image} alt="" onError={(e) => { e.currentTarget.style.display = "none"; }}
+        className="absolute left-1/2 -translate-x-1/2 md:left-auto md:translate-x-0 md:right-[5%] top-[13%] md:top-[1%] h-[62vh] md:h-[98vh]"
+        style={{ aspectRatio: "2 / 3", objectFit: "cover", WebkitMaskImage: T.mask, maskImage: T.mask, filter: T.imgFilter }} />
+      {T.vignette !== "none" && <div style={{ position: "absolute", inset: 0, boxShadow: T.vignette, pointerEvents: "none" }} />}
       {[[12, 22, 0], [86, 28, 1.1], [70, 62, 2], [22, 66, 0.6]].map(([l, t, d], i) => (
-        <span key={i} style={{ position: "absolute", left: `${l}%`, top: `${t}%`, fontSize: 11, color: "#e6d6a6", animation: `sqTwinkleT 3s ease-in-out ${d}s infinite` }}>✦</span>
+        <span key={i} style={{ position: "absolute", left: `${l}%`, top: `${t}%`, fontSize: 11, color: T.sparkle, animation: `sqTwinkleT 3s ease-in-out ${d}s infinite` }}>✦</span>
       ))}
 
-      <div className="relative h-full flex flex-col items-center justify-between md:items-start md:justify-center md:gap-14 px-6 md:pl-[8vw] pt-12 md:pt-0 pb-14 md:pb-0">
+      <div className="relative h-full flex flex-col items-center justify-between md:items-start md:justify-center md:gap-12 px-6 md:pl-[8vw] pt-10 md:pt-0 pb-14 md:pb-0">
         <div className="flex flex-col items-center md:items-start gap-1">
-          <div className="flex items-center gap-3 text-[15px] md:text-[22px]" style={{ ...CL.mincho, fontWeight: 700, letterSpacing: "0.35em" }}>
-            <span style={{ display: "block", width: 40, height: 1, background: "linear-gradient(90deg, rgba(216,203,162,0), #d8cba2)" }} />学びの冒険<span style={{ display: "block", width: 40, height: 1, background: "linear-gradient(90deg, #d8cba2, rgba(216,203,162,0))" }} />
+          <div className="flex items-center gap-3 text-[15px] md:text-[22px]" style={{ ...P.mincho, color: P.subtitleColor, fontWeight: 700, letterSpacing: "0.35em" }}>
+            <span style={{ display: "block", width: 40, height: 1, background: P.divider }} />学びの冒険<span style={{ display: "block", width: 40, height: 1, background: P.divider }} />
           </div>
-          <h1 className="m-0 text-center md:text-left text-[46px] md:text-[96px]" style={{ ...CL.logo, lineHeight: 1.05, letterSpacing: "0.04em" }}>
+          <h1 className="m-0 text-center md:text-left text-[46px] md:text-[92px]" style={{ ...P.logo, lineHeight: 1.05, letterSpacing: "0.04em" }}>
             STUDY<br className="hidden md:inline" /> QUEST
           </h1>
-          <div className="flex items-center gap-2 mt-1" style={{ color: "#8f9cb8", fontSize: 12 }}>
-            <span style={{ display: "block", width: 120, height: 1, background: "rgba(160,185,215,0.45)" }} />◆<span style={{ display: "block", width: 120, height: 1, background: "rgba(160,185,215,0.45)" }} />
-          </div>
+          <div style={{ width: 280, height: 1, margin: "4px 0", background: P.divider }} />
+          {T.copy && <p className="m-0 text-[15px] md:text-[22px] text-center md:text-left" style={{ fontFamily: "'Shippori Mincho B1', serif", fontWeight: 700, letterSpacing: "0.15em", color: P.text, textShadow: "0 0 12px rgba(255,255,255,0.9)" }}>{T.copy}</p>}
         </div>
 
         <div className="w-full max-w-[440px]">
           {loading && (
-            <div className="jp text-center md:text-left text-sm" style={{ color: "#a3c3da", letterSpacing: "0.2em", animation: "sqBlink 1.6s ease-in-out infinite" }}>冒険の記録を読み込んでいます…</div>
+            <div className="jp text-center md:text-left text-sm" style={{ color: T.pressSub, letterSpacing: "0.2em", animation: "sqBlink 1.6s ease-in-out infinite" }}>冒険の記録を読み込んでいます…</div>
           )}
           {!loading && stage === "press" && (
-            <button type="button" onClick={() => setStage("menu")} className="w-full md:w-auto text-center md:text-left" style={{ minHeight: 64, padding: "0 12px", border: "none", background: "transparent", color: "#e4e9f2", fontFamily: "'Cinzel', serif", fontSize: 20, fontWeight: 700, letterSpacing: "0.3em", cursor: "pointer", animation: "sqBlink 1.6s ease-in-out infinite" }}>
+            <button type="button" onClick={() => setStage("menu")} className="w-full md:w-auto text-center md:text-left" style={{ minHeight: 64, padding: "0 12px", border: "none", background: "transparent", color: T.press, fontFamily: "'Cinzel', serif", fontSize: 20, fontWeight: 700, letterSpacing: "0.3em", cursor: "pointer", animation: "sqBlink 1.6s ease-in-out infinite" }}>
               ― PRESS START ―
-              <span className="jp block mt-1" style={{ fontSize: 12, letterSpacing: "0.2em", color: "#a3c3da" }}>タップしてはじめる</span>
+              <span className="block mt-1" style={{ fontFamily: theme === "white" ? "'Shippori Mincho B1', serif" : "inherit", fontSize: 12, letterSpacing: "0.2em", color: T.pressSub }}>タップしてはじめる</span>
             </button>
           )}
           {!loading && stage === "menu" && (
             <div className="rpg-box p-2 flex flex-col gap-0.5" style={{ animation: "sqFadeIn .35s ease-out" }}>
               {row("continue", (
                 <span className="flex flex-col gap-0.5">
-                  <span className="text-[18px]" style={{ fontWeight: 800, letterSpacing: "0.1em" }}>つづきから</span>
-                  <span className="text-[11px]" style={CL.label}>{saveInfo}</span>
+                  <span className="text-[18px]" style={{ ...P.heading, fontWeight: 800, letterSpacing: "0.1em" }}>つづきから</span>
+                  <span className="text-[11px]" style={{ color: P.sub }}>{saveInfo}</span>
                 </span>
               ), 60)}
-              {row("settings", <span className="text-[16px]" style={{ fontWeight: 700, letterSpacing: "0.1em" }}>設定</span>, 46)}
-              {row("logout", <span className="text-[16px]" style={{ fontWeight: 700, letterSpacing: "0.1em" }}>ログアウト</span>, 46)}
+              {row("settings", <span className="text-[16px]" style={{ ...P.heading, fontWeight: 700, letterSpacing: "0.1em" }}>設定</span>, 46)}
+              {row("logout", <span className="text-[16px]" style={{ ...P.heading, fontWeight: 700, letterSpacing: "0.1em" }}>ログアウト</span>, 46)}
             </div>
           )}
         </div>
       </div>
-      <div className="absolute left-0 right-0 bottom-4 md:bottom-6 flex justify-center md:justify-between gap-4 px-6 md:px-[8vw] jp" style={{ fontSize: 11, color: "#7f8aa6", letterSpacing: "0.15em" }}>
+      <div className="absolute left-0 right-0 bottom-4 md:bottom-6 flex justify-center md:justify-between gap-4 px-6 md:px-[8vw] jp" style={{ fontSize: 11, color: T.footer, letterSpacing: "0.15em" }}>
         <span>© {new Date().getFullYear()} STUDY QUEST</span><span>Ver. 2.0</span>
       </div>
     </div>
@@ -270,27 +335,171 @@ function TitleScreen({ loading, saveInfo, onContinue, onSettings, onLogout }) {
 }
 
 // ── 上部の情報ウィンドウ（現在地・レベル・所持金・タイマー） ──
-function ClassicInfoBar({ state, liveSeconds, onStatus }) {
+function ClassicInfoBar({ state, liveSeconds, onStatus, theme = "classic" }) {
+  const P = THEME_PAL[theme] || THEME_PAL.classic;
+  const [faceOk, setFaceOk] = useState(true);
   const player = state.player;
   const xpNeeded = getXpForNextLevel(player.level);
   const scene = (RPG_SCENES[getCharacterTier(player.level)] || RPG_SCENES.tier1).name;
   const st = calculateStatus(state);
   const gold = normRpg(state.rpg).gold;
   return (
-    <div className="rpg-box mb-3 px-3 py-2 flex flex-wrap items-center gap-x-5 gap-y-1 jp">
+    <div className="rpg-box mb-3 px-3 py-2 flex flex-wrap items-center gap-x-5 gap-y-1 jp" style={{ color: P.text }}>
       <button onClick={onStatus} title="ステータス画面へ" className="flex-shrink-0" style={{ background: "transparent", border: "none", padding: 0, cursor: "pointer" }}>
-        <CharacterDisplay level={player.level} job="" icon="" size={38} showAura={false} />
+        {theme === "white" && faceOk ? (
+          <img src={WHITE_HERO_URL} alt="" onError={() => setFaceOk(false)} style={{ width: 40, height: 40, borderRadius: "50%", objectFit: "cover", objectPosition: "center 12%", border: "1px solid #b08a3e", boxShadow: "0 0 0 2px #fdfbf5, 0 0 0 3px rgba(176,138,62,0.45)" }} />
+        ) : (
+          <CharacterDisplay level={player.level} job="" icon="" size={38} showAura={false} />
+        )}
       </button>
-      <div className="flex items-baseline gap-2"><span className="text-[11px]" style={CL.label}>現在地</span><span className="text-sm" style={{ fontWeight: 700 }}>{scene}</span></div>
+      <div className="flex items-baseline gap-2"><span className="text-[11px]" style={P.label}>現在地</span><span className="text-sm" style={{ ...P.heading, fontWeight: 800 }}>{scene}</span></div>
       <div className="flex items-center gap-2">
-        <span className="text-[11px]" style={CL.label}>Lv</span><span className="text-lg" style={{ ...CL.gold, fontWeight: 800 }}>{player.level}</span>
-        <div style={{ width: 80, height: 6, borderRadius: 2, background: "#0a1020", boxShadow: "inset 0 0 0 1px rgba(160,185,215,0.4)", overflow: "hidden" }}>
-          <div style={{ width: `${Math.min(100, (player.xp / xpNeeded) * 100)}%`, height: "100%", background: "linear-gradient(90deg, #3d5c9e, #9db6dc)" }} />
+        <span className="text-[11px]" style={P.label}>Lv</span><span className="text-lg" style={{ ...P.gold, ...P.heading, fontWeight: 800 }}>{player.level}</span>
+        <div style={{ width: 80, height: 6, borderRadius: theme === "white" ? 3 : 2, background: P.track, boxShadow: `inset 0 0 0 1px ${P.trackLine}`, overflow: "hidden" }}>
+          <div style={{ width: `${Math.min(100, (player.xp / xpNeeded) * 100)}%`, height: "100%", background: `linear-gradient(90deg, ${P.gaugeExp[0]}, ${P.gaugeExp[1]})` }} />
         </div>
       </div>
-      <div className="flex items-baseline gap-2"><span className="text-[11px]" style={CL.label}>連続学習</span><span className="text-sm" style={{ fontWeight: 700 }}>{st.currentStreak}日</span></div>
-      {state.timer.startMs && <div className="text-sm" style={{ color: "#e0948a", fontWeight: 700, animation: "sqBlink 1.6s ease-in-out infinite" }}>⏱ {fmtSec(liveSeconds)}</div>}
-      <div className="ml-auto flex items-baseline gap-1"><span className="text-base" style={{ fontWeight: 800, fontVariantNumeric: "tabular-nums" }}>{gold.toLocaleString()}</span><span className="text-sm" style={{ ...CL.gold, fontWeight: 800 }}>G</span></div>
+      <div className="flex items-baseline gap-2"><span className="text-[11px]" style={P.label}>連続学習</span><span className="text-sm" style={{ fontWeight: 700 }}>{st.currentStreak}日</span></div>
+      {state.timer.startMs && <div className="text-sm" style={{ color: theme === "white" ? "#a24a45" : "#e0948a", fontWeight: 700, animation: "sqBlink 1.6s ease-in-out infinite" }}>⏱ {fmtSec(liveSeconds)}</div>}
+      <div className="ml-auto flex items-baseline gap-1"><span className="text-base" style={{ fontWeight: 800, fontVariantNumeric: "tabular-nums" }}>{gold.toLocaleString()}</span><span className="text-sm" style={{ ...P.gold, ...P.heading, fontWeight: 800 }}>G</span></div>
+    </div>
+  );
+}
+
+// ── 白金テーマのホーム：道しるべメニュー（知識・挑戦・成長・新しい自分へ） ──
+const SIGNPOSTS = [
+  { id: "knowledge", label: "知識", sub: "今日の復習・問題集", items: [{ id: "today", label: "今日の復習" }, { id: "qbank", label: "問題集" }], desc: (n) => `知識の道へ。今日の復習と問題集に挑みます。${n > 0 ? `今日の復習は あと${n}問。` : "今日の復習は完了しています。"}` },
+  { id: "challenge", label: "挑戦", sub: "ボス戦・装備・ショップ", items: [{ id: "adventure", label: "冒険へ" }], desc: () => "挑戦の道へ。苦手な問題でボスに挑み、装備やショップで力を整えます。" },
+  { id: "growth", label: "成長", sub: "ステータス・覚醒・相棒", items: [{ id: "status", label: "ステータス" }, { id: "adventure", label: "覚醒・相棒" }], desc: () => "成長の道へ。能力値や正答率の推移、覚醒と相棒の育ち具合を確かめます。" },
+  { id: "future", label: "新しい自分へ", sub: "資格・試験日", items: [{ id: "qual", label: "資格" }], desc: () => "新しい自分への道。目指す資格と試験日を確かめ、合格までの歩みを見渡します。" },
+];
+const SIGN_TOOLS = [
+  { id: "task", label: "タスク", desc: "今日やることを登録して、クリアするとEXPがもらえます。" },
+  { id: "timer", label: "タイマー", desc: "学習時間を計ります。" },
+  { id: "memo", label: "メモ", desc: "フォルダごとに学習メモをまとめます。" },
+  { id: "law", label: "条文", desc: "条文番号やキーワードで、条文と問題をまとめて探します。" },
+  { id: "option", label: "設定", desc: "テーマ、文字の大きさ・フォント、タイトル画面の表示を変えられます。" },
+];
+function SignpostHome({ state, todayCount, onCommand }) {
+  const P = THEME_PAL.white;
+  const [focus, setFocus] = useState(null);
+  const [open, setOpen] = useState(null);
+  const [imgOk, setImgOk] = useState(true);
+  const player = state.player;
+  const xpNeeded = getXpForNextLevel(player.level);
+  const mainAch = player.mainTitleId ? player.achievements.find((a) => a.id === player.mainTitleId) : null;
+  const title = mainAch ? mainAch.title : getLevelTitle(player.level);
+  const cls = getClassInfo(state);
+  const pet = getPetInfo(state);
+  const aw = getAwakening(state);
+  const r = normRpg(state.rpg);
+  const eqRows = RPG_SLOTS.map((s) => { const inv = r.inventory.find((v) => v.u === r.equipped[s.id]); return { slot: s, it: inv ? rpgItemById(inv.i) : null }; });
+  const d = new Date();
+  const code = `${String(d.getFullYear()).slice(2)}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
+  let doneToday = 0;
+  for (const b of state.questionBanks) for (const q of b.questions || []) if (Array.isArray(q.ah) && q.ah.some((c) => c.startsWith(code))) doneToday++;
+  const greet = todayCount > 0 ? `今日の復習が あと${todayCount}問 残っています。` : "今日の復習は完了！ 新しい道へ進もう。";
+  const post = SIGNPOSTS.find((p) => p.id === focus);
+  const tool = SIGN_TOOLS.find((t) => t.id === focus);
+  const message = post ? post.desc(todayCount) : tool ? tool.desc : greet;
+  const subLine = [cls ? `クラス：${cls.rankName}` : null, mainAch && mainAch.job ? `称号：${mainAch.job}` : null].filter(Boolean).join("　／　");
+  const mincho = { fontFamily: "'Shippori Mincho B1', serif" };
+  const clickPost = (p) => {
+    setFocus(p.id);
+    if (p.items.length === 1) onCommand(p.items[0].id);
+    else setOpen(open === p.id ? null : p.id);
+  };
+
+  return (
+    <div className="space-y-3 mb-4" style={{ color: P.text }}>
+      <div className="grid gap-3 md:grid-cols-[300px_1fr]">
+        {/* 道しるべ */}
+        <div className="rpg-box p-3 order-2 md:order-1 flex flex-col gap-2">
+          <div className="flex items-center gap-2 text-[13px]" style={{ ...mincho, fontWeight: 700, color: "#b08a3e", letterSpacing: "0.3em" }}>
+            <span style={{ flex: 1, height: 1, background: P.divider }} />道しるべ<span style={{ flex: 1, height: 1, background: P.divider }} />
+          </div>
+          {SIGNPOSTS.map((p) => {
+            const on = focus === p.id || open === p.id;
+            const badge = p.id === "knowledge" && todayCount > 0 ? todayCount : null;
+            return (
+              <div key={p.id}>
+                <button onClick={() => clickPost(p)} onMouseEnter={() => setFocus(p.id)} onFocus={() => setFocus(p.id)} className="w-full text-left"
+                  style={{ display: "block", padding: 1.5, border: "none", background: on ? "#b08a3e" : "rgba(176,138,62,0.55)", clipPath: "polygon(0 0, calc(100% - 22px) 0, 100% 50%, calc(100% - 22px) 100%, 0 100%)", cursor: "pointer" }}>
+                  <span className="flex items-center gap-2" style={{ minHeight: 54, padding: "6px 32px 6px 10px", background: on ? "linear-gradient(90deg, #f6ead0 0%, #fdfaf2 70%)" : "linear-gradient(90deg, #fdfbf5 0%, #f8f4ea 100%)", clipPath: "polygon(0 0, calc(100% - 21px) 0, 100% 50%, calc(100% - 21px) 100%, 0 100%)" }}>
+                    <span style={{ width: 12, fontSize: 11, color: on ? P.cursor : "transparent" }}>◆</span>
+                    <span className="flex-1 min-w-0 flex flex-col">
+                      <span style={{ ...mincho, fontSize: 19, fontWeight: 800, letterSpacing: "0.12em", color: P.text }}>{p.label}</span>
+                      <span className="jp text-[11px] truncate" style={{ color: P.sub }}>{p.sub}</span>
+                    </span>
+                    {badge && <span className="jp text-[11px] px-1.5" style={{ background: P.badgeBg, color: "#ffffff", borderRadius: 999, minWidth: 22, textAlign: "center" }}>{badge}</span>}
+                  </span>
+                </button>
+                {open === p.id && (
+                  <div className="flex gap-1.5 mt-1.5 ml-5" style={{ animation: "sqFadeIn .25s ease-out" }}>
+                    {p.items.map((it) => (
+                      <button key={it.id + it.label} onClick={() => onCommand(it.id)} className="flex-1" style={{ minHeight: 44, padding: "0 8px", background: "#fdfbf5", border: "1px solid #b08a3e", borderRadius: 3, color: P.text, ...mincho, fontSize: 14, fontWeight: 700, cursor: "pointer" }}>
+                        {it.label}{it.id === "today" && todayCount > 0 ? `（${todayCount}）` : ""}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          <div style={{ height: 1, margin: "2px 0", background: P.divider }} />
+          <div className="grid grid-cols-5 md:grid-cols-3 gap-1.5">
+            {SIGN_TOOLS.map((t) => (
+              <button key={t.id} onClick={() => { setFocus(t.id); onCommand(t.id); }} onMouseEnter={() => setFocus(t.id)} onFocus={() => setFocus(t.id)}
+                style={{ minHeight: 42, padding: "0 4px", background: focus === t.id ? "#f6ead0" : "#fdfbf5", border: `1px solid ${focus === t.id ? "#b08a3e" : "rgba(176,138,62,0.45)"}`, borderRadius: 3, color: P.text, ...mincho, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>{t.label}</button>
+            ))}
+          </div>
+        </div>
+
+        {/* 主人公 */}
+        <div className="rpg-box p-3 md:p-5 order-1 md:order-2">
+          <div className="flex flex-col sm:flex-row gap-4 md:gap-6">
+            <button onClick={() => onCommand("status")} title="ステータス画面へ" className="flex-shrink-0 w-full sm:w-[230px] h-[280px] sm:h-[370px]" style={{ ...P.portraitFrame, cursor: "pointer" }}>
+              <div className="w-full h-full overflow-hidden flex items-center justify-center" style={{ borderRadius: "145px 145px 2px 2px", background: "#e9e4d6" }}>
+                {imgOk ? (
+                  <img src={WHITE_HERO_URL} alt="主人公の立ち絵" onError={() => setImgOk(false)} style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "center 16%", display: "block" }} />
+                ) : (
+                  <HeroPortrait state={state} size={200} />
+                )}
+              </div>
+            </button>
+            <div className="flex-1 min-w-0 flex flex-col gap-3 jp">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-xl md:text-[28px]" style={{ ...mincho, fontWeight: 800, letterSpacing: "0.06em" }}>{title}</span>
+                {cls && <span className="text-xs px-2 py-0.5" style={{ ...P.classBadge, ...mincho, fontWeight: 700 }}>{cls.icon} {cls.name}</span>}
+                <span className="ml-auto text-sm" style={P.label}>Lv</span><span className="text-3xl" style={{ ...P.gold, ...mincho, fontWeight: 800 }}>{player.level}</span>
+              </div>
+              {subLine && <div className="text-sm" style={{ color: P.sub }}>{subLine}</div>}
+              <ClassicGauge theme="white" label="EXP" value={player.xp} max={xpNeeded} text={`${player.xp} / ${xpNeeded}`} colors={P.gaugeExp} />
+              <ClassicGauge theme="white" label="今日の復習" value={doneToday} max={doneToday + todayCount} text={`${doneToday} / ${doneToday + todayCount}`} colors={P.gaugeToday} />
+              <ClassicGauge theme="white" label={aw.next ? "記憶の定着（次の★まで）" : "記憶の定着"} value={aw.mastered} max={aw.next || aw.mastered || 1} text={aw.next ? `${aw.mastered} / ${aw.next}` : `${aw.mastered}問`} colors={P.gaugeMastery} />
+              <div style={{ height: 1, background: P.divider }} />
+              <div className="grid gap-x-3 gap-y-1.5 items-baseline" style={{ gridTemplateColumns: "88px 1fr" }}>
+                {eqRows.map(({ slot, it }) => (
+                  <Fragment key={slot.id}>
+                    <span className="text-xs" style={P.label}>{slot.label}</span>
+                    <span className="text-sm truncate" style={{ fontWeight: 700, color: it ? P.text : P.muted }}>{it ? `${it.icon} ${it.name}` : "なし"}{it && <span className="text-[11px] ml-2" style={{ color: P.sub, fontWeight: 400 }}>{fxText(it.fx)}</span>}</span>
+                  </Fragment>
+                ))}
+                <span className="text-xs" style={P.label}>覚醒</span>
+                <span style={{ ...P.gold, letterSpacing: 2 }}>{"★".repeat(aw.stars)}<span style={{ color: P.starOff }}>{"★".repeat(5 - aw.stars)}</span></span>
+                <span className="text-xs" style={P.label}>相棒</span>
+                <span className="text-sm truncate" style={{ fontWeight: 700 }}>{pet ? `${pet.icon} ${pet.name}（${pet.stageName}）` : "まだいません"}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* メッセージ */}
+      <div className="rpg-box px-5 py-3 relative" style={{ minHeight: 70 }}>
+        <span className="text-[15px] md:text-[18px] leading-relaxed" style={{ ...mincho, fontWeight: 700, letterSpacing: "0.04em" }}>{message}</span>
+        <span style={{ position: "absolute", right: 16, bottom: 8, fontSize: 11, color: "#b08a3e", animation: "sqCaret 1.2s ease-in-out infinite" }}>◆</span>
+      </div>
     </div>
   );
 }
@@ -417,7 +626,9 @@ const QSIZES = [
   { id: "l", label: "大", px: 20 },
   { id: "xl", label: "特大", px: 23 },
 ];
-const DISPLAY_DEFAULTS = { qFont: "dot", qSize: "auto", theme: "classic", showTitle: true };
+const DISPLAY_DEFAULTS = { qFont: "dot", qSize: "auto", theme: "white", showTitle: true };
+// テーマの一新：これまでの設定を一度だけ白金テーマに切り替える（その後は自由に選べる）
+const migrateDisplay = (ds) => (ds.themeV >= 2 ? ds : { ...ds, theme: "white", themeV: 2 });
 
 // 問題文・答え（class="qtext"）にフォントとサイズを当てる
 function QTextStyle({ settings }) {
@@ -425,6 +636,7 @@ function QTextStyle({ settings }) {
   let font = QFONTS.find((f) => f.id === ds.qFont) || QFONTS[0];
   // クラシックテーマでは「標準」を丸ゴシックにする
   if (font.id === "dot" && ds.theme === "classic") font = { id: "dot", css: "'M PLUS Rounded 1c', 'Hiragino Maru Gothic ProN', sans-serif" };
+  if (font.id === "dot" && ds.theme === "white") font = { id: "dot", css: "'Zen Kaku Gothic New', 'Hiragino Kaku Gothic ProN', sans-serif" };
   const size = QSIZES.find((z) => z.id === ds.qSize) || QSIZES[0];
   useEffect(() => {
     if (!font.web) return;
@@ -451,13 +663,13 @@ function DisplaySettingsPanel({ settings, onChange, onClose }) {
           <button onClick={onClose} className="jp text-[10px] px-1.5 py-0.5" style={{ border: "1px solid var(--rule-soft)", background: "var(--paper)", color: "var(--ink-soft)" }}>✕ 閉じる</button>
         </div>
         <div className="jp text-xs mb-1" style={{ color: "var(--ink-soft)" }}>テーマ</div>
-        <div className="grid grid-cols-2 gap-1 mb-2">
-          {[["classic", "クラシック（新）"], ["dot", "ドット（旧）"]].map(([id, label]) => (
+        <div className="grid grid-cols-3 gap-1 mb-2">
+          {[["white", "白金"], ["classic", "クラシック"], ["dot", "ドット（旧）"]].map(([id, label]) => (
             <button key={id} onClick={() => onChange({ theme: id })} className="jp py-1.5 px-1 text-xs" style={{ background: ds.theme === id ? "var(--sky-deep)" : "var(--paper)", color: ds.theme === id ? "var(--paper)" : "var(--ink)", border: "1px solid var(--rule)" }}>{label}</button>
           ))}
         </div>
         <button onClick={() => onChange({ showTitle: ds.showTitle === false })} className="jp w-full text-left text-xs px-2 py-1.5 mb-3" style={{ background: "var(--paper)", color: "var(--ink)", border: "1px solid var(--rule-soft)" }}>
-          {ds.showTitle === false ? "☐" : "☑"} 起動時にタイトル画面を表示する（クラシックのみ）
+          {ds.showTitle === false ? "☐" : "☑"} 起動時にタイトル画面を表示する（白金・クラシック）
         </button>
         <div className="jp text-xs mb-1" style={{ color: "var(--ink-soft)" }}>問題文のフォント</div>
         <div className="grid grid-cols-2 gap-1 mb-3">
@@ -702,7 +914,9 @@ function loadUserLocalState(uid) {
 }
 
 // ============ Auth Screen ============
-function AuthScreen({ onAuthed, classic }) {
+function AuthScreen({ onAuthed, theme = "dot" }) {
+  const classic = theme === "classic" || theme === "white";
+  const AP = THEME_PAL[theme === "white" ? "white" : "classic"];
   const [mode, setMode] = useState("login"); // login | signup
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -735,8 +949,9 @@ function AuthScreen({ onAuthed, classic }) {
           <div className="text-center mb-4">
             {classic ? (
               <>
-                <div className="text-[13px] mb-1" style={{ ...CL.mincho, fontWeight: 700, letterSpacing: "0.35em" }}>学びの冒険</div>
-                <h1 className="m-0 text-[40px]" style={{ ...CL.logo, lineHeight: 1.05 }}>STUDY QUEST</h1>
+                <div className="text-[13px] mb-1" style={{ ...AP.mincho, fontWeight: 700, letterSpacing: "0.35em" }}>学びの冒険</div>
+                <h1 className="m-0 text-[40px]" style={{ ...AP.logo, lineHeight: 1.05 }}>STUDY QUEST</h1>
+                {AP.title.copy && <p className="m-0 mt-1 text-[13px]" style={{ fontFamily: "'Shippori Mincho B1', serif", fontWeight: 700, letterSpacing: "0.12em", color: AP.text }}>{AP.title.copy}</p>}
               </>
             ) : (
               <>
@@ -829,11 +1044,11 @@ function App() {
     return () => unsub();
   }, []);
 
-  const classicPre = readPref("sq-theme", "classic") === "classic";
+  const themePre = readPref("sq-theme", "white");
   if (!authChecked) {
-    return <><ClassicThemeStyle active={classicPre} /><div className="boot">CHECKING AUTH...</div></>;
+    return <><ClassicThemeStyle theme={themePre} /><div className="boot">CHECKING AUTH...</div></>;
   }
-  if (!user) return <><ClassicThemeStyle active={classicPre} /><AuthScreen classic={classicPre} /></>;
+  if (!user) return <><ClassicThemeStyle theme={themePre} /><AuthScreen theme={themePre} /></>;
   return <StudyRPG user={user} />;
 }
 
@@ -1217,7 +1432,7 @@ function StudyRPG({ user }) {
   useEffect(() => {
     if (!loaded) return;
     const ds = state.displaySettings || {};
-    writePref("sq-theme", ds.theme || "classic");
+    writePref("sq-theme", ds.theme || "white");
     writePref("sq-title", ds.showTitle === false ? "off" : "on");
   }, [loaded, state.displaySettings && state.displaySettings.theme, state.displaySettings && state.displaySettings.showTitle]);
 
@@ -1769,14 +1984,17 @@ function StudyRPG({ user }) {
   }, [loaded]);
 
   // テーマ（読み込み前は端末に保存した設定を使う）
-  const themeNow = loaded ? ((state.displaySettings && state.displaySettings.theme) || "classic") : readPref("sq-theme", "classic");
+  const themeNow = loaded ? ((state.displaySettings && state.displaySettings.theme) || "white") : readPref("sq-theme", "white");
   const classic = themeNow === "classic";
-  const showTitleNow = classic && titleOpen && (loaded ? !(state.displaySettings && state.displaySettings.showTitle === false) : true);
+  const isWhite = themeNow === "white";
+  const fancy = classic || isWhite; // 新しいデザイン（白金・クラシック）
+  const PAL = THEME_PAL[isWhite ? "white" : "classic"];
+  const showTitleNow = fancy && titleOpen && (loaded ? !(state.displaySettings && state.displaySettings.showTitle === false) : true);
 
   if (!loaded) {
-    if (showTitleNow) return <><ClassicThemeStyle active={true} /><TitleScreen loading={true} /></>;
+    if (showTitleNow) return <><ClassicThemeStyle theme={themeNow} /><TitleScreen loading={true} theme={themeNow} /></>;
     return <div className="min-h-screen flex items-center justify-center jp" style={{color: "var(--sky-deep)"}}>
-      <ClassicThemeStyle active={classic} />
+      <ClassicThemeStyle theme={themeNow} />
       <div className="text-center">
         <div className="pixel text-sm mb-2">SYNCING...</div>
         <div className="jp text-xs" style={{ color: "var(--ink-soft)" }}>クラウドからデータを読み込んでいます</div>
@@ -1795,15 +2013,23 @@ function StudyRPG({ user }) {
   const displayIcon = mainAch ? mainAch.icon : "🧙";
 
   const qImageCtx = { uid: user.uid, updateQuestionImages, banks: state.questionBanks };
+  // ホームのメニュー（コマンド・道しるべ）から各画面へ
+  const homeCommand = (id) => {
+    if (id === "law") setShowLawSearch(true);
+    else if (id === "option") setShowDisplaySettings(true);
+    else setTab(id);
+    window.scrollTo(0, 0);
+  };
   reviewLogUid = user.uid; // 回答履歴の保存先
 
   return (
     <QImageContext.Provider value={qImageCtx}>
     <div className="min-h-screen w-full pb-24 relative overflow-hidden">
-      <ClassicThemeStyle active={classic} />
+      <ClassicThemeStyle theme={themeNow} />
       {showTitleNow && (
         <TitleScreen
           loading={false}
+          theme={themeNow}
           saveInfo={`${(RPG_SCENES[getCharacterTier(player.level)] || RPG_SCENES.tier1).name}　Lv${player.level}　${displayTitle}　連続${calculateStatus(state).currentStreak}日`}
           onContinue={() => setTitleOpen(false)}
           onSettings={() => { setTitleOpen(false); setShowDisplaySettings(true); }}
@@ -1812,11 +2038,11 @@ function StudyRPG({ user }) {
       )}
       <DecorSwirls />
 
-      <div className={`${classic ? "max-w-5xl" : "max-w-3xl"} mx-auto px-3 md:px-6 pt-4 relative z-10`}>
-        {classic ? (
+      <div className={`${fancy ? "max-w-5xl" : "max-w-3xl"} mx-auto px-3 md:px-6 pt-4 relative z-10`}>
+        {fancy ? (
           <div className="text-center mb-2">
-            <div className="text-[11px]" style={{ ...CL.mincho, fontWeight: 700, letterSpacing: "0.35em" }}>学びの冒険</div>
-            <h1 className="m-0 text-[26px] md:text-[32px]" style={{ ...CL.logo, lineHeight: 1.1, letterSpacing: "0.04em" }}>STUDY QUEST</h1>
+            <div className="text-[11px]" style={{ ...PAL.mincho, fontWeight: 700, letterSpacing: "0.35em" }}>学びの冒険</div>
+            <h1 className="m-0 text-[26px] md:text-[32px]" style={{ ...PAL.logo, lineHeight: 1.1, letterSpacing: "0.04em" }}>STUDY QUEST</h1>
           </div>
         ) : (
           <div className="text-center mb-2">
@@ -1854,9 +2080,9 @@ function StudyRPG({ user }) {
         {showDisplaySettings && <DisplaySettingsPanel settings={state.displaySettings} onChange={updateDisplaySettings} onClose={() => setShowDisplaySettings(false)} />}
         {showLawSearch && <LawSearchPanel banks={state.questionBanks} onClose={() => setShowLawSearch(false)} />}
 
-        {classic && <ClassicInfoBar state={state} liveSeconds={liveSeconds} onStatus={() => setTab("status")} />}
+        {fancy && <ClassicInfoBar theme={themeNow} state={state} liveSeconds={liveSeconds} onStatus={() => setTab("status")} />}
         {/* Status bar */}
-        {!classic && <div className="rpg-box mb-4 p-1">
+        {!fancy && <div className="rpg-box mb-4 p-1">
           <div className="rpg-inner-border">
             <div className="flex items-center gap-3">
               <button onClick={() => setTab("status")} className="flex-shrink-0" title="ステータス画面へ" style={{ background: "transparent", border: "none", padding: 0, cursor: "pointer" }}>
@@ -1884,14 +2110,9 @@ function StudyRPG({ user }) {
         </div>}
 
         <div className="mb-4">
-          {tab === "home" && classic && (
-            <MenuHome state={state} todayCount={getTodayReviewItems().length} onCommand={(id) => {
-              if (id === "law") { setShowLawSearch(true); window.scrollTo(0, 0); }
-              else if (id === "option") { setShowDisplaySettings(true); window.scrollTo(0, 0); }
-              else { setTab(id); window.scrollTo(0, 0); }
-            }} />
-          )}
-          {tab === "home" && <HomeTab state={state} liveSeconds={liveSeconds} setMainTitle={setMainTitle} setTab={setTab} todayCount={getTodayReviewItems().length} hideBanner={classic} />}
+          {tab === "home" && classic && <MenuHome state={state} todayCount={getTodayReviewItems().length} onCommand={homeCommand} />}
+          {tab === "home" && isWhite && <SignpostHome state={state} todayCount={getTodayReviewItems().length} onCommand={homeCommand} />}
+          {tab === "home" && <HomeTab state={state} liveSeconds={liveSeconds} setMainTitle={setMainTitle} setTab={setTab} todayCount={getTodayReviewItems().length} hideBanner={fancy} />}
           {tab === "today" && <TodayTab state={state} recordSRAnswer={recordSRAnswer} updateSrSettings={updateSrSettings} startTimer={startTimer} stopTimer={stopTimer} toggleQuestionMark={toggleQuestionMark} />}
           {tab === "status" && <StatusTab state={state} />}
           {tab === "adventure" && <AdventureTab state={state} actions={rpgActions} recordAnswer={recordAnswer} startTimer={startTimer} stopTimer={stopTimer} />}
@@ -1903,7 +2124,7 @@ function StudyRPG({ user }) {
         </div>
       </div>
 
-      <nav className="fixed bottom-0 left-0 right-0 z-40" style={{ background: classic ? "linear-gradient(180deg, rgba(39,63,120,0.97), rgba(23,37,72,0.98))" : "var(--paper)", borderTop: "2px solid var(--rule)", boxShadow: classic ? "inset 0 2px 0 #0a1226, inset 0 3px 0 rgba(160,185,215,0.5)" : "none", paddingBottom: "env(safe-area-inset-bottom)" }}>
+      <nav className="fixed bottom-0 left-0 right-0 z-40" style={{ background: classic ? "linear-gradient(180deg, rgba(39,63,120,0.97), rgba(23,37,72,0.98))" : isWhite ? "linear-gradient(180deg, rgba(253,251,245,0.97), rgba(246,240,226,0.98))" : "var(--paper)", borderTop: isWhite ? "1px solid #b08a3e" : "2px solid var(--rule)", boxShadow: classic ? "inset 0 2px 0 #0a1226, inset 0 3px 0 rgba(160,185,215,0.5)" : isWhite ? "inset 0 3px 0 #fdfbf5, inset 0 4px 0 rgba(176,138,62,0.45), 0 -4px 14px rgba(40,50,80,0.08)" : "none", paddingBottom: "env(safe-area-inset-bottom)" }}>
         <div className="max-w-3xl mx-auto grid grid-cols-9">
           {[
             { id: "home",   label: "ホーム",     icon: <Home size={16} /> },
@@ -1919,7 +2140,7 @@ function StudyRPG({ user }) {
             const badge = t.id === "today" ? getTodayReviewItems().length : 0;
             return (
               <button key={t.id} onClick={() => setTab(t.id)} className="jp flex flex-col items-center gap-0.5 py-2 transition relative"
-                style={tab === t.id ? (classic ? { ...CL.rowOn, color: "#ffffff" } : { background: "var(--sky-deep)", color: "var(--paper)" }) : { background: "transparent", color: "var(--ink)" }}>
+                style={tab === t.id ? (classic ? { ...CL.rowOn, color: "#ffffff" } : isWhite ? { ...THEME_PAL.white.rowOn, color: "#22335c" } : { background: "var(--sky-deep)", color: "var(--paper)" }) : { background: "transparent", color: "var(--ink)" }}>
                 {t.icon}
                 <span className="text-[8px] md:text-[11px]" style={{ whiteSpace: "nowrap" }}>{t.label}</span>
                 {badge > 0 && (
@@ -2010,7 +2231,7 @@ function applyDefaults(s) {
     folders: (s.folders || []).map((f, i) => ({ ...f, order: typeof f.order === "number" ? f.order : i })),
     sessionResume: s.sessionResume || null,
     srSettings: { ...SR_DEFAULTS, ...(s.srSettings || {}) },
-    displaySettings: { ...DISPLAY_DEFAULTS, ...(s.displaySettings || {}) },
+    displaySettings: migrateDisplay({ ...DISPLAY_DEFAULTS, ...(s.displaySettings || {}) }),
     rpg: normRpg(s.rpg),
     questionBanks: (s.questionBanks || []).map((b, i) => ({
       ...b,
