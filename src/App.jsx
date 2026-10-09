@@ -1755,6 +1755,65 @@ function StudyRPG({ user }) {
       if (item) setTimeout(() => grantItem(rollRpgItem(1), "宝箱"), 500);
       return `宝箱を開けた！ ${CHEST_REWARD.gold}G と 星霊石×${CHEST_REWARD.star}${item ? " と 装備！" : ""}`;
     },
+    // 地域の守護者との戦いの結果：勝てば地域を解放し、紋章を得る
+    guardianFinish: ({ won, region, gold, xp, itemId }) => {
+      const already = regionCleared(normRpg(stateRef.current.rpg), region);
+      updateRpg((x) => ({
+        ...x, gold: x.gold + gold, goldEarned: x.goldEarned + gold,
+        inventory: won && itemId ? [...x.inventory, { u: uid(), i: itemId }].slice(-150) : x.inventory,
+        regions: won ? { ...x.regions, [region]: { cleared: true, at: todayStr() } } : x.regions,
+      }));
+      if (won && xp) setTimeout(() => awardXp(xp), 300);
+      if (won && !already) {
+        const info = regionInfo(region);
+        setTimeout(() => showEvolution({ big: "地域解放", from: null, to: region, sub: `${info.emblem.name}を手に入れた（${fxText(info.emblem.fx)}）`, stage: heroStage(stateRef.current.player.level), afterTalk: { title: `${region}　解放`, lines: (REGION_TALK[region] || []).map((t) => ["hero", t]) } }), 1500);
+      }
+    },
+    // 魔王城を1階攻略する（条件を満たしたときだけ）
+    castleClimb: () => {
+      const cur = stateRef.current;
+      const r = normRpg(cur.rpg);
+      const qual = mainQual(cur);
+      const linked = qual && cur.questionBanks.some((b) => b.qualId === qual.id);
+      const pp = passPower(cur, linked ? qual.id : null);
+      const floor = r.castle.floor || 0;
+      const f = CASTLE_FLOORS[floor];
+      if (!f || !f.test(castleCtx(cur, pp))) return;
+      const rw = f.reward;
+      updateRpg((x) => ({
+        ...x, gold: x.gold + (rw.gold || 0), goldEarned: x.goldEarned + (rw.gold || 0),
+        materials: { ...x.materials, "m-star": (x.materials["m-star"] || 0) + (rw.star || 0), "m-sage": (x.materials["m-sage"] || 0) + (rw.sage || 0) },
+        castle: { ...x.castle, floor: Math.max(x.castle.floor || 0, floor + 1), [`f${floor + 1}`]: todayStr() },
+      }));
+      const last = floor + 1 >= CASTLE_FLOORS.length;
+      setTimeout(() => showEvolution({ big: last ? "魔王討伐" : "突破", from: null, to: last ? "試験の魔王を打ち倒した！" : `魔王城 ${f.name}`, sub: `報酬：${rewardText(rw)}`, stage: heroStage(cur.player.level),
+        afterTalk: last ? { title: "魔王城　玉座の間", lines: [["hero", "……終わりましたね。"], ["hero", "でも、本当の試験はこれからです。今日の力を、試験の日までそのまま保ちましょう。"], ["pet", "（相棒が、そっと寄り添ってきた）"], ["hero", "あなたなら、きっと大丈夫です。"]] } : null }), 300);
+      if (last) awardAchievement({ id: "castle-maou", title: "境界を取り戻した者", job: "魔王討伐者", icon: "👑", color: "#b08a3e", source: "rpg", description: "魔王城の最上階で、試験の魔王を打ち倒した。", earnedAt: new Date().toISOString() });
+    },
+    // カテゴリの長期クエストの報酬（★を1つ進める）
+    claimCat: (bankId) => {
+      const cur = stateRef.current;
+      const r = normRpg(cur.rpg);
+      const b = cur.questionBanks.find((x) => x.id === bankId);
+      if (!b) return "";
+      const got = r.cats[bankId] || 0;
+      const tier = CAT_TIERS[got];
+      const c = catCounts(b);
+      if (!tier || c.n === 0 || !tier.test(c)) return "";
+      const rw = tier.reward;
+      const fid = FRAG_IDS[hashStr(bankId) % FRAG_IDS.length];
+      updateRpg((x) => {
+        if ((x.cats[bankId] || 0) !== got) return x;
+        return {
+          ...x, gold: x.gold + (rw.gold || 0), goldEarned: x.goldEarned + (rw.gold || 0),
+          materials: { ...x.materials, [fid]: (x.materials[fid] || 0) + (rw.frag || 0), "m-star": (x.materials["m-star"] || 0) + (rw.star || 0), "m-sage": (x.materials["m-sage"] || 0) + (rw.sage || 0) },
+          cats: { ...x.cats, [bankId]: got + 1 },
+        };
+      });
+      if (got + 1 === 5) awardAchievement({ id: `cat-${bankId}`, title: `${b.name}の達人`, job: "カテゴリ制覇", icon: "🏅", color: "#b08a3e", source: "rpg", description: `「${b.name}」のすべての問題を制覇した証。`, earnedAt: new Date().toISOString() });
+      return `${b.name} ★${got + 1} 達成！ 報酬：${rewardText({ ...rw, frag: rw.frag })}`;
+    },
+    openTalk: (t) => setTalk(t),
   };
 
   // 物語：合格力が上がって新しい章が開いたら、全画面で知らせる
@@ -1769,7 +1828,7 @@ function StudyRPG({ user }) {
     if (idx > r.storySeen) {
       updateRpg((x) => ({ ...x, storySeen: idx }));
       const ch = STORY_CHAPTERS[idx];
-      setTimeout(() => showEvolution({ big: idx === 0 ? "物語の始まり" : "新しい章", from: null, to: ch.title.replace("　", " "), sub: ch.text.split("\n")[0], stage: heroStage(state.player.level) }), 1200);
+      setTimeout(() => showEvolution({ big: idx === 0 ? "物語の始まり" : "新しい章", from: null, to: ch.title.replace("　", " "), sub: ch.text.split("\n")[0], stage: heroStage(state.player.level), afterTalk: { title: ch.title, lines: STORY_TALKS[idx] || [] } }), 1200);
     }
   }, [state.questionBanks, loaded]);
 
@@ -1790,8 +1849,38 @@ function StudyRPG({ user }) {
         if (stat.fresh) k.fresh = (k.fresh || 0) + 1;
         if (stat.crit) k.crits = (k.crits || 0) + 1;
         k.maxCombo = Math.max(k.maxCombo || 0, stat.combo || 0);
-        return { ...x, materials: m, daily: { ...d, k } };
+        // 旅路：魔物を JOURNEY_PER 体倒すごとに1マス進み、マスのできごとの贈り物を受け取る
+        const jn = { ...x.journey, log: [...(x.journey.log || [])] };
+        let gold = 0;
+        jn.acc = (jn.acc || 0) + 1;
+        if (jn.acc >= JOURNEY_PER) {
+          jn.acc -= JOURNEY_PER;
+          jn.pos = (jn.pos || 0) + 1;
+          if (jn.pos >= JOURNEY_LEN) {
+            gold += 300; jn.log.push(`🏰 魔王城の門にたどり着いた！ 300G（${(jn.lap || 0) + 2}周目の旅へ）`);
+            jn.pos = 0; jn.lap = (jn.lap || 0) + 1;
+          } else {
+            const ev = journeyEvent(jn.pos);
+            if (ev) {
+              const rw = ev.reward;
+              gold += rw.gold || 0;
+              if (rw.frag) { const fid = FRAG_IDS[jn.pos % FRAG_IDS.length]; m[fid] = (m[fid] || 0) + rw.frag; }
+              if (rw.star) m["m-star"] = (m["m-star"] || 0) + rw.star;
+              jn.log.push(`${ev.icon} ${jn.pos}マス目：${ev.name}${ev.quote ? `「${ev.quote.t}」` : ""} → ${rewardText(rw)}`);
+            } else jn.log.push(`👣 ${jn.pos}マス目に進んだ`);
+          }
+          jn.log = jn.log.slice(-10);
+        }
+        return { ...x, gold: x.gold + gold, goldEarned: x.goldEarned + gold, materials: m, daily: { ...d, k }, journey: jn };
       });
+      // 旅路のできごとを知らせる（宝箱・旅人・祠・町のマスに着いたとき）
+      if (stat) {
+        const jr = normRpg(stateRef.current.rpg).journey;
+        if ((jr.acc || 0) + 1 >= JOURNEY_PER) {
+          const ev = journeyEvent((jr.pos || 0) + 1);
+          if (ev) setTimeout(() => showRpgToast(`${ev.icon} 旅路：${ev.name}${ev.kind === "town" ? "に着いた" : "に出会った"}！ ${rewardText(ev.reward)}`, "#b08a3e"), 700);
+        }
+      }
       if (xp) setTimeout(() => awardXp(xp), 120);
     };
     battleBus.addEventListener("reward", on);
@@ -1819,6 +1908,8 @@ function StudyRPG({ user }) {
   };
   // 進化の演出（主人公の姿・覚醒・相棒）。テーマに合わせた主人公の顔を使う
   const [evolution, setEvolution] = useState(null);
+  const [talk, setTalkRaw] = useState(null); // 会話の画面（物語・地域の解放）
+  const setTalk = (t) => setTalkRaw(t && t.lines && t.lines.length ? { ...t, id: uid() } : null);
   const showEvolution = (ev) => {
     const th = BATTLE_THEME[(stateRef.current.displaySettings && stateRef.current.displaySettings.theme) || "white"] || BATTLE_THEME.white;
     setEvolution({ avatar: th.avatar, face: th.face, ...ev, id: uid() });
@@ -2365,6 +2456,7 @@ function StudyRPG({ user }) {
   }, [loaded]);
 
   // テーマ（読み込み前は端末に保存した設定を使う）
+  syncFolderIndex(state); // 科目（地域）の判定にフォルダ名を使うため
   const themeNow = loaded ? ((state.displaySettings && state.displaySettings.theme) || "white") : readPref("sq-theme", "white");
   const classic = themeNow === "classic";
   const isWhite = themeNow === "white";
@@ -2542,7 +2634,8 @@ function StudyRPG({ user }) {
         <div key={rpgToast.id} className="milestone-toast fixed left-1/2 top-20 z-50 pointer-events-none jp text-sm px-3 py-2" style={{ background: "var(--paper)", border: `2px solid ${rpgToast.color || "var(--gold)"}`, color: "var(--ink)", boxShadow: "2px 2px 0 rgba(0,0,0,0.15)", whiteSpace: "nowrap" }}>{rpgToast.text}</div>
       )}
 
-      {evolution && <EvolutionScene key={evolution.id} ev={evolution} onClose={() => setEvolution((e) => (e && e.id === evolution.id ? null : e))} />}
+      {evolution && <EvolutionScene key={evolution.id} ev={evolution} onClose={() => { const t = evolution.afterTalk; setEvolution((e) => (e && e.id === evolution.id ? null : e)); if (t) setTalk(t); }} />}
+      {talk && !evolution && <StoryTalk key={talk.id} state={state} talk={talk} onClose={() => setTalkRaw(null)} />}
 
       {rpgEvent && (
         <div key={rpgEvent.id} className="fixed inset-0 z-50 pointer-events-none flex items-center justify-center">
@@ -6648,7 +6741,7 @@ const RPG_DEFAULTS = {
   equipped: { weapon: null, armor: null, accessory: null }, bossWins: 0, bossLosses: 0, bossLog: [],
   boosts: { xpUntil: null }, restDays: [], crits: 0,
   classId: null, pet: null, seen: { stars: 0, pet: 0 },
-  materials: {}, skills: [], forgeLog: { ok: 0, ng: 0 }, daily: null, storySeen: -1, weekly: null, dungeon: null,
+  materials: {}, skills: [], forgeLog: { ok: 0, ng: 0 }, daily: null, storySeen: -1, weekly: null, dungeon: null, regions: {}, castle: { floor: 0 }, cats: {}, journey: { pos: 0, acc: 0, lap: 0, log: [] },
 };
 function normRpg(r) {
   const x = { ...RPG_DEFAULTS, ...(r || {}) };
@@ -6663,6 +6756,10 @@ function normRpg(r) {
   x.skills = Array.isArray(x.skills) ? x.skills : [];
   x.forgeLog = { ...RPG_DEFAULTS.forgeLog, ...(x.forgeLog || {}) };
   if (typeof x.storySeen !== "number") x.storySeen = -1;
+  x.regions = { ...(x.regions || {}) };
+  x.castle = { floor: 0, ...(x.castle || {}) };
+  x.cats = { ...(x.cats || {}) };
+  x.journey = { pos: 0, acc: 0, lap: 0, log: [], ...(x.journey || {}) };
   return x;
 }
 const rpgItemById = (id) => RPG_ITEMS.find((i) => i.id === id) || null;
@@ -6672,7 +6769,7 @@ const rpgEquippedItems = (r) => RPG_SLOTS.map((s) => rpgInvItem(r.inventory.find
 function getRpgBonuses(state) {
   const r = normRpg(state.rpg);
   const eq = rpgEquippedItems(r);
-  const gfx = [...getGrowthFx(state), ...r.skills.map((id) => (skillNodes.find((n) => n.id === id) || {}).fx || {})]; // クラス・相棒・覚醒・スキル
+  const gfx = [...getGrowthFx(state), ...r.skills.map((id) => (skillNodes.find((n) => n.id === id) || {}).fx || {}), ...Object.keys(r.regions || {}).filter((k) => r.regions[k].cleared).map((k) => regionInfo(k).emblem.fx)]; // クラス・相棒・覚醒・スキル・地域の紋章
   const sum = (k) => eq.reduce((a, it) => a + ((it.fx && it.fx[k]) || 0), 0) + gfx.reduce((a, f) => a + (f[k] || 0), 0);
   const st = calculateStatus(state);
   const boostActive = !!(r.boosts.xpUntil && Date.now() < r.boosts.xpUntil);
@@ -6949,7 +7046,7 @@ function EvolutionRoad({ state }) {
 
 // ── モンスター図鑑：問題1問＝魔物1体。発見（解いた）→ 討伐（正解した）→ 制覇（しっかり覚えた） ──
 const DEX_PAGE = 48;
-const dexStatus = (q) => (q.fs && q.fs.s >= MASTERED_STABILITY ? 3 : (q.correct || 0) > 0 ? 2 : ((q.wrong || 0) > 0 || !!q.sr_nextReview) ? 1 : 0); // 0未発見 1発見 2討伐 3制覇
+const dexStatus = (q) => (q.excluded || (q.fs && q.fs.s >= MASTERED_STABILITY) ? 3 : (q.correct || 0) > 0 ? 2 : ((q.wrong || 0) > 0 || !!q.sr_nextReview) ? 1 : 0); // 0未発見 1発見 2討伐 3制覇
 function MonsterDex({ state }) {
   const banks = state.questionBanks.filter((b) => (b.questions || []).length > 0);
   const [bankId, setBankId] = useState(() => (banks[0] ? banks[0].id : null));
@@ -7047,13 +7144,13 @@ function passPower(state, qualId) {
   const day = todayStr();
   const key = qualId || "_all_";
   const c = passCache.get(key);
-  if (c && c.banks === state.questionBanks && c.day === day && c.sr === state.srSettings) return c.res;
+  if (c && c.banks === state.questionBanks && c.folders === state.folders && c.day === day && c.sr === state.srSettings) return c.res;
   const sch = getFsrsScheduler(state.srSettings);
   const now = new Date();
   const regions = {};
   let total = 0, seen = 0, sumR = 0, weak = 0;
   state.questionBanks.filter((b) => !qualId || b.qualId === qualId).forEach((b) => {
-    const th = MON_THEMES.find((t) => t.re.test(b.name || "")) || MON_THEME_DEFAULT;
+    const th = themeOf(b.name);
     const g = regions[th.region] || (regions[th.region] = { th, name: th.region, banks: [], total: 0, seen: 0, sumR: 0, weak: 0 });
     g.banks.push(b);
     (b.questions || []).forEach((q) => {
@@ -7069,7 +7166,7 @@ function passPower(state, qualId) {
     });
   });
   const res = { total, seen, sumR, weak, power: total ? sumR / total : 0, regions: Object.values(regions).map((g) => ({ ...g, power: g.total ? g.sumR / g.total : 0 })) };
-  passCache.set(key, { banks: state.questionBanks, day, sr: state.srSettings, res });
+  passCache.set(key, { banks: state.questionBanks, folders: state.folders, day, sr: state.srSettings, res });
   return res;
 }
 // いちばん近い試験日の資格（取得済みは除く）。問題集が1つも紐づいていなければ全問題で計算する
@@ -7207,50 +7304,53 @@ function FinalBoss({ state, qual, pp }) {
 // ── 世界地図：科目ごとの地域。合格力に応じて輪が満ちていく ──
 const REGION_ORDER = ["不動産登記法の王都", "民法の古の森", "区分所有の双子塔", "調査士法の砦", "測量の星見台", "書式の迷宮", "未踏の地"];
 const REGION_POS = [[70, 178], [170, 196], [270, 176], [300, 112], [196, 120], [86, 104], [52, 46]];
-function WorldMap({ pp }) {
-  const regs = [...pp.regions].sort((a, b) => REGION_ORDER.indexOf(a.name) - REGION_ORDER.indexOf(b.name));
+function WorldMap({ pp, r, onGuardian }) {
+  const regs = [...pp.regions].filter((g) => g.total > 0).sort((a, b) => REGION_ORDER.indexOf(a.name) - REGION_ORDER.indexOf(b.name));
   const [sel, setSel] = useState(null);
   const s = regs.find((g) => g.name === sel);
   const pts = regs.map((g, i) => ({ g, x: REGION_POS[i % REGION_POS.length][0], y: REGION_POS[i % REGION_POS.length][1] }));
   const castle = [196, 40];
+  const cleared = regs.filter((g) => regionCleared(r, g.name)).length;
+  const sealed = cleared < regs.length;
   return (
     <Box title="世界地図" icon={<Castle size={18} />}>
       {regs.length === 0 ? <p className="jp text-sm" style={{ color: "var(--ink-mute)" }}>問題集を取り込むと、科目ごとの地域が地図に現れます。</p> : (<>
+        <div className="jp text-[11px] mb-1 text-center" style={{ color: "var(--ink-soft)" }}>解放した地域 {cleared} / {regs.length}{sealed ? "　― すべて解放すると、魔王城の封印が解けます" : "　― 魔王城の封印が解けました！"}</div>
         <svg viewBox="0 0 360 254" width="100%" style={{ display: "block", maxWidth: 560, margin: "0 auto", borderRadius: 8, background: "radial-gradient(ellipse at 50% 40%, #f8f1de 0%, #ecdfbd 70%, #dcc89c 100%)", border: "1px solid #b08a3e" }}>
           <path d="M10 150c30-20 50 10 80-6s40-40 80-30 60 30 90 10 50-20 90-6" fill="none" stroke="rgba(127,163,216,0.5)" strokeWidth="6" strokeLinecap="round" />
           <path d={`M${pts.map((p) => `${p.x} ${p.y}`).join(" L")} L${castle[0]} ${castle[1]}`} fill="none" stroke="#b08a3e" strokeWidth="2" strokeDasharray="5 5" opacity=".7" />
           <g transform={`translate(${castle[0]} ${castle[1]})`}>
+            {sealed && <circle r="26" fill="none" stroke="#8c79c8" strokeWidth="1.5" strokeDasharray="3 3" opacity=".8"><animateTransform attributeName="transform" type="rotate" from="0" to="360" dur="20s" repeatCount="indefinite" /></circle>}
             <path d="M-22 14v-20h6v6h6v-12h6v-8l4-6 4 6v8h6v12h6v-6h6v20z" fill={pp.power >= PASS_LINE ? "#a7afc2" : "#3d2f55"} stroke="#22335c" strokeWidth="1.2" />
-            <text y="28" textAnchor="middle" fontSize="9" fontWeight="700" fill="#22335c" fontFamily="'Zen Kaku Gothic New', sans-serif">魔王城（試験）</text>
+            <text y="28" textAnchor="middle" fontSize="9" fontWeight="700" fill="#22335c" fontFamily="'Zen Kaku Gothic New', sans-serif">魔王城（試験）{sealed ? "・封印中" : ""}</text>
           </g>
           {pts.map(({ g, x, y }) => {
+            const st = regionStatus(g, r);
             const prog = Math.min(1, g.power / PASS_LINE);
             const C = 2 * Math.PI * 20;
             return (
               <g key={g.name} transform={`translate(${x} ${y})`} onClick={() => setSel(sel === g.name ? null : g.name)} style={{ cursor: "pointer" }}>
-                <circle r="24" fill={sel === g.name ? "#fff8e6" : "#fdfbf5"} stroke="#b08a3e" strokeWidth="1" />
+                {st === "ready" && <circle r="28" fill="none" stroke="#a24a45" strokeWidth="1.5" opacity=".8"><animate attributeName="r" values="26;31;26" dur="1.6s" repeatCount="indefinite" /><animate attributeName="opacity" values=".9;.2;.9" dur="1.6s" repeatCount="indefinite" /></circle>}
+                <circle r="24" fill={sel === g.name ? "#fff8e6" : "#fdfbf5"} stroke={st === "cleared" ? "#d6b56a" : "#b08a3e"} strokeWidth={st === "cleared" ? 2.5 : 1} />
                 <circle r="20" fill="none" stroke="rgba(0,0,0,0.08)" strokeWidth="4" />
                 <circle r="20" fill="none" stroke={g.th.body} strokeWidth="4" strokeDasharray={`${C * prog} ${C}`} transform="rotate(-90)" strokeLinecap="round" />
                 <path d="M-6 -8l9-2 5 8-5 11-10-2-3-8z" fill={g.th.body} stroke={g.th.dark} strokeWidth="1" opacity={g.seen ? 1 : 0.35} />
+                {st === "cleared" && <g transform="translate(14 -30)"><path d="M0 0v20" stroke="#5f3f1f" strokeWidth="1.5" /><path d="M0 0h14l-4 5 4 5H0z" fill={g.th.body} stroke={g.th.dark} strokeWidth=".8" /></g>}
+                {st === "fog" && <g opacity=".92"><ellipse cx="-8" cy="2" rx="18" ry="11" fill="#e9e4d6" /><ellipse cx="10" cy="-2" rx="16" ry="12" fill="#f2ede0" /><ellipse cx="2" cy="10" rx="20" ry="9" fill="#e4ddcc" /></g>}
                 <text y="38" textAnchor="middle" fontSize="9" fontWeight="700" fill="#22335c" fontFamily="'Zen Kaku Gothic New', sans-serif">{g.name}</text>
-                <text y="48" textAnchor="middle" fontSize="8.5" fill="#5b6b8c" fontFamily="'Zen Kaku Gothic New', sans-serif">{pctTxt(g.power)}</text>
+                <text y="48" textAnchor="middle" fontSize="8.5" fill={st === "ready" ? "#a24a45" : "#5b6b8c"} fontFamily="'Zen Kaku Gothic New', sans-serif">{st === "fog" ? "霧の中" : st === "cleared" ? `解放済み ${pctTxt(g.power)}` : st === "ready" ? "守護者に挑める！" : pctTxt(g.power)}</text>
               </g>
             );
           })}
         </svg>
-        {s ? (
-          <div className="jp mt-2 p-2 text-xs" style={{ background: "var(--paper)", border: `1px solid ${s.th.body}`, animation: "sqFadeIn .25s ease-out" }}>
-            <div style={{ fontWeight: 800, color: s.th.dark }}>{s.name}</div>
-            <div style={{ color: "var(--ink-soft)" }}>合格力 {pctTxt(s.power)} ・ 出会った問題 {s.seen}/{s.total} ・ 手強い魔物 {s.weak}体</div>
-            <div className="text-[10px] mt-1" style={{ color: "var(--ink-mute)" }}>問題集：{s.banks.map((b) => b.name).join("、")}</div>
-          </div>
-        ) : <p className="jp text-[10px] mt-2" style={{ color: "var(--ink-mute)" }}>地域を選ぶと、その科目の合格力が見られます。輪が一周すると合格ライン（85%）です。地域は問題集の名前（登記・民法・区分所有・調査士法・測量・書式）から決まります。</p>}
+        {s ? <RegionDetail g={s} r={r} onGuardian={onGuardian} />
+          : <p className="jp text-[10px] mt-2" style={{ color: "var(--ink-mute)" }}>地域を選ぶと、その科目の合格力と守護者が見られます。輪が一周すると合格ライン（85%）。合格力{Math.round(GUARDIAN_LINE * 100)}%で守護者に挑め、倒すと地域が解放されて紋章が手に入ります。地域はフォルダと問題集の名前（登記・民法・区分所有・調査士法・測量・書式）から決まります。</p>}
       </>)}
     </Box>
   );
 }
 
-function StoryPanel({ pp }) {
+function StoryPanel({ pp, onTalk }) {
   const cur = storyIndex(pp.power);
   const [open, setOpen] = useState(cur);
   return (
@@ -7264,7 +7364,7 @@ function StoryPanel({ pp }) {
                 <span className="flex-1 text-sm" style={{ fontFamily: "'Shippori Mincho B1', serif", fontWeight: 800, color: unlocked ? "var(--ink)" : "var(--ink-mute)" }}>{unlocked ? c.title : "？？？"}</span>
                 <span className="text-[10px]" style={{ color: "var(--ink-mute)" }}>{unlocked ? (open === i ? "▲" : "▼") : `合格力${Math.round(c.at * 100)}%で解放`}</span>
               </button>
-              {unlocked && open === i && <div className="jp text-sm px-3 pb-2 leading-relaxed" style={{ color: "var(--ink-soft)", whiteSpace: "pre-wrap", fontFamily: "'Shippori Mincho B1', serif", animation: "sqFadeIn .25s ease-out" }}>{c.text}</div>}
+              {unlocked && open === i && <div className="jp text-sm px-3 pb-2 leading-relaxed" style={{ color: "var(--ink-soft)", whiteSpace: "pre-wrap", fontFamily: "'Shippori Mincho B1', serif", animation: "sqFadeIn .25s ease-out" }}>{c.text}{onTalk && <div className="mt-2"><button onClick={() => onTalk(i)} className="jp btn-ghost text-xs px-3 py-1">この章の会話を見る</button></div>}</div>}
             </div>
           );
         })}
@@ -7396,7 +7496,7 @@ function DungeonRun({ state, pool, minutes, actions, recordAnswer, startTimer, s
     const byRegion = {};
     res.forEach((x) => {
       const b = state.questionBanks.find((bb) => bb.id === x.bankId);
-      const th = MON_THEMES.find((t) => t.re.test((b && b.name) || "")) || MON_THEME_DEFAULT;
+      const th = themeOf(b && b.name);
       const g = byRegion[th.region] || (byRegion[th.region] = { n: 0, c: 0, th });
       g.n++; if (x.correct) g.c++;
     });
@@ -7470,18 +7570,292 @@ function DungeonRun({ state, pool, minutes, actions, recordAnswer, startTimer, s
   );
 }
 
-function WorldView({ state, actions, todayCount, onWeekly, onDungeon }) {
+// ============ 魔王城への道：地域の解放・会話・魔王城の5階層・旅路・カテゴリの長期クエスト ============
+
+// ── 地域の守護者と紋章：その科目の合格力が60%に届くと挑める。倒すと地域が解放され、紋章の効果が付く ──
+const GUARDIAN_LINE = 0.6;
+const REGION_INFO = {
+  "不動産登記法の王都": { guardian: "登記の番人", icon: "🗿", boss: "golem", emblem: { name: "王都の紋章", fx: { xpPct: 5 } } },
+  "民法の古の森": { guardian: "契約の大樹", icon: "👻", boss: "ghost", emblem: { name: "森の紋章", fx: { critPct: 2 } } },
+  "区分所有の双子塔": { guardian: "共用部の双璧", icon: "🗿", boss: "golem", emblem: { name: "双子塔の紋章", fx: { dmgCutPct: 5 } } },
+  "調査士法の砦": { guardian: "砦の審判者", icon: "🦹", boss: "shadow", emblem: { name: "砦の紋章", fx: { goldPct: 10 } } },
+  "測量の星見台": { guardian: "星読みの天秤", icon: "🐉", boss: "dragon", emblem: { name: "星見台の紋章", fx: { dropPct: 15 } } },
+  "書式の迷宮": { guardian: "迷宮の写本師", icon: "👹", boss: "maou", emblem: { name: "迷宮の紋章", fx: { bossDmgPct: 10 } } },
+  "未踏の地": { guardian: "霧の番犬", icon: "🟢", boss: "slime", emblem: { name: "開拓の紋章", fx: { hpPlus: 10 } } },
+};
+const regionInfo = (name) => REGION_INFO[name] || REGION_INFO["未踏の地"];
+const regionCleared = (r, name) => !!(r.regions && r.regions[name] && r.regions[name].cleared);
+// 地域の状態：fog（霧：まだ2割も出会っていない）| explore（探索中）| ready（守護者に挑める）| cleared（解放済み）
+function regionStatus(g, r) {
+  if (regionCleared(r, g.name)) return "cleared";
+  if (g.total > 0 && g.seen / g.total < 0.2) return "fog";
+  return g.power >= GUARDIAN_LINE ? "ready" : "explore";
+}
+// 地域の解放のときの会話
+const REGION_TALK = {
+  "不動産登記法の王都": ["王都に、境界の灯りが戻りました！", "不動産登記法は、この国の背骨です。ここで身につけた力は、ほかのすべての地域で役に立ちますよ。"],
+  "民法の古の森": ["森のざわめきが、やさしい歌に変わりました。", "権利のしくみがわかると、登記の意味もはっきり見えてきますね。"],
+  "区分所有の双子塔": ["双子塔の扉が、そろって開きました。", "専有部分と共用部分。二つの塔のように、いつも組で考えましょう。"],
+  "調査士法の砦": ["砦の審判者が、あなたを認めてくれました。", "調査士としての心構えも、立派な知識のひとつです。"],
+  "測量の星見台": ["星見台から、国じゅうの境界線が見えます。", "計算は、手順を体で覚えるほど速くなりますよ。"],
+  "書式の迷宮": ["迷宮の出口に、光が差し込みました。", "書式は知識の総まとめ。択一の力が、そのまま書式の速さになります。"],
+  "未踏の地": ["霧が晴れて、新しい道が見えました。", "どんな知識も、覚えた分だけ道になりますね。"],
+};
+
+// ── 章ごとの会話（主人公と相棒）。勉強のコツも話す ──
+const STORY_TALKS = [
+  [["hero", "はじめまして。私はこの国の見習い魔導士です。"], ["hero", "魔物たちが、土地の境界を消してしまいました……。境界がわからないと、人々は安心して暮らせません。"], ["pet", "（相棒が、心配そうにこちらを見上げている）"], ["hero", "勉強のコツは、毎日の「今日の復習」を欠かさないことです。忘れかけたころに出会い直すのが、いちばん記憶に残るんですよ。"], ["hero", "まずは、地図の霧を晴らすところから始めましょう。"]],
+  [["hero", "王都に灯りがともりました。あなたの覚えた知識が、道しるべになっています。"], ["hero", "不動産登記法は「誰が・いつまでに・何を申請するか」を押さえると、ぐっと解きやすくなります。"], ["hero", "「1月以内」の申請期限は、何度も出てきますよ。"], ["pet", "（相棒が、うれしそうに羽をぱたぱたさせている）"]],
+  [["hero", "古の森の木々が、契約の言葉をささやいています。"], ["hero", "民法は、登記の前提になる「権利」のルールです。相続や売買の場面を思い浮かべながら解くと、覚えやすいですよ。"], ["hero", "わからなかった問題は「手強い魔物」になって、また現れます。何度でも挑みましょう。"]],
+  [["hero", "砦の門が開きました。ここまで来られたのは、毎日の積み重ねのおかげです。"], ["hero", "区分建物は、専有部分と共用部分の区別がカギです。図を描いて考えてみましょう。"], ["pet", "（相棒が、遠くの魔王城をじっと見つめている）"], ["hero", "魔王の城が、遠くにかすかに見えてきましたね。"]],
+  [["hero", "星見台から、国じゅうの境界線が見渡せます。半分以上の地図が戻りました。"], ["hero", "計算問題は、解き方の手順を体で覚えるのが近道です。同じ問題を何度でも解き直しましょう。"], ["hero", "模試の塔で、本番の時間感覚も身につけておくと安心ですよ。"]],
+  [["hero", "書式の迷宮を抜けた先に、魔王の城が見えています。基準点には手が届きました。"], ["hero", "書式は、択一の知識の総まとめです。択一で迷わない知識が、書式を解く速さになります。"], ["pet", "（相棒が、力強く鳴いた）"], ["hero", "合格ラインまで、あと少し。最後まで一緒に走り抜けましょう。"]],
+  [["hero", "やりました……！ 魔王を打ち倒せる力が、あなたに宿りました。"], ["hero", "合格力は、毎日の復習で保たれます。試験の日まで、この力を落とさないことが最後の戦いです。"], ["pet", "（相棒が、誇らしげに胸を張っている）"], ["hero", "一緒に、最後まで行きましょうね。"]],
+];
+
+// 会話の画面（下からせり上がる会話窓。タップで次へ）
+function StoryTalk({ state, talk, onClose }) {
+  const th = BATTLE_THEME[(state.displaySettings && state.displaySettings.theme) || "white"] || BATTLE_THEME.white;
+  const pet = getPetInfo(state);
+  const lines = talk.lines.filter(([who]) => who !== "pet" || pet);
+  const [i, setI] = useState(0);
+  const line = lines[Math.min(i, lines.length - 1)];
+  if (!line) return null;
+  const isPet = line[0] === "pet";
+  const next = () => { if (i + 1 >= lines.length) onClose(); else setI(i + 1); };
+  return (
+    <div className="fixed inset-0 flex items-end justify-center jp" style={{ zIndex: 65, background: "rgba(10,14,30,0.45)", animation: "sqFadeIn .3s ease-out" }} onClick={next}>
+      <div className="w-full max-w-2xl m-3 p-4 relative" style={{ background: "#fdfbf5", border: "1px solid #b08a3e", borderRadius: 10, boxShadow: "inset 0 0 0 3px #fdfbf5, inset 0 0 0 4px rgba(176,138,62,.45), 0 10px 30px rgba(0,0,0,0.3)", color: "#22335c", cursor: "pointer" }}>
+        <div className="text-[11px] mb-2" style={{ color: "#b08a3e", fontWeight: 800, letterSpacing: "0.15em", fontFamily: "'Shippori Mincho B1', serif" }}>{talk.title}</div>
+        <div className="flex items-start gap-3">
+          {isPet
+            ? <div style={{ width: 60, height: 60, borderRadius: "50%", flexShrink: 0, border: "2px solid #b08a3e", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 34, background: "#f6ead0" }}>{pet.icon}</div>
+            : <div style={{ width: 60, height: 60, borderRadius: "50%", flexShrink: 0, border: "2px solid #b08a3e", backgroundColor: "#e9e4d6", backgroundImage: `url(${th.avatar})`, backgroundSize: "300% auto", backgroundPosition: `${th.face[0]}% ${th.face[1]}%` }} />}
+          <div className="flex-1 min-w-0">
+            <div className="text-xs mb-1" style={{ fontWeight: 800, color: "#5b6b8c" }}>{isPet ? pet.name : heroStage(state.player.level).name}</div>
+            <div key={i} className="text-[15px] md:text-[17px] leading-relaxed" style={{ fontFamily: "'Shippori Mincho B1', serif", fontWeight: 700, animation: "sqFadeIn .25s ease-out" }}>{line[1]}</div>
+          </div>
+        </div>
+        <div className="flex justify-between items-center mt-2 text-[10px]" style={{ color: "#8a96b0" }}>
+          <button onClick={(e) => { e.stopPropagation(); onClose(); }} style={{ background: "none", border: "none", color: "#8a96b0", textDecoration: "underline", cursor: "pointer" }}>スキップ</button>
+          <span>{i + 1} / {lines.length}　タップで次へ ◆</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── 魔王城の5階層：模試の塔の成績と地域の解放で、1階ずつ攻略していく ──
+const CASTLE_FLOORS = [
+  { name: "城門", need: "模試の塔（20階層）で基準点75%", test: (c) => (c.best[20] || 0) >= BASE_LINE, reward: { gold: 150, star: 1 } },
+  { name: "回廊", need: "模試の塔（40階層）で基準点75%", test: (c) => (c.best[40] || 0) >= BASE_LINE, reward: { gold: 250, star: 2 } },
+  { name: "鏡の間", need: "模試の塔（40階層）で合格ライン85%", test: (c) => (c.best[40] || 0) >= PASS_LINE, reward: { gold: 350, star: 2, sage: 1 } },
+  { name: "玉座の前", need: "すべての地域を解放する", test: (c) => c.allCleared, reward: { gold: 500, star: 3, sage: 1 } },
+  { name: "玉座の間", need: "模試の塔（60階層）で合格ライン85%、かつ合格力85%", test: (c) => (c.best[60] || 0) >= PASS_LINE && c.power >= PASS_LINE, reward: { gold: 1000, star: 5, sage: 3 } },
+];
+const castleCtx = (state, pp) => { const r = normRpg(state.rpg); const regs = pp.regions.filter((g) => g.total > 0); return { best: (r.dungeon && r.dungeon.best) || {}, allCleared: regs.length > 0 && regs.every((g) => regionCleared(r, g.name)), power: pp.power }; };
+const rewardText = (rw) => [rw.gold && `${rw.gold}G`, rw.frag && `欠片×${rw.frag}`, rw.star && `星霊石×${rw.star}`, rw.sage && `賢者の結晶×${rw.sage}`].filter(Boolean).join("・");
+function CastleCard({ state, pp, actions }) {
+  const r = normRpg(state.rpg);
+  const floor = (r.castle && r.castle.floor) || 0;
+  const ctx = castleCtx(state, pp);
+  const nextF = CASTLE_FLOORS[floor];
+  const can = nextF && nextF.test(ctx);
+  return (
+    <Box title="魔王城" icon={<Castle size={18} />}>
+      <div className="flex gap-3">
+        <svg viewBox="0 0 90 170" width="84" height="158" aria-hidden="true" style={{ flexShrink: 0 }}>
+          <path d="M45 4l6 10h-12z" fill={floor >= 5 ? "#f2c14e" : "#6c5a96"} />
+          {CASTLE_FLOORS.map((f, i) => {
+            const y = 132 - i * 28, w = 70 - i * 9, x = 45 - w / 2, lit = i < floor, cur = i === floor;
+            return (
+              <g key={f.name}>
+                <rect x={x} y={y} width={w} height={26} rx="2" fill={lit ? "#d6b56a" : cur ? "#5a4a80" : "#3d2f55"} stroke={cur ? "#f2c14e" : "#22335c"} strokeWidth={cur ? 2 : 1} />
+                {[0, 1, 2].map((k) => <rect key={k} x={x + 6 + k * (w - 12) / 3} y={y + 9} width="4" height="8" rx="2" fill={lit ? "#fff3c4" : "#1f1a30"} />)}
+              </g>
+            );
+          })}
+          <rect x="35" y="148" width="20" height="10" fill="#22335c" />
+        </svg>
+        <div className="flex-1 min-w-0 jp space-y-1">
+          {CASTLE_FLOORS.map((f, i) => (
+            <div key={f.name} className="text-[11px]" style={{ color: i < floor ? "var(--gold)" : i === floor ? "var(--ink)" : "var(--ink-mute)", fontWeight: i <= floor ? 700 : 400 }}>
+              {i < floor ? "✓" : i === floor ? "▶" : "・"} {i + 1}階：{f.name}{i >= floor ? `（${f.need}）` : "　突破済み"}
+            </div>
+          ))}
+          {floor >= CASTLE_FLOORS.length ? <div className="text-sm pt-1" style={{ color: "var(--gold)", fontWeight: 800 }}>魔王を討伐しました！ あとは本番で、この力を出し切るだけです。</div>
+            : <button disabled={!can} onClick={() => actions.castleClimb()} className="jp btn-danger w-full py-2 mt-1 text-sm">{can ? `${nextF.name}に攻め込む（報酬：${rewardText(nextF.reward)}）` : `${nextF.name}：条件を満たすと攻め込めます`}</button>}
+        </div>
+      </div>
+      <p className="jp text-[10px] mt-2" style={{ color: "var(--ink-mute)" }}>城は下から1階ずつ攻略します。模試の塔の最高記録と、地域の解放が鍵です。最上階の魔王は、本番形式で合格ラインを取ると倒せます。</p>
+    </Box>
+  );
+}
+
+// ── 旅路（すごろく）：魔物を10体倒すごとに1マス進む。マスには宝箱・旅人・祠・町 ──
+const JOURNEY_LEN = 300;
+const JOURNEY_PER = 10;
+const TOWNS = ["はじまりの村", "風見の宿場", "書庫の町", "境界石の里", "測量士の港", "星降る峠"];
+function journeyEvent(i) {
+  if (i > 0 && i % 50 === 0) return { kind: "town", icon: "🏠", name: TOWNS[(i / 50) % TOWNS.length], reward: { gold: 100, frag: 3 } };
+  if (i % 13 === 0 && i > 0) return { kind: "shrine", icon: "⛩", name: "古い祠", reward: { star: 1 } };
+  if (i % 10 === 0 && i > 0) return { kind: "chest", icon: "🎁", name: "道ばたの宝箱", reward: { gold: 40, frag: 1 } };
+  if (i % 7 === 0 && i > 0) return { kind: "traveler", icon: "🧳", name: "旅人", reward: { gold: 20 }, quote: STUDY_QUOTES[i % STUDY_QUOTES.length] };
+  return null;
+}
+function JourneyCard({ state }) {
+  const r = normRpg(state.rpg);
+  const j = r.journey || { pos: 0, acc: 0, lap: 0, log: [] };
+  const th = BATTLE_THEME[(state.displaySettings && state.displaySettings.theme) || "white"] || BATTLE_THEME.white;
+  const from = Math.max(0, j.pos - 2);
+  const cells = Array.from({ length: 12 }, (_, k) => from + k).filter((i) => i <= JOURNEY_LEN);
+  return (
+    <Box title="旅路" icon={<Calendar size={18} />}>
+      <div className="jp flex justify-between text-[11px] mb-1" style={{ color: "var(--ink-soft)" }}>
+        <span>{j.lap > 0 ? `${j.lap + 1}周目の旅 ・ ` : ""}{j.pos} / {JOURNEY_LEN}マス（魔王城まで）</span>
+        <span>次のマスまで あと{JOURNEY_PER - (j.acc || 0)}体</span>
+      </div>
+      <div style={{ height: 6, borderRadius: 3, background: "var(--beige)", overflow: "hidden", marginBottom: 8 }}><div style={{ width: `${(j.pos / JOURNEY_LEN) * 100}%`, height: "100%", background: "linear-gradient(90deg, #6fb8b4, #d6b56a)" }} /></div>
+      <div className="flex items-end gap-1 overflow-hidden" style={{ paddingTop: 30 }}>
+        {cells.map((i) => {
+          const ev = journeyEvent(i);
+          const here = i === j.pos;
+          return (
+            <div key={i} className="relative flex-1 text-center" style={{ minWidth: 26 }}>
+              {here && <div style={{ position: "absolute", left: "50%", top: -30, transform: "translateX(-50%)", width: 28, height: 28, borderRadius: "50%", border: "2px solid #b08a3e", backgroundColor: "#e9e4d6", backgroundImage: `url(${th.avatar})`, backgroundSize: "300% auto", backgroundPosition: `${th.face[0]}% ${th.face[1]}%`, animation: "sqbIdle 1.6s ease-in-out infinite" }} />}
+              <div className="jp" style={{ height: 26, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center", fontSize: ev ? 14 : 9, background: i < j.pos ? "var(--cream)" : here ? "#f6ead0" : "var(--paper)", border: `1px solid ${here ? "var(--gold)" : "var(--rule-soft)"}`, color: "var(--ink-mute)", opacity: i < j.pos ? 0.55 : 1 }}>{i === JOURNEY_LEN ? "🏰" : ev ? ev.icon : i}</div>
+            </div>
+          );
+        })}
+      </div>
+      {j.log && j.log.length > 0 && (
+        <div className="mt-2 space-y-0.5">
+          {j.log.slice(-3).reverse().map((l, k) => <div key={k} className="jp text-[11px]" style={{ color: k === 0 ? "var(--ink)" : "var(--ink-mute)" }}>{l}</div>)}
+        </div>
+      )}
+      <p className="jp text-[10px] mt-2" style={{ color: "var(--ink-mute)" }}>魔物を{JOURNEY_PER}体倒すごとに1マス進みます。宝箱・旅人・祠・町のマスでは、ちょっとした贈り物があります。</p>
+    </Box>
+  );
+}
+
+// ── カテゴリの長期クエスト：フォルダ（科目）の中の問題集を1つずつ、★1〜★5まで地道に育てる ──
+const CAT_TIERS = [
+  { label: "全部の問題に出会う", test: (c) => c.s1 >= c.n, prog: (c) => [c.s1, c.n], reward: { gold: 50, frag: 2 } },
+  { label: "半分を討伐する", test: (c) => c.s2 >= Math.ceil(c.n / 2), prog: (c) => [c.s2, Math.ceil(c.n / 2)], reward: { gold: 100, frag: 4 } },
+  { label: "全部を討伐する", test: (c) => c.s2 >= c.n, prog: (c) => [c.s2, c.n], reward: { gold: 200, star: 1 } },
+  { label: "半分を制覇する", test: (c) => c.s3 >= Math.ceil(c.n / 2), prog: (c) => [c.s3, Math.ceil(c.n / 2)], reward: { gold: 300, star: 2 } },
+  { label: "全部を制覇する", test: (c) => c.s3 >= c.n, prog: (c) => [c.s3, c.n], reward: { gold: 500, sage: 1 } },
+];
+const catCounts = (b) => { const qs = b.questions || []; const st = qs.map(dexStatus); return { n: qs.length, s1: st.filter((s) => s >= 1).length, s2: st.filter((s) => s >= 2).length, s3: st.filter((s) => s >= 3).length }; };
+function CategoryQuests({ state, pp, actions }) {
+  const r = normRpg(state.rpg);
+  const regs = [...pp.regions].filter((g) => g.total > 0).sort((a, b) => REGION_ORDER.indexOf(a.name) - REGION_ORDER.indexOf(b.name));
+  const [open, setOpen] = useState(() => (regs[0] ? regs[0].name : null));
+  const [msg, setMsg] = useState("");
+  return (
+    <Box title="カテゴリ討伐（長期クエスト）" icon={<Award size={18} />}>
+      <p className="jp text-[10px] mb-2" style={{ color: "var(--ink-mute)" }}>科目（フォルダ）の中の問題集を、1つずつ ★1〜★5 まで育てる長い旅です。★5「全部を制覇」は、すべての問題を21日以上覚えていられる状態。達成すると「〇〇の達人」の称号が手に入ります。</p>
+      {msg && <div className="jp text-xs text-center mb-2" style={{ color: "var(--gold)", fontWeight: 700, animation: "sqFadeIn .3s ease-out" }}>{msg}</div>}
+      <div className="space-y-1.5">
+        {regs.map((g) => {
+          const stars = g.banks.reduce((a, b) => a + ((r.cats && r.cats[b.id]) || 0), 0);
+          return (
+            <div key={g.name} style={{ border: `1px solid ${g.th.body}66`, background: "var(--paper)" }}>
+              <button onClick={() => setOpen(open === g.name ? null : g.name)} className="w-full jp flex items-center gap-2 px-2 py-1.5 text-left" style={{ background: "transparent", border: "none", cursor: "pointer" }}>
+                <MaterialIcon id={g.th.mat || "m-meikyu"} size={20} />
+                <span className="flex-1 text-sm" style={{ fontWeight: 800, color: g.th.dark }}>{g.name}</span>
+                <span className="text-[11px]" style={{ color: "var(--gold)" }}>★{stars}/{g.banks.length * 5}</span>
+                <span className="text-[10px]" style={{ color: "var(--ink-mute)" }}>{open === g.name ? "▲" : "▼"}</span>
+              </button>
+              {open === g.name && (
+                <div className="px-2 pb-2 space-y-1">
+                  {g.banks.map((b) => {
+                    const got = (r.cats && r.cats[b.id]) || 0;
+                    const c = catCounts(b);
+                    const tier = CAT_TIERS[got];
+                    const ready = tier && c.n > 0 && tier.test(c);
+                    const [v, max] = tier ? tier.prog(c) : [c.n, c.n];
+                    return (
+                      <div key={b.id} className="jp px-2 py-1.5" style={{ background: ready ? "var(--cream)" : "var(--paper)", border: `1px solid ${ready ? "var(--gold)" : "var(--rule-soft)"}` }}>
+                        <div className="flex items-center gap-2">
+                          <span className="flex-1 text-xs truncate" style={{ color: "var(--ink)", fontWeight: 700 }}>{b.name}</span>
+                          <span className="text-xs" style={{ letterSpacing: 1 }}><span style={{ color: "#d6b56a" }}>{"★".repeat(got)}</span><span style={{ color: "var(--rule-soft)" }}>{"★".repeat(5 - got)}</span></span>
+                        </div>
+                        {tier ? (
+                          <div className="flex items-center gap-2 mt-1">
+                            <span className="text-[10px]" style={{ color: "var(--ink-soft)", whiteSpace: "nowrap" }}>★{got + 1} {tier.label}</span>
+                            <div className="flex-1" style={{ height: 5, borderRadius: 3, background: "var(--beige)", overflow: "hidden" }}><div style={{ width: `${max ? Math.min(100, (v / max) * 100) : 0}%`, height: "100%", background: g.th.body }} /></div>
+                            <span className="text-[10px]" style={{ color: "var(--ink-mute)" }}>{Math.min(v, max)}/{max}</span>
+                            {ready && <button onClick={() => { const m = actions.claimCat(b.id); if (m) { setMsg(m); SFX.play("forgeOk"); setTimeout(() => setMsg(""), 3000); } }} className="btn-primary text-[10px] px-2 py-0.5">受け取る</button>}
+                          </div>
+                        ) : <div className="text-[10px] mt-1" style={{ color: "var(--gold)", fontWeight: 700 }}>★5 達成！ 「{b.name}の達人」</div>}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </Box>
+  );
+}
+
+// 地域の守護者に挑む画面（地図で地域を選んだときに出す）
+function RegionDetail({ g, r, onGuardian }) {
+  const st = regionStatus(g, r);
+  const info = regionInfo(g.name);
+  return (
+    <div className="jp mt-2 p-2 text-xs" style={{ background: "var(--paper)", border: `1px solid ${g.th.body}`, animation: "sqFadeIn .25s ease-out" }}>
+      <div className="flex items-center gap-2">
+        <div className="flex-1" style={{ fontWeight: 800, color: g.th.dark }}>{g.name}</div>
+        <span className="text-[10px] px-2" style={{ borderRadius: 999, border: `1px solid ${st === "cleared" ? "var(--gold)" : "var(--rule-soft)"}`, color: st === "cleared" ? "var(--gold)" : "var(--ink-soft)" }}>{{ fog: "霧の中", explore: "探索中", ready: "守護者に挑める", cleared: "解放済み" }[st]}</span>
+      </div>
+      <div style={{ color: "var(--ink-soft)" }}>合格力 {pctTxt(g.power)} ・ 出会った問題 {g.seen}/{g.total} ・ 手強い魔物 {g.weak}体</div>
+      <div className="text-[10px]" style={{ color: "var(--ink-mute)" }}>問題集：{g.banks.map((b) => b.name).join("、")}</div>
+      <div className="flex items-center gap-2 mt-2">
+        <GameIcon ch={info.icon} id={info.boss} size={40} boss />
+        <div className="flex-1 min-w-0">
+          <div style={{ fontWeight: 700, color: "var(--brick)" }}>守護者：{info.guardian}</div>
+          <div className="text-[10px]" style={{ color: "var(--ink-soft)" }}>倒すと「{info.emblem.name}」（{fxText(info.emblem.fx)}）</div>
+        </div>
+        {st === "cleared" ? <span className="text-[11px]" style={{ color: "var(--gold)", fontWeight: 800 }}>撃破済み</span>
+          : <button disabled={st !== "ready"} onClick={() => onGuardian(g)} className="btn-danger text-[11px] px-2 py-1.5">{st === "ready" ? "挑む（15問）" : `合格力${Math.round(GUARDIAN_LINE * 100)}%で挑戦`}</button>}
+      </div>
+      {st === "fog" && <div className="text-[10px] mt-1" style={{ color: "var(--ink-mute)" }}>この地域は霧に包まれています。問題の2割に出会うと、霧が晴れます。</div>}
+    </div>
+  );
+}
+
+function WorldView({ state, actions, todayCount, onWeekly, onDungeon, onGuardian }) {
   const qual = mainQual(state);
   const linked = qual && state.questionBanks.some((b) => b.qualId === qual.id);
   const pp = passPower(state, linked ? qual.id : null);
+  const [sec, setSec] = useState("road"); // road（魔王城への道）| quest（クエスト）| castle（魔王城）
+  const tabs = [["road", "魔王城への道"], ["quest", "クエスト"], ["castle", "魔王城"]];
   return (
     <>
-      <FinalBoss state={state} qual={qual} pp={pp} />
-      <DailyQuests state={state} actions={actions} todayCount={todayCount} />
-      <WeeklyBossCard state={state} pp={pp} onStart={onWeekly} />
-      <DungeonCard state={state} pp={pp} onStart={onDungeon} />
-      <WorldMap pp={pp} />
-      <StoryPanel pp={pp} />
+      <div className="flex gap-1 p-1" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)", borderRadius: 999 }}>
+        {tabs.map(([id, label]) => (
+          <button key={id} onClick={() => setSec(id)} className="jp flex-1 py-1.5 text-xs" style={{ borderRadius: 999, border: "none", fontWeight: 700, cursor: "pointer", background: sec === id ? "linear-gradient(180deg, #cfae62, #a8833a)" : "transparent", color: sec === id ? "#fffdf6" : "var(--ink-soft)" }}>{label}</button>
+        ))}
+      </div>
+      {sec === "road" && (<>
+        <WorldMap pp={pp} r={normRpg(state.rpg)} onGuardian={onGuardian} />
+        <JourneyCard state={state} />
+        <StoryPanel pp={pp} onTalk={(i) => actions.openTalk({ title: STORY_CHAPTERS[i].title, lines: STORY_TALKS[i] || [] })} />
+      </>)}
+      {sec === "quest" && (<>
+        <DailyQuests state={state} actions={actions} todayCount={todayCount} />
+        <CategoryQuests state={state} pp={pp} actions={actions} />
+        <WeeklyBossCard state={state} pp={pp} onStart={onWeekly} />
+      </>)}
+      {sec === "castle" && (<>
+        <FinalBoss state={state} qual={qual} pp={pp} />
+        <CastleCard state={state} pp={pp} actions={actions} />
+        <DungeonCard state={state} pp={pp} onStart={onDungeon} />
+      </>)}
     </>
   );
 }
@@ -7535,7 +7909,7 @@ function AdventureTab({ state, actions, recordAnswer, startTimer, stopTimer, tod
   if (view === "skill") return <div className="space-y-4">{nav}{msgBox}<SkillPanel state={state} actions={actions} flash={flash} /></div>;
   if (view === "forge") return <div className="space-y-4">{nav}{msgBox}<ForgePanel state={state} actions={actions} /></div>;
   if (view === "dex") return <div className="space-y-4">{nav}<EvolutionRoad state={state} /><MonsterDex state={state} /></div>;
-  if (view === "world") return <div className="space-y-4">{nav}<WorldView state={state} actions={actions} todayCount={todayCount} onWeekly={(boss, pool) => { if (pool.length === 0) { flash("出題できる問題がありません"); return; } setBattle({ boss, pool }); }} onDungeon={(n, pool) => setDungeon({ pool, minutes: n })} /></div>;
+  if (view === "world") return <div className="space-y-4">{nav}<WorldView state={state} actions={actions} todayCount={todayCount} onWeekly={(boss, pool) => { if (pool.length === 0) { flash("出題できる問題がありません"); return; } setBattle({ boss, pool }); }} onDungeon={(n, pool) => setDungeon({ pool, minutes: n })} onGuardian={(g) => { const info = regionInfo(g.name); const pool = buildPoolFromBanks(g.banks, 15); if (pool.length === 0) { flash("出題できる問題がありません"); return; } setBattle({ boss: { id: info.boss, guardian: true, region: g.name, idx: 3, loop: 0, icon: info.icon, name: info.guardian, label: `${g.name}の守護者 ${info.guardian}`, hp: 200, atk: 20 }, pool }); }} /></div>;
 
   return (
     <div className="space-y-4">
@@ -7726,7 +8100,8 @@ function BossBattle({ state, boss, pool, actions, recordAnswer, startTimer, stop
     const gold = boss.weekly ? (won ? WEEKLY_REWARD.gold : 15) : won ? 60 + 40 * boss.idx + 30 * boss.loop : 10;
     const xp = boss.weekly ? (won ? WEEKLY_REWARD.xp : 0) : won ? 80 + 30 * boss.idx + 20 * boss.loop : 0;
     const itemId = won ? rollRpgItem(boss.weekly ? WEEKLY_REWARD.luck : 1 + boss.idx * 0.6 + boss.loop) : null;
-    if (boss.weekly) actions.weeklyFinish({ won, gold, xp, itemId }); // 週替わりボスはいつものボスの進み具合には数えない
+    if (boss.guardian) actions.guardianFinish({ won, region: boss.region, gold, xp, itemId }); // 地域の守護者：勝つと地域が解放される
+    else if (boss.weekly) actions.weeklyFinish({ won, gold, xp, itemId }); // 週替わりボスはいつものボスの進み具合には数えない
     else actions.bossFinish({ won, bossId: boss.id, loop: boss.loop, gold, xp, itemId });
     setResult({ won, fled, gold, xp, itemId });
   };
@@ -8314,6 +8689,14 @@ const MON_THEMES = [
   { re: /書式|作図|記述/, prefix: "書式", mat: "m-shoshiki", region: "書式の迷宮", body: "#e3908a", dark: "#9a4d47", light: "#f8e0dd" },
 ];
 const MON_THEME_DEFAULT = { prefix: "迷宮の", mat: "m-meikyu", region: "未踏の地", body: "#a7afc2", dark: "#5b6b8c", light: "#e6e9f0" };
+// 科目（地域）の判定：問題集が入っているフォルダの名前＋問題集の名前で決める（フォルダ＝科目、問題集＝カテゴリ）
+const BANK_FOLDER = new Map(); // 問題集の名前 → フォルダの名前（StudyRPG が描画のたびに更新）
+function syncFolderIndex(state) {
+  BANK_FOLDER.clear();
+  const fm = new Map((state.folders || []).map((f) => [f.id, f.name]));
+  (state.questionBanks || []).forEach((b) => { if (b.folderId && fm.has(b.folderId)) BANK_FOLDER.set(b.name, fm.get(b.folderId)); });
+}
+const themeOf = (bankName) => { const t = `${BANK_FOLDER.get(bankName) || ""} ${bankName || ""}`; return MON_THEMES.find((x) => x.re.test(t)) || MON_THEME_DEFAULT; };
 const MON_UNKNOWN = { body: "#3d4258", dark: "#1f2233", light: "#5d6380", eye: "#f2c14e" };
 const EYE = "#22335c";
 const monEyes = (c, y = 58, gap = 10, r = 4) => (<>
@@ -8372,7 +8755,7 @@ const MONSTER_SPECIES = [
   </>) },
 ];
 function monsterFor(q, bankName) {
-  const th = MON_THEMES.find((t) => t.re.test(bankName || "")) || MON_THEME_DEFAULT;
+  const th = themeOf(bankName);
   const sp = MONSTER_SPECIES[hashStr(String(q.id)) % MONSTER_SPECIES.length];
   const seen = (q.correct || 0) + (q.wrong || 0) > 0 || !!q.sr_nextReview;
   const rank = !seen ? "unknown" : isQuestionWeak(q) ? "elite" : "normal";

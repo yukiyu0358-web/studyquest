@@ -88,6 +88,7 @@ state の主なキー：`player` / `qualifications` / `tasks` / `studyLog` / `fo
 - モンスター図鑑：`MonsterDex` `dexStatus`（0未発見 1発見 2討伐 3制覇＝fs.s≥21）
 - 世界と物語（冒険の「世界」タブ）：合格力 `passPower`（FSRSの想起率の平均・未学習は0。`PASS_LINE` 0.85／`BASE_LINE` 0.75）`mainQual` `FinalBoss` `WorldMap`（`MON_THEMES.region`）`STORY_CHAPTERS` `StoryPanel`（章が開くと `showEvolution`）。デイリークエスト `DAILY_QUESTS` `DailyQuests` `dailyOf`（rpg.daily に日ごとの記録。BattleStage の `emitReward` の stat で数える）`claimQuest` `claimChest`
 - 週替わりボス：`weeklyBossFor`（合格力が最も低い地域）`WeeklyBossCard` `buildPoolFromBanks`、BossBattle の `boss.weekly` で `weeklyFinish`（rpg.weekly）。模試の塔：`DungeonCard` `DungeonRun` `dungeonFinish`（rpg.dungeon.best）
+- 魔王城への道（世界タブを「魔王城への道／クエスト／魔王城」に分割）：科目の判定は `themeOf`（フォルダ名＋問題集名。`syncFolderIndex` で対応表を更新）。地域の守護者 `REGION_INFO` `regionStatus`（霧・探索中・挑戦可・解放）`guardianFinish`（rpg.regions、紋章の効果は getRpgBonuses）。会話 `STORY_TALKS` `REGION_TALK` `StoryTalk`（`showEvolution` の afterTalk で続けて出す）。魔王城 `CASTLE_FLOORS` `CastleCard` `castleClimb`（rpg.castle.floor）。旅路 `journeyEvent` `JourneyCard`（rpg.journey、戦利品の記録で進む）。カテゴリ討伐 `CAT_TIERS` `CategoryQuests` `claimCat`（rpg.cats）
 - テーマ：`DISPLAY_DEFAULTS`（既定は white）`THEME_PAL`（classic/white の配色）`CLASSIC_CSS` `WHITE_CSS` `ClassicThemeStyle` `TitleScreen` `ClassicInfoBar` `MenuHome`（クラシック）`SignpostHome`（白金・道しるべ）`migrateDisplay`
 
 ## テーマの仕組み

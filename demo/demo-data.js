@@ -36,8 +36,9 @@ function makeQuestions(prefix, offset) {
 }
 
 export const DEMO_BANKS = [
-  { id: "bank-r6", name: "不動産登記法 過去問", year: "R6", qualId: "q-chousashi", order: 0, clears: 2, clearHistory: [{ date: ymd(day(-30)), accuracy: 62 }, { date: ymd(day(-10)), accuracy: 75 }], questions: makeQuestions("r6", 0) },
-  { id: "bank-r5", name: "民法 過去問", year: "R5", qualId: "q-chousashi", order: 1, clears: 1, clearHistory: [{ date: ymd(day(-20)), accuracy: 58 }], questions: makeQuestions("r5", 3) },
+  { id: "bank-r6", name: "土地に関する登記", year: "", folderId: "f1", qualId: "q-chousashi", order: 0, clears: 2, clearHistory: [{ date: ymd(day(-30)), accuracy: 62 }, { date: ymd(day(-10)), accuracy: 75 }], questions: makeQuestions("r6", 0) },
+  { id: "bank-bld", name: "建物に関する登記", year: "", folderId: "f1", qualId: "q-chousashi", order: 1, clears: 0, clearHistory: [], questions: makeQuestions("bd", 4).map((q, i) => (i < 9 ? { ...q, ah: [], sr_nextReview: undefined, sr_interval: undefined, correct: 0, wrong: 0 } : q)) },
+  { id: "bank-r5", name: "総則・物権", year: "", folderId: "f2", qualId: "q-chousashi", order: 2, clears: 1, clearHistory: [{ date: ymd(day(-20)), accuracy: 58 }], questions: makeQuestions("r5", 3) },
   { id: "bank-sokuryo", name: "測量士 午前 R6", year: "R6", qualId: "q-sokuryo", order: 0, clears: 0, clearHistory: [], questions: makeQuestions("sk", 1).slice(0, 6) },
 ];
 
@@ -51,7 +52,7 @@ export const DEMO_STATE = {
   taskPresets: [], taskClears: {},
   studyLog: [-6, -5, -4, -2, -1, 0].map((o, i) => ({ id: `l${i}`, date: ymd(day(o)), qualId: "q-chousashi", minutes: 40 + i * 12, source: "timer" })),
   questionBanks: [],
-  folders: [{ id: "f1", name: "不動産登記法" }],
+  folders: [{ id: "f1", name: "不動産登記法" }, { id: "f2", name: "民法" }],
   studyNotes: [{ id: "n1", folderId: "f1", title: "申請期限のまとめ", content: "表題登記・変更登記：1月以内\n滅失の登記：1月以内", createdAt: ymd(day(-3)), updatedAt: ymd(day(-1)) }],
   sessionResume: null,
   timer: { qualId: null, startMs: null, autoMode: null },
@@ -63,5 +64,7 @@ export const DEMO_STATE = {
     consumables: { potion: 3, xpBook: 1, restTicket: 2 },
     materials: { "m-chiban": 14, "m-keiyaku": 6, "m-zahyo": 3, "m-star": 2, "m-sage": 1 },
     skills: ["a1", "b1"],
+    journey: { pos: 6, acc: 7, lap: 0, log: [] },
+    dungeon: { best: { 20: 0.8 } },
   },
 };
