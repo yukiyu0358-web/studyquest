@@ -33,10 +33,14 @@ const LINE_ICONS = {
   "🚪": <><path d="M14 4H6v16h8M10 12h11M18 9l3 3-3 3" /></>,
   "🔍": <><circle cx="11" cy="11" r="7" /><path d="M21 21l-4.6-4.6" /></>,
   "🏰": <><path d="M3 21V9h3v2h3V9h6v2h3V9h3v12z" /><path d="M10 21v-4a2 2 0 0 1 4 0v4M9 9V5l3-2.5L15 5v4" /></>,
+  "📤": <><path d="M7 18a4.5 4.5 0 0 1-.6-9A6 6 0 0 1 18 8a4 4 0 0 1-.5 8" /><path d="M12 20v-8M9 15l3-3 3 3" /></>,
+  "📥": <><path d="M7 16a4.5 4.5 0 0 1-.6-9A6 6 0 0 1 18 6a4 4 0 0 1-.5 8" /><path d="M12 11v9M9 17l3 3 3-3" /></>,
+  "📦": <><path d="M3 8l9-5 9 5v8l-9 5-9-5z" /><path d="M3 8l9 5 9-5M12 13v8" /></>,
+  "📂": <><path d="M3 7a2 2 0 0 1 2-2h4l2 2h7a2 2 0 0 1 2 2v1" /><path d="M3 19l2.5-8h16L19 19z" /></>,
 };
 function Ico({ ch, size = 16 }) {
   const line = LINE_ICONS[ch];
-  const emoji = (<span className={line ? "ico-emoji" : undefined} style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: size, height: size, fontSize: size * 0.9, lineHeight: 1, fontFamily: '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif' }}>{ch}</span>);
+  const emoji = (<span className={line ? "ico-emoji sq-emo" : "sq-emo"} style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: size, height: size, fontSize: size * 0.9, lineHeight: 1, fontFamily: '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif' }}>{ch}</span>);
   if (!line) return emoji;
   return (<>{emoji}<svg className="ico-line" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{line}</svg></>);
 }
@@ -141,7 +145,7 @@ const GAME_RING = { N: "#a9b1c2", R: "#4f7fb8", SR: "#b08a3e" };
 function GameIcon({ ch, id, rarity, size = 28, boss = false }) {
   const gid = useId();
   const art = (id && GAME_ART_BY_ID[id]) || GAME_ART[ch];
-  const emoji = <span className={art ? "ico-emoji" : undefined} style={{ fontSize: size * 0.8, lineHeight: 1 }}>{ch}</span>;
+  const emoji = <span className={art ? "ico-emoji sq-emo" : "sq-emo"} style={{ fontSize: size * 0.8, lineHeight: 1 }}>{ch}</span>;
   if (!art) return emoji;
   const ring = rarity === "SSR" ? `url(#${gid})` : boss ? "#a24a45" : GAME_RING[rarity] || "#c9b07a";
   return (<>{emoji}
@@ -257,11 +261,11 @@ html[data-theme="classic"] ::placeholder{color:#7f8aa6}
 `;
 const WHITE_CSS = `
 html[data-theme="white"]{--ink:#22335c;--ink-soft:#4a5a7c;--ink-mute:#7a8aa8;--paper:#fdfbf5;--cream:#f6f0e2;--beige:#ece4d0;--greige:#d9cfb5;--rule:#b08a3e;--rule-soft:#d8c9a3;--gold:#b08a3e;--gold-light:#d6b56a;--sage:#4f8a72;--brick:#a24a45;--slate:#3d5a8c;--sky:#d4b878;--sky-light:#efe6cf;--sky-pale:#f8f3e6;--sky-deep:#2f4570;--mint:#7fb8a4;--plum:#7c6aa6;--hl:rgba(214,181,106,0.4);--memo-bg:#fbf3dc;background:#f6f2e8;color-scheme:light}
-html[data-theme="white"] body{background:transparent !important;color:var(--ink);font-family:'Zen Kaku Gothic New','Hiragino Kaku Gothic ProN',sans-serif}
+html[data-theme="white"] body{background:transparent !important;color:var(--ink);font-family:'Zen Kaku Gothic New','Noto Emoji','Hiragino Kaku Gothic ProN',sans-serif}
 html[data-theme="white"] body::before{content:"";position:fixed;left:-48px;top:-48px;right:-48px;bottom:-48px;z-index:-2;background:#f6f2e8 url("${WHITE_TITLE_URL}") center 30%/cover no-repeat;filter:blur(24px) brightness(1.08) saturate(.8)}
 html[data-theme="white"] body::after{content:"";position:fixed;left:0;top:0;right:0;bottom:0;z-index:-1;background:rgba(250,247,238,.62)}
-html[data-theme="white"] .jp{font-family:'Zen Kaku Gothic New','Hiragino Kaku Gothic ProN',sans-serif}
-html[data-theme="white"] .pixel{font-family:'Shippori Mincho B1','Hiragino Mincho ProN',serif;font-weight:800;letter-spacing:.02em}
+html[data-theme="white"] .jp{font-family:'Zen Kaku Gothic New','Noto Emoji','Hiragino Kaku Gothic ProN',sans-serif}
+html[data-theme="white"] .pixel{font-family:'Shippori Mincho B1','Noto Emoji','Hiragino Mincho ProN',serif;font-weight:800;letter-spacing:.02em}
 html[data-theme="white"] .rpg-box{background:rgba(253,251,245,.93);border:1px solid #b08a3e;border-radius:4px;box-shadow:inset 0 0 0 3px #fdfbf5,inset 0 0 0 4px rgba(176,138,62,.45),0 8px 22px rgba(40,50,80,.12)}
 html[data-theme="white"] .rpg-box h2.jp{font-family:'Shippori Mincho B1','Hiragino Mincho ProN',serif;font-weight:800;letter-spacing:.08em}
 html[data-theme="white"] .rpg-inner-border{border:none;padding:14px}
@@ -279,6 +283,14 @@ html[data-theme="white"] .swirl{display:none}
 html[data-theme="white"] .boot{color:#4a5a7c}
 html[data-theme="white"] ::placeholder{color:#9aa4b8}
 html[data-theme="white"] .ico-emoji{display:none !important}
+html[data-theme="white"] .sq-emo{font-family:'Noto Emoji',sans-serif !important}
+html[data-theme="white"] .sq-stat{border-color:rgba(176,138,62,.45) !important;border-radius:8px;box-shadow:inset 0 0 0 2px #fdfbf5,inset 0 0 0 3px rgba(176,138,62,.18)}
+html[data-theme="white"] .rpg-inner-border span[style*="background:"]{border-radius:4px}
+html[data-theme="white"] .sq-tool{background:rgba(253,251,245,.92) !important;border:1px solid rgba(176,138,62,.55) !important;color:#22335c !important;border-radius:999px;padding:3px 10px !important;display:inline-flex;align-items:center;gap:4px;font-weight:700;transition:background .15s}
+html[data-theme="white"] .sq-tool:hover{background:#f6ead0 !important}
+html[data-theme="white"] .sq-tool.on{background:linear-gradient(180deg,#cfae62,#a8833a) !important;color:#fffdf6 !important;border-color:#8f6f2c !important}
+html[data-theme="white"] .sq-tool .ico-line{color:#b08a3e}
+html[data-theme="white"] .sq-tool.on .ico-line{color:#fffdf6}
 html[data-theme="white"] .ico-line{display:inline-block;vertical-align:-0.15em;flex-shrink:0}
 html[data-theme="white"] .box-ico{color:#b08a3e !important}
 html[data-theme="white"] .rpg-inner-border [style*="border: 1px solid"],html[data-theme="white"] .rpg-inner-border [style*="border: 2px solid"]{border-radius:6px}
@@ -289,7 +301,7 @@ html[data-theme="white"] .rpg-box{border-radius:8px}
 @keyframes sqFadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
 @keyframes sqTwinkleT{0%,100%{opacity:0;transform:scale(.5)}50%{opacity:.9;transform:scale(1)}}
 `;
-const CLASSIC_FONTS = "https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@400;700;800&family=Cinzel:wght@700;900&family=Shippori+Mincho+B1:wght@500;700;800&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap";
+const CLASSIC_FONTS = "https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@400;700;800&family=Cinzel:wght@700;900&family=Shippori+Mincho+B1:wght@500;700;800&family=Zen+Kaku+Gothic+New:wght@400;500;700&family=Noto+Emoji:wght@500;700&display=swap";
 
 // テーマの適用（html要素に data-theme を付け、フォントとCSSを読み込む）
 function ClassicThemeStyle({ active, theme }) {
@@ -2430,16 +2442,16 @@ function StudyRPG({ user }) {
               {syncStatus === "offline" && "オフライン"}
               {syncStatus === "error" && (cloudLoadFailed.current ? "読込失敗・保存停止中（再読込してください）" : "同期エラー")}
             </span>
-            <button onClick={forcePush} title="このデータをクラウドに強制保存" className="ml-1 px-1.5 py-0.5 text-[10px] whitespace-nowrap" style={{ background: "var(--gold)", border: "none", color: "var(--paper)", cursor: "pointer" }}>📤 保存</button>
-            <button onClick={forceSync} title="クラウドから強制再読み込み" className="px-1.5 py-0.5 text-[10px] whitespace-nowrap" style={{ background: "var(--sky-pale)", border: "1px solid var(--sky-deep)", color: "var(--sky-deep)", cursor: "pointer" }}>📥 読込</button>
-            <button onClick={exportJson} title="データをJSONファイルに書き出し（端末間移行用）" className="px-1.5 py-0.5 text-[10px] whitespace-nowrap" style={{ background: "var(--sage)", border: "none", color: "var(--paper)", cursor: "pointer" }}>📦 書出</button>
-            <button onClick={importJson} title="JSONファイルからデータを読み込み" className="px-1.5 py-0.5 text-[10px] whitespace-nowrap" style={{ background: "var(--ink-soft)", border: "none", color: "var(--paper)", cursor: "pointer" }}>📂 読込</button>
-            <button onClick={() => setShowDisplaySettings(!showDisplaySettings)} title="問題文のフォント・文字サイズ" className="px-1.5 py-0.5 text-[10px] whitespace-nowrap" style={{ background: showDisplaySettings ? "var(--sky-deep)" : "var(--paper)", border: "1px solid var(--sky-deep)", color: showDisplaySettings ? "var(--paper)" : "var(--sky-deep)", cursor: "pointer" }}>Aa 文字</button>
-            <button onClick={() => setShowLawSearch(!showLawSearch)} title="条文・キーワード検索" className="px-1.5 py-0.5 text-[10px] whitespace-nowrap" style={{ background: showLawSearch ? "var(--gold)" : "var(--paper)", border: "1px solid var(--gold)", color: showLawSearch ? "var(--paper)" : "var(--gold)", cursor: "pointer" }}>📜 条文</button>
+            <button onClick={forcePush} title="このデータをクラウドに強制保存" className="sq-tool ml-1 px-1.5 py-0.5 text-[10px] whitespace-nowrap" style={{ background: "var(--gold)", border: "none", color: "var(--paper)", cursor: "pointer" }}><Ico ch="📤" size={12} /> 保存</button>
+            <button onClick={forceSync} title="クラウドから強制再読み込み" className="sq-tool px-1.5 py-0.5 text-[10px] whitespace-nowrap" style={{ background: "var(--sky-pale)", border: "1px solid var(--sky-deep)", color: "var(--sky-deep)", cursor: "pointer" }}><Ico ch="📥" size={12} /> 読込</button>
+            <button onClick={exportJson} title="データをJSONファイルに書き出し（端末間移行用）" className="sq-tool px-1.5 py-0.5 text-[10px] whitespace-nowrap" style={{ background: "var(--sage)", border: "none", color: "var(--paper)", cursor: "pointer" }}><Ico ch="📦" size={12} /> 書出</button>
+            <button onClick={importJson} title="JSONファイルからデータを読み込み" className="sq-tool px-1.5 py-0.5 text-[10px] whitespace-nowrap" style={{ background: "var(--ink-soft)", border: "none", color: "var(--paper)", cursor: "pointer" }}><Ico ch="📂" size={12} /> 読込</button>
+            <button onClick={() => setShowDisplaySettings(!showDisplaySettings)} title="問題文のフォント・文字サイズ" className={`sq-tool${showDisplaySettings ? " on" : ""} px-1.5 py-0.5 text-[10px] whitespace-nowrap`} style={{ background: showDisplaySettings ? "var(--sky-deep)" : "var(--paper)", border: "1px solid var(--sky-deep)", color: showDisplaySettings ? "var(--paper)" : "var(--sky-deep)", cursor: "pointer" }}>Aa 文字</button>
+            <button onClick={() => setShowLawSearch(!showLawSearch)} title="条文・キーワード検索" className={`sq-tool${showLawSearch ? " on" : ""} px-1.5 py-0.5 text-[10px] whitespace-nowrap`} style={{ background: showLawSearch ? "var(--gold)" : "var(--paper)", border: "1px solid var(--gold)", color: showLawSearch ? "var(--paper)" : "var(--gold)", cursor: "pointer" }}><Ico ch="📜" size={12} /> 条文</button>
           </div>
           <div className="flex items-center gap-2">
             <span className="truncate max-w-[140px] md:max-w-[240px]">{user.email}</span>
-            <button onClick={logout} className="jp btn-ghost px-2 py-1 text-[10px] whitespace-nowrap">
+            <button onClick={logout} className="jp btn-ghost sq-tool px-2 py-1 text-[10px] whitespace-nowrap">
               <LogoutIcon size={10} /> ログアウト
             </button>
           </div>
@@ -6728,7 +6740,7 @@ const RPG_ACHIEVEMENTS = [
 ];
 
 const RpgRarityTag = ({ rarity }) => (
-  <span className="pixel text-[9px] px-1" style={{ background: RARITY[rarity].color, color: "var(--paper)" }}>{rarity}</span>
+  <span className="pixel text-[9px] px-1" style={{ background: RARITY[rarity].color, color: "var(--paper)", borderRadius: 3 }}>{rarity}</span>
 );
 
 // ── スキル（星の書）：3つの道を上から順に覚える ──
@@ -7172,7 +7184,7 @@ function FinalBoss({ state, qual, pp }) {
             <div style={{ width: `${gauge}%`, height: "100%", borderRadius: 6, background: "linear-gradient(90deg, #6fb8b4, #d6b56a)", transition: "width .6s" }} />
             {[[BASE_LINE, "基準点"], [PASS_LINE, "合格"]].map(([v, l]) => (
               <div key={l} style={{ position: "absolute", left: `${v * 100}%`, top: -3, bottom: -3, width: 2, background: v === PASS_LINE ? "#f2c14e" : "#c9b5f0" }}>
-                <span className="text-[9px]" style={{ position: "absolute", top: 16, left: -14, whiteSpace: "nowrap", color: v === PASS_LINE ? "#f2c14e" : "#c9b5f0" }}>{l}{Math.round(v * 100)}%</span>
+                <span className="text-[9px]" style={{ position: "absolute", top: 16, ...(v === PASS_LINE ? { left: 3 } : { right: 3 }), whiteSpace: "nowrap", color: v === PASS_LINE ? "#f2c14e" : "#c9b5f0" }}>{l}{Math.round(v * 100)}%</span>
               </div>
             ))}
           </div>
@@ -9372,7 +9384,7 @@ function Box({ title, icon, children }) {
 
 function Stat({ label, value, accent }) {
   return (
-    <div className="p-2 text-center" style={{ background: "var(--paper)", border: `1px solid ${accent}` }}>
+    <div className="sq-stat p-2 text-center" style={{ background: "var(--paper)", border: `1px solid ${accent}` }}>
       <div className="jp text-[10px]" style={{ color: "var(--ink-soft)" }}>{label}</div>
       <div className="jp text-base md:text-lg" style={{ color: accent }}>{value}</div>
     </div>
