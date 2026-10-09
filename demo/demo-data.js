@@ -21,8 +21,8 @@ const QA = [
   ["共用部分である旨の登記は、所有者以外の者も申請できる。", "×　所有者が申請する（不登法58条2項）。"],
 ];
 
-function makeQuestions(prefix, offset) {
-  return QA.map(([q, a], i) => {
+function makeQuestions(prefix, offset, count = QA.length) {
+  return Array.from({ length: count }, (_, i) => QA[i % QA.length]).map(([q, a], i) => {
     const k = (i + offset) % 6;
     const ah = k === 0 ? [] : [`${code(day(-7))}${k % 2 ? "s" : "w"}`, `${code(day(-2))}${k % 3 ? "s" : "u"}`, ...(i % 4 === 0 ? [`${code(day(0))}s`] : [])];
     return {
@@ -36,8 +36,8 @@ function makeQuestions(prefix, offset) {
 }
 
 export const DEMO_BANKS = [
-  { id: "bank-r6", name: "土地に関する登記", year: "", folderId: "f1", qualId: "q-chousashi", order: 0, clears: 2, clearHistory: [{ date: ymd(day(-30)), accuracy: 62 }, { date: ymd(day(-10)), accuracy: 75 }], questions: makeQuestions("r6", 0) },
-  { id: "bank-bld", name: "建物に関する登記", year: "", folderId: "f1", qualId: "q-chousashi", order: 1, clears: 0, clearHistory: [], questions: makeQuestions("bd", 4).map((q, i) => (i < 9 ? { ...q, ah: [], sr_nextReview: undefined, sr_interval: undefined, correct: 0, wrong: 0 } : q)) },
+  { id: "bank-r6", name: "土地に関する登記", year: "", folderId: "f1", qualId: "q-chousashi", order: 0, clears: 2, clearHistory: [{ date: ymd(day(-30)), accuracy: 62 }, { date: ymd(day(-10)), accuracy: 75 }], questions: makeQuestions("r6", 0, 45) },
+  { id: "bank-bld", name: "建物に関する登記", year: "", folderId: "f1", qualId: "q-chousashi", order: 1, clears: 0, clearHistory: [], questions: makeQuestions("bd", 4, 24).map((q, i) => (i < 9 ? { ...q, ah: [], sr_nextReview: undefined, sr_interval: undefined, correct: 0, wrong: 0 } : q)) },
   { id: "bank-r5", name: "総則・物権", year: "", folderId: "f2", qualId: "q-chousashi", order: 2, clears: 1, clearHistory: [{ date: ymd(day(-20)), accuracy: 58 }], questions: makeQuestions("r5", 3) },
   { id: "bank-sokuryo", name: "測量士 午前 R6", year: "R6", qualId: "q-sokuryo", order: 0, clears: 0, clearHistory: [], questions: makeQuestions("sk", 1).slice(0, 6) },
 ];

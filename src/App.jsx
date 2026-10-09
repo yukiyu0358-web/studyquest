@@ -1814,6 +1814,40 @@ function StudyRPG({ user }) {
       return `${b.name} ★${got + 1} 達成！ 報酬：${rewardText({ ...rw, frag: rw.frag })}`;
     },
     openTalk: (t) => setTalk(t),
+    // ストーリークエスト（1話）の結果：★の記録、初クリアの報酬、地域の地図の完成
+    storyQuestFinish: ({ key, acc, n, mat, region, regionKeys }) => {
+      const r = normRpg(stateRef.current.rpg);
+      const prev = r.sq[key] || {};
+      const prevStars = prev.stars || 0;
+      const stars = sqStarsOf(acc);
+      const first = prevStars < 1 && stars >= 1;
+      const better = stars > prevStars && !first;
+      let gold = 0, frag = 0, star = 0;
+      if (first) { gold += 40 + n * 2; frag += 2; }
+      if (stars >= 2 && prevStars < 2) gold += 40;
+      if (stars >= 3 && prevStars < 3) star += 1;
+      const wasDone = regionKeys.length > 0 && regionKeys.every((k) => ((r.sq[k] && r.sq[k].stars) || 0) >= 1);
+      const nowDone = regionKeys.length > 0 && regionKeys.every((k) => (k === key ? Math.max(prevStars, stars) : ((r.sq[k] && r.sq[k].stars) || 0)) >= 1);
+      const complete = !wasDone && nowDone;
+      if (complete) gold += 300;
+      const fid = mat || "m-meikyu";
+      updateRpg((x) => {
+        const p = x.sq[key] || {};
+        return {
+          ...x, gold: x.gold + gold, goldEarned: x.goldEarned + gold,
+          materials: { ...x.materials, [fid]: (x.materials[fid] || 0) + frag, "m-star": (x.materials["m-star"] || 0) + star, "m-sage": (x.materials["m-sage"] || 0) + (complete ? 1 : 0) },
+          sq: { ...x.sq, [key]: { stars: Math.max(p.stars || 0, stars), best: Math.max(p.best || 0, Math.round(acc * 1000) / 1000), clears: (p.clears || 0) + (stars >= 1 ? 1 : 0), at: todayStr() } },
+        };
+      });
+      if (first) setTimeout(() => awardXp(30), 200);
+      if (complete) {
+        setTimeout(() => showEvolution({ big: "地図完成", from: null, to: `${region}の地図`, sub: `すべての話をクリアしました！ 300G・賢者の結晶×1`, stage: heroStage(stateRef.current.player.level),
+          afterTalk: { title: `${region}　地図完成`, lines: [["hero", "見てください、この地域の地図が、すべて描きあがりました！"], ["hero", "一話ずつ進んできた道のりが、そのまま知識の地図になっているんです。"], ["pet", "（相棒が、地図の上をうれしそうに歩き回っている）"], ["hero", "描いた土地は、★を集め直して、もっと確かなものにしていきましょうね。"]] } }), 1200);
+        awardAchievement({ id: `map-${region}`, title: `${region}の地図製作者`, job: "地図製作者", icon: "🗺️", color: "#b08a3e", source: "rpg", description: `${region}のストーリーをすべてクリアした証。`, earnedAt: new Date().toISOString() });
+      }
+      const parts = [gold && `${gold}G`, frag && `${(matById(fid) || {}).name}×${frag}`, star && `星霊石×${star}`, complete && "賢者の結晶×1"].filter(Boolean);
+      return { first, better, msg: parts.length ? `報酬：${parts.join("・")}${first ? "・EXP30" : ""}` : "" };
+    },
   };
 
   // 物語：合格力が上がって新しい章が開いたら、全画面で知らせる
@@ -2585,6 +2619,7 @@ function StudyRPG({ user }) {
         <div className="mb-4">
           {tab === "home" && classic && <MenuHome state={state} todayCount={getTodayReviewItems().length} onCommand={homeCommand} />}
           {tab === "home" && isWhite && <SignpostHome state={state} todayCount={getTodayReviewItems().length} onCommand={homeCommand} />}
+          {tab === "home" && <div className="mb-4"><StoryContinueCard state={state} onGo={() => setTab("adventure")} /></div>}
           {tab === "home" && <div className="mb-4"><DailyQuests state={state} actions={rpgActions} todayCount={getTodayReviewItems().length} compact /></div>}
           {tab === "home" && <HomeTab state={state} liveSeconds={liveSeconds} setMainTitle={setMainTitle} setTab={setTab} todayCount={getTodayReviewItems().length} hideBanner={fancy} />}
           {tab === "today" && <TodayTab state={state} recordSRAnswer={recordSRAnswer} updateSrSettings={updateSrSettings} startTimer={startTimer} stopTimer={stopTimer} toggleQuestionMark={toggleQuestionMark} />}
@@ -6741,7 +6776,7 @@ const RPG_DEFAULTS = {
   equipped: { weapon: null, armor: null, accessory: null }, bossWins: 0, bossLosses: 0, bossLog: [],
   boosts: { xpUntil: null }, restDays: [], crits: 0,
   classId: null, pet: null, seen: { stars: 0, pet: 0 },
-  materials: {}, skills: [], forgeLog: { ok: 0, ng: 0 }, daily: null, storySeen: -1, weekly: null, dungeon: null, regions: {}, castle: { floor: 0 }, cats: {}, journey: { pos: 0, acc: 0, lap: 0, log: [] },
+  materials: {}, skills: [], forgeLog: { ok: 0, ng: 0 }, daily: null, storySeen: -1, weekly: null, dungeon: null, regions: {}, castle: { floor: 0 }, cats: {}, journey: { pos: 0, acc: 0, lap: 0, log: [] }, sq: {},
 };
 function normRpg(r) {
   const x = { ...RPG_DEFAULTS, ...(r || {}) };
@@ -6759,6 +6794,7 @@ function normRpg(r) {
   x.regions = { ...(x.regions || {}) };
   x.castle = { floor: 0, ...(x.castle || {}) };
   x.cats = { ...(x.cats || {}) };
+  x.sq = { ...(x.sq || {}) };
   x.journey = { pos: 0, acc: 0, lap: 0, log: [], ...(x.journey || {}) };
   return x;
 }
@@ -7828,12 +7864,311 @@ function RegionDetail({ g, r, onGuardian }) {
   );
 }
 
-function WorldView({ state, actions, todayCount, onWeekly, onDungeon, onGuardian }) {
+// ============ ストーリークエスト：論点ごとの10〜20問を1話として、順に進めて地図を描いていく ============
+// 章＝地域（科目のフォルダ）、節＝問題集（カテゴリ）、話＝問題集を出題順に10〜20問ずつ区切ったもの。
+// 1話をクリアするたびに次の話が開き、地図に六角形の土地が1枚描かれる。進み具合は rpg.sq[`${問題集id}:${話の番号}`]
+const SQ_TARGET = 15;
+const SQ_CLEAR = 0.7; // クリア（★1）の正答率
+const sqStarsOf = (acc) => (acc >= 0.999 ? 3 : acc >= PASS_LINE ? 2 : acc >= SQ_CLEAR ? 1 : 0);
+function chunkBank(b) {
+  const qs = b.questions || [];
+  const n = qs.length;
+  if (!n) return [];
+  const k = Math.max(1, Math.round(n / SQ_TARGET));
+  const size = Math.ceil(n / k);
+  const out = [];
+  for (let i = 0; i < n; i += size) out.push(qs.slice(i, i + size));
+  return out;
+}
+const sqCache = new WeakMap();
+function regionQuests(g) {
+  const out = [];
+  g.banks.forEach((b) => {
+    let ch = sqCache.get(b.questions || b);
+    if (!ch) { ch = chunkBank(b); sqCache.set(b.questions || b, ch); }
+    ch.forEach((qs, idx) => out.push({ key: `${b.id}:${idx}`, bank: b, idx, count: ch.length, qs }));
+  });
+  return out;
+}
+const sqStars = (r, key) => ((r.sq && r.sq[key] && r.sq[key].stars) || 0);
+const sqOpen = (r, q) => q.idx === 0 || sqStars(r, `${q.bank.id}:${q.idx - 1}`) >= 1;
+// その話でいちばん多く出てくる条文（論点の名前に使う）
+function questTopic(q) {
+  const cnt = new Map();
+  q.qs.forEach((x) => extractLawRefs([`${x.q || ""} ${x.a || ""}`]).forEach((ref) => { const k = `${ref.law}:${ref.art}`; const c = cnt.get(k) || { ref, n: 0 }; c.n++; cnt.set(k, c); }));
+  let best = null;
+  cnt.forEach((c) => { if (!best || c.n > best.n) best = c; });
+  return best ? best.ref : null;
+}
+function questTitle(q, laws) {
+  const ref = questTopic(q);
+  if (!ref) return `${q.bank.name} 第${q.idx + 1}話`;
+  const law = laws[ref.law];
+  const art = law && law.articles ? law.articles.find((a) => a.n === ref.art) : null;
+  const cap = art && art.c ? art.c.replace(/^（|）$/g, "") : null;
+  const artLabel = `${LAW_BY_KEY[ref.law].short}${ref.art.includes("_") ? ref.art.replace("_", "条の") : `${ref.art}条`}`;
+  return cap ? `${cap}（${artLabel}）` : `${artLabel}をめぐる戦い`;
+}
+// 六角形の地図：中心（地域の町）から渦を巻くように並べる
+function hexSpiral(n) {
+  const dirs = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
+  const out = [[0, 0]];
+  for (let ring = 1; out.length < n + 1; ring++) {
+    let q = -ring, r = ring; // 方向4（左下）に ring 歩
+    for (let side = 0; side < 6 && out.length < n + 1; side++) {
+      for (let j = 0; j < ring && out.length < n + 1; j++) { out.push([q, r]); q += dirs[side][0]; r += dirs[side][1]; }
+    }
+  }
+  return out;
+}
+const SQ_BIOMES = [["草原", "#b5d69a"], ["森", "#7fae6a"], ["丘", "#d6c48e"], ["湖畔", "#9cc7df"], ["荒野", "#dcc29a"], ["雪原", "#e9f0f6"], ["花畑", "#ecc3cf"]];
+const SQ_MARKS = ["🏠", "🌲", "⛰", "🌉", "🗼", "⛲", "🏯", "⛪", "🌾", "🗿", "🏛", "🌋"];
+
+function StoryQuestView({ state, pp, onStart }) {
+  const r = normRpg(state.rpg);
+  const regs = [...pp.regions].filter((g) => g.total > 0).sort((a, b) => REGION_ORDER.indexOf(a.name) - REGION_ORDER.indexOf(b.name));
+  const [regName, setRegName] = useState(() => {
+    const firstOpen = regs.find((g) => regionQuests(g).some((q) => sqStars(r, q.key) < 1));
+    return (firstOpen || regs[0] || {}).name;
+  });
+  const g = regs.find((x) => x.name === regName) || regs[0];
+  const [sel, setSel] = useState(null);
+  const [laws, setLaws] = useState({});
+  const quests = g ? regionQuests(g) : [];
+  // 論点の名前に使う条文データを読み込む（必要な法令だけ）
+  useEffect(() => {
+    let alive = true;
+    const keys = new Set();
+    quests.forEach((q) => { const t = questTopic(q); if (t) keys.add(t.law); });
+    keys.forEach((k) => { if (!(k in laws)) loadLaw(k).then((d) => { if (alive) setLaws((prev) => ({ ...prev, [k]: d })); }); });
+    return () => { alive = false; };
+  }, [g && g.name]);
+  if (!g) return <Box title="ストーリー" icon={<BookOpen size={18} />}><p className="jp text-sm" style={{ color: "var(--ink-mute)" }}>問題集をフォルダ（科目）に入れると、ストーリーが始まります。</p></Box>;
+  const cleared = quests.filter((q) => sqStars(r, q.key) >= 1).length;
+  const nextQ = quests.find((q) => sqStars(r, q.key) < 1 && sqOpen(r, q));
+  const pos = hexSpiral(quests.length);
+  const R = 17, W3 = Math.sqrt(3);
+  const px = ([q, rr]) => [R * W3 * (q + rr / 2), R * 1.5 * rr];
+  const pts = pos.map(px);
+  const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]);
+  // 地図の表示範囲（土地が少ないうちも六角形が大きくなりすぎないよう、最低限の広さを確保）
+  const spanW = Math.max(Math.max(...xs) - Math.min(...xs) + R * 2.4, R * W3 * 11), spanH = Math.max(Math.max(...ys) - Math.min(...ys) + R * 2.6, R * 1.5 * 7);
+  const cx0 = (Math.max(...xs) + Math.min(...xs)) / 2, cy0 = (Math.max(...ys) + Math.min(...ys)) / 2;
+  const vb = [cx0 - spanW / 2, cy0 - spanH / 2, spanW, spanH];
+  const hex = (cx, cy, rr = R) => Array.from({ length: 6 }, (_, k) => { const a = Math.PI / 180 * (60 * k - 30); return `${cx + rr * Math.cos(a)},${cy + rr * Math.sin(a)}`; }).join(" ");
+  const bankIdx = new Map(g.banks.map((b, i) => [b.id, i]));
+  const sq = sel ? quests.find((q) => q.key === sel) : null;
+  const regKeys = quests.map((q) => q.key);
+  return (
+    <>
+      <style>{BATTLE_CSS}</style>
+      <Box title="ストーリー" icon={<BookOpen size={18} />}>
+        {/* 章（地域）を選ぶ */}
+        <div className="flex gap-1.5 overflow-x-auto pb-1 mb-2">
+          {regs.map((x) => {
+            const qs = regionQuests(x);
+            const c = qs.filter((q) => sqStars(r, q.key) >= 1).length;
+            const on = x.name === g.name;
+            return (
+              <button key={x.name} onClick={() => { setRegName(x.name); setSel(null); }} className="jp flex-shrink-0 px-2.5 py-1 text-[11px]" style={{ borderRadius: 999, border: `1px solid ${on ? x.th.dark : "var(--rule-soft)"}`, background: on ? x.th.light : "var(--paper)", color: on ? x.th.dark : "var(--ink-soft)", fontWeight: 700, cursor: "pointer" }}>
+                {x.name} <span style={{ opacity: 0.8 }}>{qs.length ? Math.round((c / qs.length) * 100) : 0}%</span>
+              </button>
+            );
+          })}
+        </div>
+        <div className="jp flex items-baseline justify-between mb-1">
+          <span style={{ fontFamily: "'Shippori Mincho B1', serif", fontWeight: 800, fontSize: 17, color: g.th.dark }}>{g.name}の地図</span>
+          <span className="text-[11px]" style={{ color: "var(--ink-soft)" }}>描いた土地 {cleared} / {quests.length}</span>
+        </div>
+        {/* 六角形の地図 */}
+        <svg viewBox={vb.join(" ")} width="100%" style={{ display: "block", maxWidth: 560, maxHeight: 420, margin: "0 auto", borderRadius: 8, background: "radial-gradient(ellipse at 50% 45%, #f8f1de 0%, #ecdfbd 75%, #dcc89c 100%)", border: "1px solid #b08a3e" }}>
+          {/* 中心の町 */}
+          <polygon points={hex(pts[0][0], pts[0][1])} fill="#fdfbf5" stroke="#b08a3e" strokeWidth="1.5" />
+          <text x={pts[0][0]} y={pts[0][1] + 5} textAnchor="middle" fontSize="15" style={{ fontFamily: "'Noto Emoji', sans-serif", fontWeight: 500 }} fill="#22335c">🏰</text>
+          {quests.map((q, i) => {
+            const [x, y] = pts[i + 1];
+            const st = sqStars(r, q.key);
+            const open = sqOpen(r, q);
+            if (st < 1 && !open) return null; // まだ見えない土地
+            const biome = SQ_BIOMES[(bankIdx.get(q.bank.id) || 0) % SQ_BIOMES.length];
+            const mark = SQ_MARKS[hashStr(q.key) % SQ_MARKS.length];
+            const isSel = sel === q.key;
+            return (
+              <g key={q.key} onClick={() => setSel(isSel ? null : q.key)} style={{ cursor: "pointer" }}>
+                {st >= 1 ? (<>
+                  <polygon points={hex(x, y)} fill={biome[1]} stroke={isSel ? "#b08a3e" : "rgba(34,51,92,0.35)"} strokeWidth={isSel ? 2.5 : 1} />
+                  <text x={x} y={y + 4} textAnchor="middle" fontSize="12" style={{ fontFamily: "'Noto Emoji', sans-serif", fontWeight: 500 }} fill="rgba(34,51,92,0.85)">{mark}</text>
+                  <text x={x} y={y + 13} textAnchor="middle" fontSize="6" fill="#b08a3e">{"★".repeat(st)}</text>
+                </>) : (<>
+                  <polygon points={hex(x, y)} fill="rgba(233,228,214,0.95)" stroke="#b08a3e" strokeWidth={isSel ? 2.5 : 1.2} strokeDasharray="3 2">
+                    <animate attributeName="opacity" values="1;.6;1" dur="1.8s" repeatCount="indefinite" />
+                  </polygon>
+                  <text x={x} y={y + 5} textAnchor="middle" fontSize="14" fontWeight="800" fill="#a24a45">!</text>
+                </>)}
+              </g>
+            );
+          })}
+        </svg>
+        <p className="jp text-[10px] mt-1 text-center" style={{ color: "var(--ink-mute)" }}>点線の「！」が、いま挑めるクエストです。クリアするたびに土地が描かれ、次のクエストが現れます。</p>
+        {/* 選んだクエスト／つづきから */}
+        {(sq || nextQ) && (() => {
+          const q = sq || nextQ;
+          const st = sqStars(r, q.key);
+          const open = sqOpen(r, q);
+          const rec = (r.sq && r.sq[q.key]) || {};
+          return (
+            <div className="jp mt-3 p-3" style={{ background: "var(--sky-pale)", border: "1px solid var(--gold)", animation: "sqFadeIn .25s ease-out" }}>
+              <div className="text-[10px]" style={{ color: "var(--ink-mute)" }}>{sq ? "選んだクエスト" : "つづきから"} ・ {q.bank.name} ・ 第{q.idx + 1}話 / 全{q.count}話</div>
+              <div style={{ fontFamily: "'Shippori Mincho B1', serif", fontWeight: 800, fontSize: 17, color: "var(--ink)" }}>{questTitle(q, laws)}</div>
+              <div className="text-[11px]" style={{ color: "var(--ink-soft)" }}>{q.qs.length}問 ・ 最後に「論点の主」が待ち構えています{st ? ` ・ 最高 ${Math.round((rec.best || 0) * 100)}% ${"★".repeat(st)}` : ""}</div>
+              <div className="text-[10px]" style={{ color: "var(--gold)" }}>クリア（{Math.round(SQ_CLEAR * 100)}%）★1・{Math.round(PASS_LINE * 100)}%で★2・全問正解で★3</div>
+              <button disabled={!open} onClick={() => onStart({ quest: q, title: questTitle(q, laws), region: g.name, mat: g.th.mat, regionKeys: regKeys })} className="jp btn-primary w-full py-2.5 mt-2 text-base">{open ? (st ? "もう一度挑む" : "出発する") : "前の話をクリアすると開きます"}</button>
+            </div>
+          );
+        })()}
+        {!nextQ && cleared === quests.length && <p className="jp text-sm text-center mt-3" style={{ color: "var(--gold)", fontWeight: 800 }}>この地域の地図は完成しています！ ★を集め直すこともできます。</p>}
+      </Box>
+      {/* 節（問題集）ごとの進み具合 */}
+      <Box title={`${g.name}の節`} icon={<ScrollIcon size={18} />}>
+        <div className="space-y-1">
+          {g.banks.map((b, bi) => {
+            const qs = quests.filter((q) => q.bank.id === b.id);
+            const c = qs.filter((q) => sqStars(r, q.key) >= 1).length;
+            const stars = qs.reduce((a, q) => a + sqStars(r, q.key), 0);
+            const nq = qs.find((q) => sqStars(r, q.key) < 1);
+            return (
+              <button key={b.id} onClick={() => nq && setSel(nq.key)} className="w-full text-left jp flex items-center gap-2 px-2 py-1.5" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)", cursor: nq ? "pointer" : "default" }}>
+                <span style={{ width: 14, height: 14, borderRadius: 3, flexShrink: 0, background: SQ_BIOMES[bi % SQ_BIOMES.length][1], border: "1px solid rgba(34,51,92,0.3)" }} />
+                <span className="flex-1 min-w-0 text-xs truncate" style={{ color: "var(--ink)", fontWeight: 700 }}>{b.name}</span>
+                <span className="text-[10px]" style={{ color: "var(--ink-soft)" }}>{c}/{qs.length}話</span>
+                <span className="text-[10px]" style={{ color: "#d6b56a" }}>★{stars}</span>
+              </button>
+            );
+          })}
+        </div>
+      </Box>
+    </>
+  );
+}
+
+// ホームに出す「ストーリーのつづき」（押すと冒険の世界タブへ）
+function StoryContinueCard({ state, onGo }) {
+  const r = normRpg(state.rpg);
+  const qual = mainQual(state);
+  const linked = qual && state.questionBanks.some((b) => b.qualId === qual.id);
+  const regs = passPower(state, linked ? qual.id : null).regions.filter((g) => g.total > 0).sort((a, b) => REGION_ORDER.indexOf(a.name) - REGION_ORDER.indexOf(b.name));
+  let next = null, reg = null, done = 0, all = 0;
+  regs.forEach((g) => { const qs = regionQuests(g); all += qs.length; done += qs.filter((q) => sqStars(r, q.key) >= 1).length; if (!next) { const n = qs.find((q) => sqStars(r, q.key) < 1 && sqOpen(r, q)); if (n) { next = n; reg = g; } } });
+  if (!all) return null;
+  return (
+    <button onClick={onGo} className="rpg-box w-full text-left px-4 py-3 jp flex items-center gap-3" style={{ cursor: "pointer" }}>
+      <span style={{ width: 40, height: 40, flexShrink: 0, borderRadius: "50%", display: "inline-flex", alignItems: "center", justifyContent: "center", background: "var(--cream)", border: "1px solid var(--gold)", color: "var(--gold)" }}><BookOpen size={20} /></span>
+      <span className="flex-1 min-w-0">
+        <span className="block text-[10px]" style={{ color: "var(--ink-mute)" }}>ストーリーのつづき ・ 描いた土地 {done}/{all}</span>
+        <span className="block text-sm truncate" style={{ color: "var(--ink)", fontWeight: 800 }}>{next ? `${reg.name}：${next.bank.name} 第${next.idx + 1}話` : "すべての地図が完成しています！"}</span>
+      </span>
+      <span className="text-xs" style={{ color: "var(--gold)", fontWeight: 800 }}>進む ▶</span>
+    </button>
+  );
+}
+
+// ストーリークエストの戦い（1話）。最後の1問は「論点の主」
+function QuestRun({ state, run, actions, recordAnswer, startTimer, stopTimer, onExit, onNext }) {
+  const pool = run.quest.qs.filter((q) => !q.excluded);
+  const [battleKey] = useState(() => uid());
+  const [laws, setLaws] = useState({});
+  useEffect(() => { const t = questTopic(run.quest); if (t) loadLaw(t.law).then((d) => setLaws((p) => ({ ...p, [t.law]: d }))); }, []);
+  const title = questTitle(run.quest, laws);
+  const [idx, setIdx] = useState(0);
+  const [showAnswer, setShowAnswer] = useState(false);
+  const [res, setRes] = useState([]);
+  const [done, setDone] = useState(null);
+  const timerStartedByMe = useRef(false);
+  const finished = useRef(false);
+  useEffect(() => {
+    if (!state.timer.startMs) { startTimer(run.quest.bank.qualId || null, "qa"); timerStartedByMe.current = true; }
+    return () => { if (timerStartedByMe.current) { stopTimer(); timerStartedByMe.current = false; } };
+  }, []);
+  const finish = (list) => {
+    if (finished.current) return;
+    finished.current = true;
+    if (timerStartedByMe.current) { stopTimer(); timerStartedByMe.current = false; }
+    const acc = pool.length ? list.filter((x) => x).length / pool.length : 1;
+    const out = actions.storyQuestFinish({ key: run.quest.key, acc, n: pool.length, mat: run.mat, region: run.region, regionKeys: run.regionKeys });
+    setDone({ acc, stars: sqStarsOf(acc), ...out });
+  };
+  useEffect(() => { if (pool.length === 0) finish([]); }, []);
+  const bank = state.questionBanks.find((b) => b.id === run.quest.bank.id) || run.quest.bank;
+  const cur = pool[idx];
+  const q = cur ? (bank.questions || []).find((x) => x.id === cur.id) || cur : null;
+  const answer = (correct, meta) => {
+    if (!q || done) return;
+    recordAnswer(bank.id, q.id, correct, meta);
+    const list = [...res, correct];
+    setRes(list);
+    setShowAnswer(false);
+    if (idx + 1 >= pool.length) finish(list); else setIdx(idx + 1);
+  };
+  if (done) {
+    const ok = done.stars >= 1;
+    return (
+      <Box title={ok ? "クエストクリア！" : "撤退……"} icon={<Award size={18} />}>
+        <BattleResult state={state} battleKey={battleKey} />
+        <div className="jp text-center py-2">
+          <div className="text-[11px]" style={{ color: "var(--ink-mute)" }}>{bank.name} ・ 第{run.quest.idx + 1}話</div>
+          <div style={{ fontFamily: "'Shippori Mincho B1', serif", fontWeight: 800, fontSize: 17, color: "var(--ink)" }}>{title}</div>
+          <div style={{ fontSize: 34, fontWeight: 800, color: ok ? "var(--gold)" : "var(--brick)", fontFamily: "'Cinzel', serif" }}>{Math.round(done.acc * 100)}%</div>
+          <div style={{ fontSize: 24, letterSpacing: 4, color: "#d6b56a" }}>{"★".repeat(done.stars)}<span style={{ color: "var(--rule-soft)" }}>{"★".repeat(3 - done.stars)}</span></div>
+          <div className="text-sm mt-1" style={{ fontWeight: 700, color: ok ? "var(--ink)" : "var(--brick)" }}>{ok ? (done.first ? "地図に新しい土地が描かれた！ 次の話が開きました。" : done.better ? "★の記録を更新しました！" : "クリアしました。") : `正答率${Math.round(SQ_CLEAR * 100)}%でクリアです。手強い魔物を復習して、もう一度挑みましょう。`}</div>
+          {done.msg && <div className="text-xs mt-1" style={{ color: "var(--gold)", fontWeight: 700 }}>{done.msg}</div>}
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <button onClick={onExit} className="jp btn-ghost py-2">地図に戻る</button>
+          {ok ? <button onClick={onNext} className="jp btn-primary py-2">次の話へ進む</button>
+            : <button onClick={() => onNext(run.quest.key)} className="jp btn-primary py-2">もう一度挑む</button>}
+        </div>
+      </Box>
+    );
+  }
+  if (!q) return null;
+  const isBoss = idx === pool.length - 1 && pool.length > 1;
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between jp text-xs">
+        <button onClick={() => { if (confirm("このクエストから撤退しますか？（クエストの記録は残りませんが、解いた問題の復習記録は残ります）")) onExit(); }} className="flex items-center gap-1" style={{ color: "var(--ink-soft)" }}><XIcon size={14} /> 撤退</button>
+        <span style={{ color: "var(--ink-soft)", fontWeight: 700 }}>第{run.quest.idx + 1}話 ・ {idx + 1}/{pool.length}</span>
+      </div>
+      <div className="jp text-center" style={{ fontFamily: "'Shippori Mincho B1', serif", fontWeight: 800, color: "var(--ink)" }}>{title}</div>
+      <div className="flex gap-1">{pool.map((_, i) => <span key={i} style={{ flex: 1, height: 5, borderRadius: 3, background: i < res.length ? (res[i] ? "#d6b56a" : "#e0948a") : i === idx ? "var(--sky-deep)" : "var(--beige)" }} />)}</div>
+      {isBoss && <div className="jp text-center text-sm" style={{ color: "var(--brick)", fontWeight: 800, animation: "sqFadeIn .4s ease-out" }}>― 論点の主があらわれた！ ―</div>}
+      <BattleStage state={state} q={q} bankName={bank.name} battleKey={battleKey} boss={isBoss} />
+      <div className="rpg-box p-1">
+        <div className="rpg-inner-border min-h-[180px] flex flex-col">
+          <div className="qtext jp text-base md:text-lg flex-1 break-words" style={{ color: "var(--ink)" }}>{renderFormattedText(q.q, q.q_formats)}</div>
+          <QuestionImages bankId={bank.id} question={q} side="q" />
+          {showAnswer ? (
+            <>
+              <div className="jp text-[10px] mt-3 mb-1" style={{ color: "var(--gold)" }}>答え</div>
+              <div className="qtext jp text-base md:text-lg break-words p-2" style={{ background: "var(--sky-pale)", border: "1px solid var(--gold)", color: "var(--ink)" }}>{renderFormattedText(q.a, q.a_formats)}</div>
+              <QuestionImages bankId={bank.id} question={q} side="a" />
+              <LawRefChips q={q} />
+              <AnswerPanel onAnswer={answer} question={q} srSettings={state.srSettings} />
+            </>
+          ) : (
+            <button onClick={() => setShowAnswer(true)} className="jp btn-info mt-3 py-2 flex items-center justify-center gap-1"><Eye size={16} /> 答えを見る</button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function WorldView({ state, actions, todayCount, onWeekly, onDungeon, onGuardian, onStory }) {
   const qual = mainQual(state);
   const linked = qual && state.questionBanks.some((b) => b.qualId === qual.id);
   const pp = passPower(state, linked ? qual.id : null);
-  const [sec, setSec] = useState("road"); // road（魔王城への道）| quest（クエスト）| castle（魔王城）
-  const tabs = [["road", "魔王城への道"], ["quest", "クエスト"], ["castle", "魔王城"]];
+  const [sec, setSec] = useState("story"); // story（ストーリー）| road（魔王城への道）| quest（クエスト）| castle（魔王城）
+  const tabs = [["story", "ストーリー"], ["road", "魔王城への道"], ["quest", "クエスト"], ["castle", "魔王城"]];
   return (
     <>
       <div className="flex gap-1 p-1" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)", borderRadius: 999 }}>
@@ -7841,6 +8176,7 @@ function WorldView({ state, actions, todayCount, onWeekly, onDungeon, onGuardian
           <button key={id} onClick={() => setSec(id)} className="jp flex-1 py-1.5 text-xs" style={{ borderRadius: 999, border: "none", fontWeight: 700, cursor: "pointer", background: sec === id ? "linear-gradient(180deg, #cfae62, #a8833a)" : "transparent", color: sec === id ? "#fffdf6" : "var(--ink-soft)" }}>{label}</button>
         ))}
       </div>
+      {sec === "story" && <StoryQuestView state={state} pp={pp} onStart={onStory} />}
       {sec === "road" && (<>
         <WorldMap pp={pp} r={normRpg(state.rpg)} onGuardian={onGuardian} />
         <JourneyCard state={state} />
@@ -7867,11 +8203,27 @@ function AdventureTab({ state, actions, recordAnswer, startTimer, stopTimer, tod
   const boss = getNextBoss(r);
   const [battle, setBattle] = useState(null);       // { boss, pool }
   const [dungeon, setDungeon] = useState(null);     // { pool, minutes }（模試の塔）
+  const [storyRun, setStoryRun] = useState(null);   // { quest, title, region, mat, regionKeys }（ストーリークエスト）
   const [slotOpen, setSlotOpen] = useState(null);   // 装備を選んでいるスロット
   const [qualId, setQualId] = useState("all");
   const [msg, setMsg] = useState("");
   const [view, setView] = useState("world"); // world（世界）| base（拠点・ボス）| skill | forge | dex
 
+  if (storyRun) {
+    // 次の話へ：同じ地域で、開いていてまだクリアしていない最初の話（retryKey があれば同じ話をもう一度）
+    const goNext = (retryKey) => {
+      const qual = mainQual(state);
+      const linked = qual && state.questionBanks.some((b) => b.qualId === qual.id);
+      const g = passPower(state, linked ? qual.id : null).regions.find((x) => x.name === storyRun.region);
+      const qs = g ? regionQuests(g) : [];
+      const rr = normRpg(state.rpg);
+      const nq = retryKey ? qs.find((q) => q.key === retryKey)
+        : (qs.find((q) => q.bank.id === storyRun.quest.bank.id && q.idx === storyRun.quest.idx + 1 && sqOpen(rr, q)) || qs.find((q) => sqStars(rr, q.key) < 1 && sqOpen(rr, q)));
+      if (!nq) { setStoryRun(null); setMsg("この地域の地図が完成しました！"); setTimeout(() => setMsg(""), 2500); return; }
+      setStoryRun({ ...storyRun, quest: nq, title: nq.key === storyRun.quest.key ? storyRun.title : `${nq.bank.name} 第${nq.idx + 1}話`, regionKeys: qs.map((q) => q.key) });
+    };
+    return <QuestRun key={storyRun.quest.key + (storyRun.n || 0)} state={state} run={storyRun} actions={actions} recordAnswer={recordAnswer} startTimer={startTimer} stopTimer={stopTimer} onExit={() => setStoryRun(null)} onNext={(retryKey) => { goNext(typeof retryKey === "string" ? retryKey : null); setStoryRun((s) => (s ? { ...s, n: (s.n || 0) + 1 } : s)); }} />;
+  }
   if (dungeon) {
     return <DungeonRun state={state} pool={dungeon.pool} minutes={dungeon.minutes} actions={actions} recordAnswer={recordAnswer} startTimer={startTimer} stopTimer={stopTimer} onExit={() => setDungeon(null)} />;
   }
@@ -7909,7 +8261,7 @@ function AdventureTab({ state, actions, recordAnswer, startTimer, stopTimer, tod
   if (view === "skill") return <div className="space-y-4">{nav}{msgBox}<SkillPanel state={state} actions={actions} flash={flash} /></div>;
   if (view === "forge") return <div className="space-y-4">{nav}{msgBox}<ForgePanel state={state} actions={actions} /></div>;
   if (view === "dex") return <div className="space-y-4">{nav}<EvolutionRoad state={state} /><MonsterDex state={state} /></div>;
-  if (view === "world") return <div className="space-y-4">{nav}<WorldView state={state} actions={actions} todayCount={todayCount} onWeekly={(boss, pool) => { if (pool.length === 0) { flash("出題できる問題がありません"); return; } setBattle({ boss, pool }); }} onDungeon={(n, pool) => setDungeon({ pool, minutes: n })} onGuardian={(g) => { const info = regionInfo(g.name); const pool = buildPoolFromBanks(g.banks, 15); if (pool.length === 0) { flash("出題できる問題がありません"); return; } setBattle({ boss: { id: info.boss, guardian: true, region: g.name, idx: 3, loop: 0, icon: info.icon, name: info.guardian, label: `${g.name}の守護者 ${info.guardian}`, hp: 200, atk: 20 }, pool }); }} /></div>;
+  if (view === "world") return <div className="space-y-4">{nav}<WorldView state={state} actions={actions} todayCount={todayCount} onWeekly={(boss, pool) => { if (pool.length === 0) { flash("出題できる問題がありません"); return; } setBattle({ boss, pool }); }} onDungeon={(n, pool) => setDungeon({ pool, minutes: n })} onStory={(run) => setStoryRun(run)} onGuardian={(g) => { const info = regionInfo(g.name); const pool = buildPoolFromBanks(g.banks, 15); if (pool.length === 0) { flash("出題できる問題がありません"); return; } setBattle({ boss: { id: info.boss, guardian: true, region: g.name, idx: 3, loop: 0, icon: info.icon, name: info.guardian, label: `${g.name}の守護者 ${info.guardian}`, hp: 200, atk: 20 }, pool }); }} /></div>;
 
   return (
     <div className="space-y-4">
@@ -8815,12 +9167,14 @@ function MonsterView({ m, anim, delay = 0, size = 92 }) {
 }
 
 // battleKey：1回の学習（セット）ごとに変わる値。変わったときだけ HP・コンボを最初からにする
-function BattleStage({ state, q, bankName, battleKey }) {
+function BattleStage({ state, q, bankName, battleKey, boss = false }) {
   if (BATTLE.key !== battleKey) { resetBattle(state); BATTLE.key = battleKey; }
   const ds = state.displaySettings || {};
   const theme = ds.theme || "white";
   const P = BATTLE_THEME[theme] || BATTLE_THEME.white;
-  const mon = q ? monsterFor(q, bankName) : null;
+  const mon0 = q ? monsterFor(q, bankName) : null;
+  // ストーリークエストの最後の1問は「論点の主」（手強い魔物の見た目）
+  const mon = mon0 && boss ? { ...mon0, rank: "elite", name: `論点の主・${mon0.name.replace("手強い", "")}` } : mon0;
   const monRef = useRef(mon); monRef.current = mon;
   const qRef = useRef(q); qRef.current = q;
   const stRef = useRef(state); stRef.current = state;
