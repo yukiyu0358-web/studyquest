@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, createContext, useContext, Fragment } from "react";
+import { useState, useEffect, useRef, useId, createContext, useContext, Fragment } from "react";
 import { createPortal } from "react-dom";
 import { fsrs as createFsrs, createEmptyCard, Rating, State } from "ts-fsrs";
 import Papa from "papaparse";
@@ -6,8 +6,39 @@ import { fbAuth, fbDb, fbFieldValue } from "./firebase";
 
 
 // ============ Icons ============
+// 白金テーマでは絵文字の代わりに細い線のアイコン（LINE_ICONS）を表示する（切り替えは CSS の .ico-emoji / .ico-line）
+const LINE_ICONS = {
+  "⚔️": <><path d="M14.5 17.5L3 6V3h3l11.5 11.5" /><path d="M13 19l6-6M16 16l4 4M19 21l2-2" /><path d="M14.5 6.5L18 3h3v3l-3.5 3.5" /><path d="M5 14l4 4M7 17l-3 3M3 19l2 2" /></>,
+  "🗑️": <><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6" /></>,
+  "✨": <><path d="M11 3l1.8 5.2L18 10l-5.2 1.8L11 17l-1.8-5.2L4 10l5.2-1.8z" /><path d="M19 14l.7 1.8 1.8.7-1.8.7L19 19l-.7-1.8-1.8-.7 1.8-.7z" /></>,
+  "📜": <><path d="M15 12h-5M15 8h-5M19 17V5a2 2 0 0 0-2-2H4" /><path d="M8 21h12a2 2 0 0 0 2-2v-1a1 1 0 0 0-1-1H11a1 1 0 0 0-1 1v1a2 2 0 1 1-4 0V5a2 2 0 1 0-4 0v2a1 1 0 0 0 1 1h3" /></>,
+  "⬆": <><path d="M12 16V4M7 9l5-5 5 5M5 20h14" /></>,
+  "⏸": <><path d="M9 5v14M15 5v14" /></>,
+  "📖": <><path d="M2 5h6a4 4 0 0 1 4 4v11a3 3 0 0 0-3-3H2z" /><path d="M22 5h-6a4 4 0 0 0-4 4v11a3 3 0 0 1 3-3h7z" /></>,
+  "📅": <><rect x="3" y="5" width="18" height="16" rx="2" /><path d="M16 3v4M8 3v4M3 10h18" /></>,
+  "🏠": <><path d="M3 11l9-8 9 8" /><path d="M5 9.5V21h5v-6h4v6h5V9.5" /></>,
+  "❓": <><circle cx="12" cy="12" r="9" /><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6v.6M12 17.2v.1" /></>,
+  "👁": <><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z" /><circle cx="12" cy="12" r="3" /></>,
+  "🔀": <><path d="M16 3h5v5M4 20L21 3M21 16v5h-5M15 15l6 6M4 4l5 5" /></>,
+  "🏆": <><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0z" /><path d="M17 6h3v1a3 3 0 0 1-3 3M7 6H4v1a3 3 0 0 0 3 3" /></>,
+  "⏱": <><circle cx="12" cy="13" r="8" /><path d="M12 9v4l2.5 2M10 2h4M12 2v3" /></>,
+  "📈": <><path d="M3 17l6-6 4 4 8-8M15 7h6v6" /></>,
+  "👑": <><path d="M3 7l4.5 5L12 5l4.5 7L21 7l-2 11H5z" /><path d="M5 21h14" /></>,
+  "🔖": <><path d="M6 3h12v18l-6-4-6 4z" /></>,
+  "⭐": <><path d="M12 3l2.8 5.8 6.2.8-4.5 4.4 1.1 6.2L12 17.3l-5.6 2.9 1.1-6.2L3 9.6l6.2-.8z" /></>,
+  "📁": <><path d="M3 6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /></>,
+  "💀": <><path d="M12 3a8 8 0 0 0-5 14.2V21h10v-3.8A8 8 0 0 0 12 3z" /><circle cx="9" cy="11" r="1.6" /><circle cx="15" cy="11" r="1.6" /><path d="M10.5 21v-2.5M13.5 21v-2.5" /></>,
+  "🗡": <><path d="M20 4v4l-9 9-4-4 9-9z" /><path d="M6 14l4 4M8 16l-4 4" /></>,
+  "📊": <><path d="M3 20h18M6 20v-8M11 20V5M16 20v-11" /></>,
+  "🚪": <><path d="M14 4H6v16h8M10 12h11M18 9l3 3-3 3" /></>,
+  "🔍": <><circle cx="11" cy="11" r="7" /><path d="M21 21l-4.6-4.6" /></>,
+  "🏰": <><path d="M3 21V9h3v2h3V9h6v2h3V9h3v12z" /><path d="M10 21v-4a2 2 0 0 1 4 0v4M9 9V5l3-2.5L15 5v4" /></>,
+};
 function Ico({ ch, size = 16 }) {
-  return (<span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: size, height: size, fontSize: size * 0.9, lineHeight: 1, fontFamily: '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif' }}>{ch}</span>);
+  const line = LINE_ICONS[ch];
+  const emoji = (<span className={line ? "ico-emoji" : undefined} style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: size, height: size, fontSize: size * 0.9, lineHeight: 1, fontFamily: '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif' }}>{ch}</span>);
+  if (!line) return emoji;
+  return (<>{emoji}<svg className="ico-line" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{line}</svg></>);
 }
 const Sword = (p) => <Ico ch="⚔️" {...p} />;
 const Plus = (p) => <Ico ch="＋" {...p} />;
@@ -41,6 +72,87 @@ const StatusIcon = (p) => <Ico ch="📊" {...p} />;
 const LogoutIcon = (p) => <Ico ch="🚪" {...p} />;
 const Search = (p) => <Ico ch="🔍" {...p} />;
 const Castle = (p) => <Ico ch="🏰" {...p} />;
+
+// ============ ゲームのアイコン（装備・道具・タスク・ボス） ============
+// 白金テーマでは、絵文字の代わりにメダル形の絵を表示する（切り替えは Ico と同じ CSS の .ico-emoji / .ico-line）
+// 絵は 48×48 の座標で描く。外枠の色はレア度（N 銀・R 青・SR 金・SSR 虹金）で変わる
+const GA = { navy: "#2f4570", ink: "#22335c", gold: "#b08a3e", goldL: "#d6b56a", goldP: "#f1dfae", ivory: "#fdfbf5", silver: "#d5dbe5", silverD: "#8a96b0", wood: "#8a5a32", woodL: "#b98552", red: "#b35a54", rose: "#e3908a", green: "#6f9a52", greenD: "#4f7a3a", orange: "#d9822b", flame: "#f2c14e", glass: "#e6f0fa", sky: "#9cc3e6" };
+const swordArt = (blade, guard, grip, pommel) => (<>
+  <path d="M33 11l2 2-15 15-2-2z" fill={blade} stroke={GA.ink} strokeWidth="1.2" strokeLinejoin="round" />
+  <path d="M16 24l8 8" stroke={guard} strokeWidth="2.8" strokeLinecap="round" />
+  <path d="M19 29l-5 5" stroke={grip} strokeWidth="2.8" strokeLinecap="round" />
+  <circle cx="13" cy="35" r="2" fill={GA.goldL} stroke={GA.gold} strokeWidth=".8" />
+</>);
+const crossedSwords = (blade, guard, grip) => (<>
+  {[["M12 12L28 28", "M24 31l7-7", "M30 30l5 5", 36], ["M36 12L20 28", "M17 24l7 7", "M18 30l-5 5", 12]].map(([b, g, h, px], i) => (
+    <g key={i}>
+      <path d={b} stroke={GA.ink} strokeWidth="4.6" strokeLinecap="round" /><path d={b} stroke={blade} strokeWidth="2.8" strokeLinecap="round" />
+      <path d={g} stroke={guard} strokeWidth="2.6" strokeLinecap="round" /><path d={h} stroke={grip} strokeWidth="2.6" strokeLinecap="round" />
+      <circle cx={px} cy="36" r="1.8" fill={GA.goldL} stroke={GA.gold} strokeWidth=".7" />
+    </g>
+  ))}
+</>);
+const oniArt = (horn) => (<>
+  <path d="M15 15l-3-6 6 3M33 15l3-6-6 3" fill={horn} stroke={GA.ink} strokeWidth="1.1" strokeLinejoin="round" />
+  <path d="M14 21c0-6 4-10 10-10s10 4 10 10v5c0 7-5 12-10 12s-10-5-10-12z" fill={GA.red} stroke={GA.ink} strokeWidth="1.3" />
+  <path d="M17.5 20.5l4.5 2M30.5 20.5l-4.5 2" stroke={GA.ink} strokeWidth="1.7" strokeLinecap="round" />
+  <circle cx="20" cy="24.5" r="1.7" fill={GA.goldP} /><circle cx="28" cy="24.5" r="1.7" fill={GA.goldP} />
+  <path d="M19 31h10" stroke={GA.ink} strokeWidth="1.4" strokeLinecap="round" /><path d="M21 31l1 2.4 1-2.4M25 31l1 2.4 1-2.4" fill={GA.ivory} stroke={GA.ivory} strokeWidth=".6" />
+</>);
+const GAME_ART = {
+  // 武器
+  "🪄": <><path d="M14 36L30 18" stroke={GA.wood} strokeWidth="3.4" strokeLinecap="round" /><path d="M15 34.5L29.5 18.5" stroke={GA.woodL} strokeWidth="1.1" strokeLinecap="round" /><path d="M32 8.5l1.7 3.7 4 .5-3 2.7.8 4-3.5-1.9-3.5 1.9.8-4-3-2.7 4-.5z" fill={GA.goldL} stroke={GA.gold} strokeWidth="1" strokeLinejoin="round" /><circle cx="37.5" cy="21" r="1" fill={GA.goldL} /><circle cx="25.5" cy="11" r=".9" fill={GA.goldL} /></>,
+  "🖋️": <><path d="M35 10c-9 1-16 8-18 18l-2 6 4-3c9-2 16-10 16-21z" fill={GA.ivory} stroke={GA.ink} strokeWidth="1.3" strokeLinejoin="round" /><path d="M34 11L18 32" stroke={GA.silverD} strokeWidth="1" /><path d="M29 14l3 3M25 18l4 3M21.5 23l3.5 2" stroke={GA.silverD} strokeWidth=".9" /><path d="M17.5 32l-3.5 6 6-3.5z" fill={GA.silverD} stroke={GA.ink} strokeWidth="1" strokeLinejoin="round" /></>,
+  "⛓️": <>{swordArt(GA.silver, GA.gold, GA.wood)}<g fill="none" stroke={GA.silverD} strokeWidth="1.4"><ellipse cx="22" cy="37" rx="2.6" ry="1.6" transform="rotate(-30 22 37)" /><ellipse cx="26.5" cy="34.6" rx="2.6" ry="1.6" transform="rotate(-30 26.5 34.6)" /><ellipse cx="31" cy="32.2" rx="2.6" ry="1.6" transform="rotate(-30 31 32.2)" /></g></>,
+  "🗡️": <><path d="M35 7v3M39 12h-3M38.5 8.5l-2 2" stroke={GA.goldL} strokeWidth="1.3" strokeLinecap="round" />{swordArt(GA.glass, GA.gold, GA.navy)}<path d="M33.5 12.5L19.5 26.5" stroke={GA.sky} strokeWidth="1" /><circle cx="20" cy="28" r="1.6" fill={GA.red} stroke={GA.ink} strokeWidth=".6" /></>,
+  "⚔️": crossedSwords(GA.silver, GA.gold, GA.navy),
+  // 防具
+  "🥋": <><path d="M18 12l6 3 6-3 7 6-3 4-3-2v17H17V20l-3 2-3-4z" fill={GA.ivory} stroke={GA.ink} strokeWidth="1.3" strokeLinejoin="round" /><path d="M18 12l6 10 6-10" fill="none" stroke={GA.navy} strokeWidth="1.3" strokeLinejoin="round" /><path d="M17 28h14" stroke={GA.gold} strokeWidth="2.2" /></>,
+  "🦺": <><path d="M17 12h4l3 6 3-6h4l4 6v19H13V18z" fill={GA.orange} stroke={GA.ink} strokeWidth="1.3" strokeLinejoin="round" /><path d="M24 18v19" stroke={GA.ink} strokeWidth=".9" /><path d="M13 27h22M13 31.5h22" stroke={GA.ivory} strokeWidth="1.8" /></>,
+  "🧥": <><path d="M18 11l6 4 6-4 6 5-2 22H14l-2-22z" fill={GA.navy} stroke={GA.ink} strokeWidth="1.3" strokeLinejoin="round" /><path d="M18 11l6 9 6-9" fill="none" stroke={GA.goldL} strokeWidth="1.4" strokeLinejoin="round" /><path d="M24 20v18" stroke={GA.ink} strokeWidth="1" /><circle cx="26" cy="25" r="1" fill={GA.goldL} /><circle cx="26" cy="30" r="1" fill={GA.goldL} /><circle cx="26" cy="35" r="1" fill={GA.goldL} /></>,
+  "🛡️": <><path d="M24 9l12 4v9c0 8-5 13-12 17-7-4-12-9-12-17v-9z" fill={GA.navy} stroke={GA.gold} strokeWidth="1.9" strokeLinejoin="round" /><path d="M24 13.5v21M15.5 21h17" stroke={GA.goldL} strokeWidth="1.7" strokeLinecap="round" /></>,
+  "🏯": <><path d="M24 16c-3-3-6-5.5-9.5-5.5 2 2 4 4.5 5 7.5M24 16c3-3 6-5.5 9.5-5.5-2 2-4 4.5-5 7.5" fill="none" stroke={GA.goldL} strokeWidth="2.2" strokeLinecap="round" /><path d="M13 29c0-8 5-13 11-13s11 5 11 13z" fill={GA.navy} stroke={GA.ink} strokeWidth="1.2" /><circle cx="24" cy="21" r="1.9" fill={GA.red} stroke={GA.gold} strokeWidth=".7" /><path d="M10 29h28l-3 7.5H13z" fill={GA.gold} stroke={GA.ink} strokeWidth="1.1" strokeLinejoin="round" /><path d="M12 32.5h24" stroke={GA.goldP} strokeWidth=".9" /></>,
+  // アクセサリー
+  "🧭": <><circle cx="24" cy="12" r="1.9" fill="none" stroke={GA.gold} strokeWidth="1.3" /><circle cx="24" cy="25" r="11" fill={GA.ivory} stroke={GA.gold} strokeWidth="2.2" /><path d="M24 15.5v2M24 32.5v2M14.5 25h2M31.5 25h2" stroke={GA.navy} strokeWidth="1.2" /><path d="M24 17l3 8h-6z" fill={GA.red} /><path d="M24 33l-3-8h6z" fill={GA.navy} /><circle cx="24" cy="25" r="1.3" fill={GA.goldL} /></>,
+  "👓": <><path d="M11.5 24l-2-3.5M36.5 24l2-3.5" stroke={GA.gold} strokeWidth="1.7" strokeLinecap="round" /><circle cx="17" cy="26" r="5.6" fill={GA.glass} stroke={GA.gold} strokeWidth="2.1" /><circle cx="31" cy="26" r="5.6" fill={GA.glass} stroke={GA.gold} strokeWidth="2.1" /><path d="M22.6 25c1-1.3 1.8-1.3 2.8 0" fill="none" stroke={GA.gold} strokeWidth="1.7" /><path d="M14.5 24.5l2-2M28.5 24.5l2-2" stroke={GA.ivory} strokeWidth="1.3" strokeLinecap="round" /></>,
+  "📐": <><path d="M34 11l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z" fill={GA.goldL} /><rect x="9" y="20" width="30" height="9.5" rx="2" fill={GA.goldL} stroke={GA.gold} strokeWidth="1.5" /><rect x="18.5" y="22.2" width="11" height="5" rx="2.5" fill="#dcefe2" stroke={GA.navy} strokeWidth="1" /><circle cx="24" cy="24.7" r="1.4" fill={GA.ivory} /><path d="M21.6 22.2v5M26.4 22.2v5" stroke={GA.navy} strokeWidth=".7" /><path d="M12 29.5v-3M15 29.5v-2M33 29.5v-2M36 29.5v-3" stroke={GA.gold} strokeWidth=".9" /></>,
+  "🗺️": <><path d="M24 10V5.5" stroke={GA.red} strokeWidth="1.5" strokeLinecap="round" /><path d="M16.5 10h15v25l-7.5 3.5-7.5-3.5z" fill={GA.ivory} stroke={GA.gold} strokeWidth="1.6" strokeLinejoin="round" /><path d="M19 15.5h10M19 20.5h10M19 25.5h10M22 12.5v18M26 12.5v18" stroke={GA.silverD} strokeWidth=".6" /><path d="M19 17l5 2.5 5-3M23 19.5l1 6.5 5 1" fill="none" stroke={GA.navy} strokeWidth="1.1" strokeLinejoin="round" /><circle cx="24" cy="31.5" r="2.4" fill={GA.red} /></>,
+  // 道具
+  "🧪": <><path d="M21 11h6v6c4 2 7 5 7 10a10 10 0 0 1-20 0c0-5 3-8 7-10z" fill={GA.glass} stroke={GA.ink} strokeWidth="1.3" strokeLinejoin="round" /><path d="M15 27h18a9 9 0 0 1-18 0z" fill={GA.rose} /><rect x="20.3" y="7.5" width="7.4" height="4.2" rx="1" fill={GA.woodL} stroke={GA.ink} strokeWidth="1" /><path d="M19 22.5c-1.2 1-1.7 2.2-1.8 3.6" fill="none" stroke={GA.ivory} strokeWidth="1.4" strokeLinecap="round" /><circle cx="27" cy="31" r="1" fill={GA.ivory} opacity=".8" /></>,
+  "📕": <><rect x="13" y="10" width="21" height="28" rx="2" fill={GA.red} stroke={GA.ink} strokeWidth="1.3" /><path d="M17.5 10v28" stroke="#8e423d" strokeWidth="2.2" /><path d="M34 13h1.5v25.5H16" fill="none" stroke={GA.goldP} strokeWidth="1.6" /><path d="M26 17l1.6 3.4 3.7.5-2.7 2.5.7 3.7-3.3-1.8-3.3 1.8.7-3.7-2.7-2.5 3.7-.5z" fill={GA.goldL} stroke={GA.gold} strokeWidth=".7" strokeLinejoin="round" /><path d="M21 31.5h10" stroke={GA.goldL} strokeWidth="1.2" /></>,
+  "🎫": <><path d="M9 17h30v4a3 3 0 0 0 0 6v4H9v-4a3 3 0 0 0 0-6z" fill={GA.goldP} stroke={GA.gold} strokeWidth="1.5" strokeLinejoin="round" /><path d="M31 18.5v11" stroke={GA.gold} strokeWidth="1" strokeDasharray="1.6 1.6" /><path d="M20.5 19a5.2 5.2 0 1 0 3.5 9.3 4.2 4.2 0 1 1-3.5-9.3z" fill={GA.navy} /><path d="M25.5 20.5l.5 1.2 1.2.5-1.2.5-.5 1.2-.5-1.2-1.2-.5 1.2-.5z" fill={GA.navy} /></>,
+  // タスクの難しさ
+  "🍃": <><path d="M12 35c0-13 9-21 24-22-1 15-9 23-22 22z" fill={GA.green} stroke={GA.greenD} strokeWidth="1.2" strokeLinejoin="round" /><path d="M13 36L32 16" stroke="#e9f2df" strokeWidth="1.3" strokeLinecap="round" /><path d="M20 28l-1-5M25 23l-1-5M23 29l5 1M28 24l4 1" stroke="#e9f2df" strokeWidth=".9" strokeLinecap="round" /></>,
+  "🔥": <><path d="M24 8c2 6 10 9 10 18a10 10 0 0 1-20 0c0-5 3-7 4-11 1 3 3 4 4 4-1-4 0-8 2-11z" fill={GA.orange} stroke="#a8541c" strokeWidth="1.1" strokeLinejoin="round" /><path d="M24 22c1 3 5 4 5 8a5 5 0 0 1-10 0c0-3 2-4 3-6 .5 1 1.5 2 2 2z" fill={GA.flame} /></>,
+  "👹": oniArt(GA.ivory),
+  // ボス
+  "🟢": <><path d="M10 33c0-9 7-19 14-23 7 4 14 14 14 23 0 3-3 5-6 5H16c-3 0-6-2-6-5z" fill="#86bd70" stroke={GA.greenD} strokeWidth="1.3" strokeLinejoin="round" /><path d="M16.5 25c1-4 3-7.5 5.5-9.5" fill="none" stroke={GA.ivory} strokeWidth="1.7" strokeLinecap="round" opacity=".85" /><circle cx="20" cy="28" r="1.7" fill={GA.ink} /><circle cx="28" cy="28" r="1.7" fill={GA.ink} /><path d="M22 32c1.2 1 2.8 1 4 0" fill="none" stroke={GA.ink} strokeWidth="1.2" strokeLinecap="round" /></>,
+  "👻": <><path d="M14 38V22a10 10 0 0 1 20 0v16l-3.3-3-3.4 3-3.3-3-3.3 3-3.4-3z" fill={GA.ivory} stroke={GA.silverD} strokeWidth="1.3" strokeLinejoin="round" /><ellipse cx="20" cy="23" rx="1.6" ry="2.3" fill={GA.ink} /><ellipse cx="28" cy="23" rx="1.6" ry="2.3" fill={GA.ink} /><ellipse cx="24" cy="29.5" rx="1.9" ry="2.4" fill={GA.ink} /></>,
+  "🗿": <><path d="M15 11h18l3 6v15l-4 6H16l-4-6V17z" fill="#a39d8f" stroke="#5f5a50" strokeWidth="1.3" strokeLinejoin="round" /><rect x="16.5" y="21" width="5.5" height="2.4" rx=".6" fill={GA.flame} /><rect x="26" y="21" width="5.5" height="2.4" rx=".6" fill={GA.flame} /><path d="M20 11l2 5-2 3M30.5 29l-3 3 1 4M15 17h4" fill="none" stroke="#5f5a50" strokeWidth=".9" /><path d="M19.5 31h9" stroke="#5f5a50" strokeWidth="1.5" strokeLinecap="round" /></>,
+  "🐉": <><path d="M31 18l5-8.5" stroke={GA.goldL} strokeWidth="2.2" strokeLinecap="round" /><path d="M37 14l-4.5 4c-6-1-12 2-15 7l-7.5 3 2 3.5h8.5c3 4 8.5 5 13 2.5l3-5-2-3 4-2.5-3-3z" fill="#4f8a72" stroke="#2e5a48" strokeWidth="1.2" strokeLinejoin="round" /><circle cx="29.5" cy="22" r="1.4" fill={GA.flame} /><path d="M13 30.5h4M24 27c2 1 5 1 7-1" fill="none" stroke="#2e5a48" strokeWidth="1" strokeLinecap="round" /><path d="M11 33.5l-3 2M12.5 35l-1.5 3" stroke={GA.orange} strokeWidth="1.3" strokeLinecap="round" /></>,
+  "🦹": <><path d="M24 8c-7 0-11 7-11 14v16h22V22c0-7-4-14-11-14z" fill="#3a3550" stroke="#22203a" strokeWidth="1.3" /><path d="M17.5 25a6.5 7 0 0 1 13 0v5h-13z" fill="#15131f" /><circle cx="21.5" cy="26" r="1.2" fill="#c9b5f0" /><circle cx="26.5" cy="26" r="1.2" fill="#c9b5f0" /><path d="M13 38l3-5M35 38l-3-5" stroke="#22203a" strokeWidth="1" /></>,
+};
+// 同じ絵文字でも絵を変えたいもの（id で指定）
+const GAME_ART_BY_ID = {
+  "w-divine": <><circle cx="24" cy="24" r="14" fill="none" stroke={GA.goldL} strokeWidth="1" strokeDasharray="2 2.2" />{crossedSwords(GA.goldP, GA.gold, GA.red)}</>,
+  maou: oniArt(GA.goldL),
+};
+const GAME_RING = { N: "#a9b1c2", R: "#4f7fb8", SR: "#b08a3e" };
+function GameIcon({ ch, id, rarity, size = 28, boss = false }) {
+  const gid = useId();
+  const art = (id && GAME_ART_BY_ID[id]) || GAME_ART[ch];
+  const emoji = <span className={art ? "ico-emoji" : undefined} style={{ fontSize: size * 0.8, lineHeight: 1 }}>{ch}</span>;
+  if (!art) return emoji;
+  const ring = rarity === "SSR" ? `url(#${gid})` : boss ? "#a24a45" : GAME_RING[rarity] || "#c9b07a";
+  return (<>{emoji}
+    <svg className="ico-line" width={size} height={size} viewBox="0 0 48 48" fill="none" aria-hidden="true">
+      {rarity === "SSR" && <defs><linearGradient id={gid} x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#e9cf8e" /><stop offset=".45" stopColor="#d98fa6" /><stop offset=".75" stopColor="#8c79c8" /><stop offset="1" stopColor="#d6b56a" /></linearGradient></defs>}
+      <circle cx="24" cy="24" r="22" fill={boss ? "#f3ebe0" : rarity === "SSR" ? "#fff7e2" : "#fbf6ea"} stroke={ring} strokeWidth={rarity === "SR" || rarity === "SSR" ? 2.8 : 2.2} />
+      <circle cx="24" cy="24" r="19" stroke={rarity === "R" ? "rgba(79,127,184,0.35)" : "rgba(176,138,62,0.35)"} strokeWidth=".8" />
+      {art}
+    </svg>
+  </>);
+}
 
 // ============ Constants ============
 const DIFFICULTIES = {
@@ -144,7 +256,7 @@ html[data-theme="classic"] ::placeholder{color:#7f8aa6}
 @keyframes sqTwinkleT{0%,100%{opacity:0;transform:scale(.5)}50%{opacity:.9;transform:scale(1)}}
 `;
 const WHITE_CSS = `
-html[data-theme="white"]{--ink:#22335c;--ink-soft:#4a5a7c;--ink-mute:#7a8aa8;--paper:#fdfbf5;--cream:#f6f0e2;--beige:#ece4d0;--greige:#d9cfb5;--rule:#b08a3e;--rule-soft:#d8c9a3;--gold:#b08a3e;--gold-light:#d6b56a;--sage:#4f8a72;--brick:#a24a45;--slate:#3d5a8c;--sky:#7fa6d6;--sky-light:#dfe8f3;--sky-pale:#eef2f8;--sky-deep:#2f4570;--mint:#7fb8a4;--plum:#7c6aa6;--hl:rgba(214,181,106,0.4);--memo-bg:#fbf3dc;background:#f6f2e8;color-scheme:light}
+html[data-theme="white"]{--ink:#22335c;--ink-soft:#4a5a7c;--ink-mute:#7a8aa8;--paper:#fdfbf5;--cream:#f6f0e2;--beige:#ece4d0;--greige:#d9cfb5;--rule:#b08a3e;--rule-soft:#d8c9a3;--gold:#b08a3e;--gold-light:#d6b56a;--sage:#4f8a72;--brick:#a24a45;--slate:#3d5a8c;--sky:#d4b878;--sky-light:#efe6cf;--sky-pale:#f8f3e6;--sky-deep:#2f4570;--mint:#7fb8a4;--plum:#7c6aa6;--hl:rgba(214,181,106,0.4);--memo-bg:#fbf3dc;background:#f6f2e8;color-scheme:light}
 html[data-theme="white"] body{background:transparent !important;color:var(--ink);font-family:'Zen Kaku Gothic New','Hiragino Kaku Gothic ProN',sans-serif}
 html[data-theme="white"] body::before{content:"";position:fixed;left:-48px;top:-48px;right:-48px;bottom:-48px;z-index:-2;background:#f6f2e8 url("${WHITE_TITLE_URL}") center 30%/cover no-repeat;filter:blur(24px) brightness(1.08) saturate(.8)}
 html[data-theme="white"] body::after{content:"";position:fixed;left:0;top:0;right:0;bottom:0;z-index:-1;background:rgba(250,247,238,.62)}
@@ -166,6 +278,12 @@ html[data-theme="white"] .stat-bar{background:#e9e4d6;border-color:#d8c9a3}
 html[data-theme="white"] .swirl{display:none}
 html[data-theme="white"] .boot{color:#4a5a7c}
 html[data-theme="white"] ::placeholder{color:#9aa4b8}
+html[data-theme="white"] .ico-emoji{display:none !important}
+html[data-theme="white"] .ico-line{display:inline-block;vertical-align:-0.15em;flex-shrink:0}
+html[data-theme="white"] .box-ico{color:#b08a3e !important}
+html[data-theme="white"] .rpg-inner-border [style*="border: 1px solid"],html[data-theme="white"] .rpg-inner-border [style*="border: 2px solid"]{border-radius:6px}
+html[data-theme="white"] .btn-primary,html[data-theme="white"] .btn-sky,html[data-theme="white"] .btn-info,html[data-theme="white"] .btn-success,html[data-theme="white"] .btn-danger,html[data-theme="white"] .btn-plum,html[data-theme="white"] .btn-ghost,html[data-theme="white"] .rpg-input{border-radius:6px}
+html[data-theme="white"] .rpg-box{border-radius:8px}
 @keyframes sqBlink{0%,100%{opacity:1}50%{opacity:.25}}
 @keyframes sqCaret{0%,100%{transform:translateY(0);opacity:1}50%{transform:translateY(3px);opacity:.55}}
 @keyframes sqFadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
@@ -380,6 +498,87 @@ const SIGN_TOOLS = [
   { id: "law", label: "条文", desc: "条文番号やキーワードで、条文と問題をまとめて探します。" },
   { id: "option", label: "設定", desc: "テーマ、文字の大きさ・フォント、タイトル画面の表示を変えられます。" },
 ];
+// ── ホームの吹き出し：主人公が、勉強の名言や今日の様子をやさしく話す ──
+// t：名言／by：出典／say：主人公のひとこと（丁寧な口調）
+const STUDY_QUOTES = [
+  { t: "学びて時に之を習う、亦た説ばしからずや", by: "『論語』学而", say: "学んだことを、時をおいて復習する。それは、うれしいことなのですね。" },
+  { t: "故きを温めて新しきを知る", by: "『論語』為政", say: "前に解いた問題にも、まだ新しい発見があるかもしれませんよ。" },
+  { t: "学びて思わざれば則ち罔し、思いて学ばざれば則ち殆し", by: "『論語』為政", say: "答えを覚えるだけでなく、「なぜそうなるのか」も考えてみましょうね。" },
+  { t: "之を知る者は之を好む者に如かず、之を好む者は之を楽しむ者に如かず", by: "『論語』雍也", say: "楽しんで学ぶ人が、いちばん強いそうです。一緒に楽しみましょうね。" },
+  { t: "過ちて改めざる、是を過ちと謂う", by: "『論語』衛霊公", say: "間違えた問題は、伸びしろです。直せば、もう間違いではありませんよ。" },
+  { t: "之を知るを之を知ると為し、知らざるを知らずと為す。是れ知るなり", by: "『論語』為政", say: "「自信なし」と正直に答えることも、立派な一歩です。苦手がはっきりしますから。" },
+  { t: "千里の行も足下に始まる", by: "『老子』", say: "大きな目標も、今日の一問から始まります。" },
+  { t: "学は以て已むべからず", by: "『荀子』勧学", say: "学びに終わりはありません。少しずつでも、続けていきましょうね。" },
+  { t: "青は藍より出でて藍より青し", by: "『荀子』勧学", say: "学び続ければ、教わったことをきっと超えていけますよ。" },
+  { t: "人一たびして之を能くすれば、己之を百たびす", by: "『中庸』", say: "人より時間がかかっても大丈夫です。くり返した分だけ、必ず力になりますから。" },
+  { t: "学びて然る後に足らざるを知る", by: "『礼記』学記", say: "足りないところに気づけたのは、ちゃんと学んでいる証拠ですよ。" },
+  { t: "功の崇きは惟れ志、業の広きは惟れ勤", by: "『書経』周官", say: "大きな成果は強い志から、広い学びは毎日の積み重ねから生まれるのですね。" },
+  { t: "小を積みて大と為す", by: "二宮尊徳", say: "一日の小さな積み重ねが、いつか大きな力になります。" },
+  { t: "為せば成る 為さねば成らぬ何事も 成らぬは人の為さぬなりけり", by: "上杉鷹山", say: "きっと、できますよ。まずは今日の分から始めてみましょう。" },
+  { t: "千日の稽古を鍛とし、万日の稽古を練とす", by: "宮本武蔵『五輪書』", say: "毎日の積み重ねこそが、本当の強さになるのですね。" },
+  { t: "ただ学問を勤めて物事をよく知る者は、貴人となり富人となる", by: "福沢諭吉『学問のすゝめ』", say: "学んだことは、これからの道を切り開く力になります。" },
+  { t: "天才とは、1%のひらめきと99%の努力である", by: "エジソン", say: "ひらめきよりも、こつこつ続けることが大切なのですね。" },
+  { t: "知識は力なり", by: "フランシス・ベーコン", say: "覚えた知識は、試験の日にあなたを守る力になりますよ。" },
+  { t: "教育の根は苦いが、その果実は甘い", by: "アリストテレス", say: "今のがんばりは、きっと甘い実を結びます。" },
+  { t: "塵も積もれば山となる", by: "ことわざ", say: "一問ずつでも、積み重ねれば大きな山になりますよ。" },
+  { t: "雨垂れ石を穿つ", by: "ことわざ", say: "小さな努力でも、続ければ固い石にも穴をあけられるのです。" },
+  { t: "継続は力なり", by: "格言", say: "毎日少しずつ。それがいちばん確かな近道です。" },
+  { t: "急がば回れ", by: "ことわざ", say: "近道を探すより、基本をていねいに。それが結局いちばんの近道ですね。" },
+  { t: "好きこそ物の上手なれ", by: "ことわざ", say: "冒険のついででもかまいません。勉強を好きになれたら、もう半分は勝ちですよ。" },
+  { t: "石の上にも三年", by: "ことわざ", say: "すぐに結果が出なくても、焦らなくて大丈夫です。" },
+  { t: "勝って兜の緒を締めよ", by: "ことわざ", say: "よくできた日こそ、気をゆるめずに。復習も忘れないでくださいね。" },
+  { t: "七転び八起き", by: "ことわざ", say: "うまくいかない日があっても、また始めればいいのです。" },
+  { t: "一念、岩をも通す", by: "ことわざ", say: "合格をめざす強い気持ちがあれば、きっと届きますよ。" },
+  { t: "習慣は第二の天性なり", by: "西洋のことわざ", say: "毎日の勉強が習慣になれば、もう怖いものはありません。" },
+];
+// 名言の合間に混ぜる、今日の様子に合わせたひとこと
+function mentorStatusLines(state, todayCount) {
+  const lines = [
+    todayCount > 0 ? `今日の復習が あと${todayCount}問 残っています。ゆっくりで大丈夫ですから、一緒に進めましょうね。` : "今日の復習は、もう終わっていますね。お疲れさまでした。余力があれば、新しい問題にも進んでみましょう。",
+    "がんばりすぎた日は、少し休むのも大切ですよ。続けることが、いちばんの力ですから。",
+  ];
+  const next = (state.qualifications || []).filter((q) => !q.acquired && q.examDate).map((q) => ({ q, d: daysUntil(q.examDate) })).filter((x) => x.d !== null && x.d >= 0).sort((a, b) => a.d - b.d)[0];
+  if (next) lines.unshift(next.d === 0 ? `今日は${next.q.name}の試験日ですね。これまで積み重ねてきた力を、信じてください。` : `${next.q.name}の試験まで、あと${next.d}日です。今日の一問一問が、合格へつながっていますよ。`);
+  return lines;
+}
+const shuffled = (arr) => { const a = [...arr]; for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+// face：顔の位置（背景画像の位置 %）。override：メニューにカーソルを合わせたときの説明文
+const MENTOR_STYLE = {
+  white: { bubble: "#fdfbf5", border: "rgba(176,138,62,0.55)", ring: "#b08a3e", text: "#22335c", sub: "#5b6b8c", by: "#b08a3e", caret: "#b08a3e", font: "'Shippori Mincho B1', serif" },
+  classic: { bubble: "#223463", border: "rgba(190,205,230,0.6)", ring: "#c9d3e6", text: "#eef1f6", sub: "#c9d4e2", by: "#dcbc6e", caret: "#c4d4e8", font: null },
+};
+function MentorBubble({ state, todayCount, theme = "white", avatar, face, override }) {
+  const S = MENTOR_STYLE[theme] || MENTOR_STYLE.white;
+  const [deck] = useState(() => shuffled(STUDY_QUOTES.map((_, i) => i)));
+  const [n, setN] = useState(0);
+  // 4回に1回は、今日の様子に合わせたひとことを話す
+  const status = n % 4 === 3 ? mentorStatusLines(state, todayCount) : null;
+  const quote = status ? null : STUDY_QUOTES[deck[(n - Math.floor(n / 4)) % deck.length]];
+  const font = S.font ? { fontFamily: S.font } : {};
+  return (
+    <div className="rpg-box px-3 py-3 md:px-4 jp">
+      <div className="flex items-start gap-3">
+        <div aria-hidden="true" className="flex-shrink-0 w-14 h-14 md:w-16 md:h-16" style={{ borderRadius: "50%", backgroundColor: S.bubble, backgroundImage: `url(${avatar})`, backgroundSize: "300% auto", backgroundPosition: `${face[0]}% ${face[1]}%`, backgroundRepeat: "no-repeat", border: `2px solid ${S.ring}`, boxShadow: "0 2px 6px rgba(0,0,0,0.18)" }} />
+        <button onClick={() => setN(n + 1)} aria-label="次の言葉へ" className="relative flex-1 min-w-0 text-left" style={{ background: S.bubble, border: `1px solid ${S.border}`, borderRadius: 12, padding: "10px 30px 12px 14px", color: S.text, cursor: "pointer", minHeight: 64 }}>
+          <span aria-hidden="true" style={{ position: "absolute", left: -7, top: 22, width: 12, height: 12, background: S.bubble, borderLeft: `1px solid ${S.border}`, borderBottom: `1px solid ${S.border}`, transform: "rotate(45deg)" }} />
+          {override ? (
+            <span className="text-[15px] md:text-[17px] leading-relaxed" style={{ ...font, fontWeight: 700 }}>{override}</span>
+          ) : status ? (
+            <span key={n} className="block text-[15px] md:text-[17px] leading-relaxed" style={{ ...font, fontWeight: 700, animation: "sqFadeIn .3s ease-out" }}>{status[Math.floor(n / 4) % status.length]}</span>
+          ) : (
+            <span key={n} className="block" style={{ animation: "sqFadeIn .3s ease-out" }}>
+              <span className="block text-[16px] md:text-[19px] leading-relaxed" style={{ ...font, fontWeight: 800, letterSpacing: "0.03em" }}>「{quote.t}」</span>
+              <span className="block text-right text-[11px] md:text-xs mt-0.5" style={{ color: S.by, fontWeight: 700 }}>― {quote.by}</span>
+              <span className="block text-[13px] md:text-[15px] leading-relaxed mt-1" style={{ ...font, color: S.sub, fontWeight: 600 }}>{quote.say}</span>
+            </span>
+          )}
+          <span aria-hidden="true" style={{ position: "absolute", right: 12, bottom: 8, fontSize: 11, color: S.caret, animation: "sqCaret 1.2s ease-in-out infinite" }}>{theme === "white" ? "◆" : "▼"}</span>
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function SignpostHome({ state, todayCount, onCommand }) {
   const P = THEME_PAL.white;
   const [focus, setFocus] = useState(null);
@@ -393,15 +592,14 @@ function SignpostHome({ state, todayCount, onCommand }) {
   const pet = getPetInfo(state);
   const aw = getAwakening(state);
   const r = normRpg(state.rpg);
-  const eqRows = RPG_SLOTS.map((s) => { const inv = r.inventory.find((v) => v.u === r.equipped[s.id]); return { slot: s, it: inv ? rpgItemById(inv.i) : null }; });
+  const eqRows = RPG_SLOTS.map((s) => { const inv = r.inventory.find((v) => v.u === r.equipped[s.id]); return { slot: s, it: rpgInvItem(inv) }; });
   const d = new Date();
   const code = `${String(d.getFullYear()).slice(2)}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
   let doneToday = 0;
   for (const b of state.questionBanks) for (const q of b.questions || []) if (Array.isArray(q.ah) && q.ah.some((c) => c.startsWith(code))) doneToday++;
-  const greet = todayCount > 0 ? `今日の復習が あと${todayCount}問 残っています。` : "今日の復習は完了！ 新しい道へ進もう。";
   const post = SIGNPOSTS.find((p) => p.id === focus);
   const tool = SIGN_TOOLS.find((t) => t.id === focus);
-  const message = post ? post.desc(todayCount) : tool ? tool.desc : greet;
+  const message = post ? post.desc(todayCount) : tool ? tool.desc : null;
   const subLine = [cls ? `クラス：${cls.rankName}` : null, mainAch && mainAch.job ? `称号：${mainAch.job}` : null].filter(Boolean).join("　／　");
   const mincho = { fontFamily: "'Shippori Mincho B1', serif" };
   const clickPost = (p) => {
@@ -414,7 +612,7 @@ function SignpostHome({ state, todayCount, onCommand }) {
     <div className="space-y-3 mb-4" style={{ color: P.text }}>
       <div className="grid gap-3 md:grid-cols-[300px_1fr]">
         {/* 道しるべ */}
-        <div className="rpg-box p-3 order-2 md:order-1 flex flex-col gap-2">
+        <div className="rpg-box p-3 order-2 md:order-1 flex flex-col gap-2" onMouseLeave={() => setFocus(null)}>
           <div className="flex items-center gap-2 text-[13px]" style={{ ...mincho, fontWeight: 700, color: "#b08a3e", letterSpacing: "0.3em" }}>
             <span style={{ flex: 1, height: 1, background: P.divider }} />道しるべ<span style={{ flex: 1, height: 1, background: P.divider }} />
           </div>
@@ -463,7 +661,7 @@ function SignpostHome({ state, todayCount, onCommand }) {
                 {imgOk ? (
                   <img src={WHITE_HERO_URL} alt="主人公の立ち絵" onError={() => setImgOk(false)} style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "center 16%", display: "block" }} />
                 ) : (
-                  <HeroPortrait state={state} size={200} />
+                  <HeroPortrait state={state} size={200} pixel />
                 )}
               </div>
             </button>
@@ -482,7 +680,7 @@ function SignpostHome({ state, todayCount, onCommand }) {
                 {eqRows.map(({ slot, it }) => (
                   <Fragment key={slot.id}>
                     <span className="text-xs" style={P.label}>{slot.label}</span>
-                    <span className="text-sm truncate" style={{ fontWeight: 700, color: it ? P.text : P.muted }}>{it ? `${it.icon} ${it.name}` : "なし"}{it && <span className="text-[11px] ml-2" style={{ color: P.sub, fontWeight: 400 }}>{fxText(it.fx)}</span>}</span>
+                    <span className="text-sm truncate" style={{ fontWeight: 700, color: it ? P.text : P.muted }}>{it ? <><GameIcon ch={it.icon} id={it.id} rarity={it.rarity} size={20} /> {it.label}</> : "なし"}{it && <span className="text-[11px] ml-2" style={{ color: P.sub, fontWeight: 400 }}>{fxText(it.fx)}</span>}</span>
                   </Fragment>
                 ))}
                 <span className="text-xs" style={P.label}>覚醒</span>
@@ -495,11 +693,8 @@ function SignpostHome({ state, todayCount, onCommand }) {
         </div>
       </div>
 
-      {/* メッセージ */}
-      <div className="rpg-box px-5 py-3 relative" style={{ minHeight: 70 }}>
-        <span className="text-[15px] md:text-[18px] leading-relaxed" style={{ ...mincho, fontWeight: 700, letterSpacing: "0.04em" }}>{message}</span>
-        <span style={{ position: "absolute", right: 16, bottom: 8, fontSize: 11, color: "#b08a3e", animation: "sqCaret 1.2s ease-in-out infinite" }}>◆</span>
-      </div>
+      {/* 吹き出し（名言・今日の様子。メニューに合わせると説明） */}
+      <MentorBubble state={state} todayCount={todayCount} theme="white" avatar={WHITE_HERO_URL} face={[69, 12]} override={message} />
     </div>
   );
 }
@@ -528,16 +723,15 @@ function MenuHome({ state, todayCount, onCommand }) {
   const pet = getPetInfo(state);
   const aw = getAwakening(state);
   const r = normRpg(state.rpg);
-  const eqRows = RPG_SLOTS.map((s) => { const inv = r.inventory.find((v) => v.u === r.equipped[s.id]); return { slot: s, it: inv ? rpgItemById(inv.i) : null }; });
+  const eqRows = RPG_SLOTS.map((s) => { const inv = r.inventory.find((v) => v.u === r.equipped[s.id]); return { slot: s, it: rpgInvItem(inv) }; });
   // 今日すでに解いた問題数（回答の記録から）
   const d = new Date();
   const code = `${String(d.getFullYear()).slice(2)}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
   let doneToday = 0;
   for (const b of state.questionBanks) for (const q of b.questions || []) if (Array.isArray(q.ah) && q.ah.some((c) => c.startsWith(code))) doneToday++;
-  const greet = todayCount > 0 ? `今日の復習が あと${todayCount}問 残っています。` : "今日の復習は完了！ 冒険に出かけよう。";
   const active = focus || "today";
   const cmd = MENU_COMMANDS.find((c) => c.id === active);
-  const message = focus ? (cmd.id === "today" ? (todayCount > 0 ? `期限が来た問題と未学習の問題に挑みます。今日の復習は あと${todayCount}問。` : "今日の復習は完了しています。未学習の問題に進むこともできます。") : cmd.desc) : greet;
+  const message = focus ? (cmd.id === "today" ? (todayCount > 0 ? `期限が来た問題と未学習の問題に挑みます。今日の復習は あと${todayCount}問。` : "今日の復習は完了しています。未学習の問題に進むこともできます。") : cmd.desc) : null;
   const subLine = [cls ? `クラス：${cls.rankName}` : null, mainAch && mainAch.job ? `称号：${mainAch.job}` : null].filter(Boolean).join("　／　");
 
   return (
@@ -545,7 +739,7 @@ function MenuHome({ state, todayCount, onCommand }) {
       <div className="grid gap-3 md:grid-cols-[210px_1fr]">
         {/* コマンド */}
         <div className="flex flex-col gap-3 order-2 md:order-1">
-          <div className="rpg-box p-2">
+          <div className="rpg-box p-2" onMouseLeave={() => setFocus(null)}>
             <div className="grid grid-cols-2 md:grid-cols-1 gap-0.5">
               {MENU_COMMANDS.map((c) => {
                 const on = active === c.id;
@@ -574,7 +768,7 @@ function MenuHome({ state, todayCount, onCommand }) {
               {imgOk ? (
                 <img src={HERO_URL} alt="主人公の立ち絵" onError={() => setImgOk(false)} style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "center 12%", display: "block" }} />
               ) : (
-                <div className="w-full h-full flex items-center justify-center"><HeroPortrait state={state} size={200} /></div>
+                <div className="w-full h-full flex items-center justify-center"><HeroPortrait state={state} size={200} pixel /></div>
               )}
             </button>
             <div className="flex-1 min-w-0 flex flex-col gap-3 jp">
@@ -594,7 +788,7 @@ function MenuHome({ state, todayCount, onCommand }) {
                   {eqRows.map(({ slot, it }) => (
                     <Fragment key={slot.id}>
                       <span className="text-xs" style={CL.label}>{slot.label}</span>
-                      <span className="text-sm truncate" style={{ fontWeight: 700, color: it ? "#eef1f6" : "#7f8aa6" }}>{it ? `${it.icon} ${it.name}` : "なし"}{it && <span className="text-[11px] ml-2" style={{ color: "#c9d4e2", fontWeight: 400 }}>{fxText(it.fx)}</span>}</span>
+                      <span className="text-sm truncate" style={{ fontWeight: 700, color: it ? "#eef1f6" : "#7f8aa6" }}>{it ? `${it.icon} ${it.label}` : "なし"}{it && <span className="text-[11px] ml-2" style={{ color: "#c9d4e2", fontWeight: 400 }}>{fxText(it.fx)}</span>}</span>
                     </Fragment>
                   ))}
                 </div>
@@ -604,11 +798,8 @@ function MenuHome({ state, todayCount, onCommand }) {
         </div>
       </div>
 
-      {/* メッセージ */}
-      <div className="rpg-box px-5 py-3 relative jp" style={{ minHeight: 70 }}>
-        <span className="text-[15px] md:text-[17px] leading-relaxed">{message}</span>
-        <span style={{ position: "absolute", right: 16, bottom: 8, fontSize: 12, color: "#c4d4e8", animation: "sqCaret 1s ease-in-out infinite" }}>▼</span>
-      </div>
+      {/* 吹き出し（名言・今日の様子。メニューに合わせると説明） */}
+      <MentorBubble state={state} todayCount={todayCount} theme="classic" avatar={HERO_URL} face={[52, 13]} override={message} />
     </div>
   );
 }
@@ -670,6 +861,13 @@ function DisplaySettingsPanel({ settings, onChange, onClose }) {
         </div>
         <button onClick={() => onChange({ showTitle: ds.showTitle === false })} className="jp w-full text-left text-xs px-2 py-1.5 mb-3" style={{ background: "var(--paper)", color: "var(--ink)", border: "1px solid var(--rule-soft)" }}>
           {ds.showTitle === false ? "☐" : "☑"} 起動時にタイトル画面を表示する（白金・クラシック）
+        </button>
+        <div className="jp text-xs mb-1" style={{ color: "var(--ink-soft)" }}>バトル</div>
+        <button onClick={() => onChange({ battle: ds.battle === false })} className="jp w-full text-left text-xs px-2 py-1.5 mb-1" style={{ background: "var(--paper)", color: "var(--ink)", border: "1px solid var(--rule-soft)" }}>
+          {ds.battle === false ? "☐" : "☑"} 問題を解くときにバトルの演出を出す
+        </button>
+        <button onClick={() => { const on = !ds.sfx; SFX.enabled = on; if (on) SFX.play("hit"); onChange({ sfx: on }); }} className="jp w-full text-left text-xs px-2 py-1.5 mb-3" style={{ background: "var(--paper)", color: "var(--ink)", border: "1px solid var(--rule-soft)" }}>
+          {ds.sfx ? "☑" : "☐"} 効果音を鳴らす（攻撃・会心・レベルアップなど）
         </button>
         <div className="jp text-xs mb-1" style={{ color: "var(--ink-soft)" }}>問題文のフォント</div>
         <div className="grid grid-cols-2 gap-1 mb-3">
@@ -1426,7 +1624,64 @@ function StudyRPG({ user }) {
       }));
       if (xp) setTimeout(() => awardXp(xp), 300);
     },
+    // スキルを覚える（同じ道の1つ前を覚えていて、ポイントが足りるとき）
+    learnSkill: (id) => {
+      const cur = stateRef.current;
+      const r = normRpg(cur.rpg);
+      const node = skillNodes.find((n) => n.id === id);
+      if (!node || r.skills.includes(id)) return "";
+      const prev = node.idx > 0 ? node.branch.nodes[node.idx - 1].id : null;
+      if (prev && !r.skills.includes(prev)) return "ひとつ前のスキルを先に覚えてください";
+      if (skillPointsTotal(cur) - skillPointsUsed(r) < node.cost) return "スキルポイントが足りません";
+      updateRpg((x) => (x.skills.includes(id) ? x : { ...x, skills: [...x.skills, id] }));
+      return `${node.name}を覚えた！`;
+    },
+    // スキルを忘れてポイントを戻す（ゴールドが必要）
+    resetSkills: () => {
+      const r = normRpg(stateRef.current.rpg);
+      if (r.skills.length === 0) return "";
+      if (r.gold < SKILL_RESET_COST) return "ゴールドが足りません";
+      updateRpg((x) => ({ ...x, gold: x.gold - SKILL_RESET_COST, skills: [] }));
+      return "スキルポイントが戻りました";
+    },
+    // 装備を1段階強化する。成功・失敗にかかわらず素材とゴールドは使う（失敗しても段階は下がらない）
+    forge: (u) => {
+      const cur = stateRef.current;
+      const r = normRpg(cur.rpg);
+      const v = r.inventory.find((y) => y.u === u);
+      const it = v ? rpgItemById(v.i) : null;
+      if (!it) return { ok: false, msg: "" };
+      const p = v.p || 0;
+      if (p >= FORGE_MAX) return { ok: false, msg: "これ以上は強化できません", lack: true };
+      const c = forgeCost(it, p, getRpgBonuses(cur).forgePct);
+      if (r.gold < c.gold || fragCount(r.materials) < c.frag || (r.materials["m-star"] || 0) < c.star || (r.materials["m-sage"] || 0) < c.sage) return { ok: false, msg: "素材かゴールドが足りません", lack: true };
+      const success = Math.random() * 100 < c.rate;
+      updateRpg((x) => {
+        const mats = takeFrags(x.materials, c.frag);
+        if (!mats || x.gold < c.gold) return x;
+        mats["m-star"] = (mats["m-star"] || 0) - c.star;
+        mats["m-sage"] = (mats["m-sage"] || 0) - c.sage;
+        return {
+          ...x, gold: x.gold - c.gold, materials: mats,
+          inventory: success ? x.inventory.map((y) => (y.u === u ? { ...y, p: (y.p || 0) + 1 } : y)) : x.inventory,
+          forgeLog: { ok: x.forgeLog.ok + (success ? 1 : 0), ng: x.forgeLog.ng + (success ? 0 : 1) },
+        };
+      });
+      return { ok: success, plus: success ? p + 1 : p, msg: success ? `${it.name} +${p + 1} に強化成功！` : "強化に失敗…（素材は失われました）" };
+    },
   };
+
+  // 戦闘の戦利品（素材・必殺技のEXP）を記録する（BattleStage から battleBus で届く）
+  useEffect(() => {
+    if (!battleBus) return undefined;
+    const on = (e) => {
+      const { mats, xp } = e.detail || {};
+      if (mats && Object.keys(mats).length) updateRpg((x) => { const m = { ...x.materials }; Object.entries(mats).forEach(([k, n]) => { m[k] = (m[k] || 0) + n; }); return { ...x, materials: m }; });
+      if (xp) setTimeout(() => awardXp(xp), 120);
+    };
+    battleBus.addEventListener("reward", on);
+    return () => battleBus.removeEventListener("reward", on);
+  }, []);
 
   // テーマ設定を端末にも保存（次回の起動時、読み込み前から反映するため）
   useEffect(() => {
@@ -1435,6 +1690,10 @@ function StudyRPG({ user }) {
     writePref("sq-theme", ds.theme || "white");
     writePref("sq-title", ds.showTitle === false ? "off" : "on");
   }, [loaded, state.displaySettings && state.displaySettings.theme, state.displaySettings && state.displaySettings.showTitle]);
+
+  // 効果音のオン・オフ（設定）と、レベルアップの音
+  useEffect(() => { SFX.enabled = !!(state.displaySettings && state.displaySettings.sfx); }, [state.displaySettings && state.displaySettings.sfx]);
+  useEffect(() => { if (showLevelUp) SFX.play("levelup"); }, [showLevelUp]);
 
   // 覚醒・相棒の進化のお知らせ
   const [rpgEvent, setRpgEvent] = useState(null);
@@ -2005,7 +2264,7 @@ function StudyRPG({ user }) {
   const player = state.player;
   const xpNeeded = getXpForNextLevel(player.level);
   const xpPercent = Math.min((player.xp / xpNeeded) * 100, 100);
-  const rawLiveSeconds = state.timer.startMs ? (now - state.timer.startMs) / 1000 : 0;
+  const rawLiveSeconds = state.timer.startMs ? Math.max(0, (now - state.timer.startMs) / 1000) : 0; // 開始直後に負の値にならないように
   const liveSeconds = rawLiveSeconds > (MAX_TIMER_MS / 1000) ? 0 : rawLiveSeconds;
   const mainAch = player.mainTitleId ? player.achievements.find((a) => a.id === player.mainTitleId) : null;
   const displayTitle = mainAch ? mainAch.title : getLevelTitle(player.level);
@@ -2771,7 +3030,7 @@ function TaskTab({ state, addTask, completeTask, deleteTask, addPreset, deletePr
                   return (
                     <button key={p.id} onClick={() => useFromPreset(p)} className="jp text-left p-2 transition" style={{ background: "var(--paper)", border: `1px solid ${d.color}` }}>
                       <div className="flex items-center gap-2">
-                        <span className="text-lg">{d.icon}</span>
+                        <GameIcon ch={d.icon} size={28} />
                         <span className="text-sm flex-1 break-words" style={{ color: "var(--ink)" }}>{p.name}</span>
                         {clears > 0 && <span className="pixel text-[10px] px-1" style={{ background: "var(--brick)", color: "var(--paper)" }}>×{clears}</span>}
                       </div>
@@ -2797,7 +3056,7 @@ function TaskTab({ state, addTask, completeTask, deleteTask, addPreset, deletePr
             <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-2">
               {Object.entries(DIFFICULTIES).map(([k, d]) => (
                 <button key={k} onClick={() => setDiff(k)} className="jp px-2 py-2 text-xs transition-all" style={{ background: diff === k ? d.color : "var(--paper)", color: diff === k ? "var(--paper)" : d.color, border: `1px solid ${d.color}`, fontWeight: diff === k ? "bold" : "normal" }}>
-                  <div>{d.icon} {d.label}</div>
+                  <div className="flex items-center justify-center gap-1"><GameIcon ch={d.icon} size={22} />{d.label}</div>
                   <div className="pixel text-[10px] mt-0.5">+{d.xp} EXP</div>
                 </button>
               ))}
@@ -2823,7 +3082,7 @@ function TaskTab({ state, addTask, completeTask, deleteTask, addPreset, deletePr
                   const clears = state.taskClears[key] || 0;
                   return (
                     <li key={t.id} className="p-2 flex items-center gap-2" style={{ background: "var(--paper)", border: `1px solid ${d.color}` }}>
-                      <div className="text-xl">{d.icon}</div>
+                      <GameIcon ch={d.icon} size={32} />
                       <div className="flex-1 min-w-0">
                         <div className="jp text-sm break-words" style={{ color: "var(--ink)" }}>
                           {t.name}
@@ -2860,7 +3119,7 @@ function TaskTab({ state, addTask, completeTask, deleteTask, addPreset, deletePr
             <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-2">
               {Object.entries(DIFFICULTIES).map(([k, d]) => (
                 <button key={k} onClick={() => setDiff(k)} className="jp px-2 py-2 text-xs" style={{ background: diff === k ? d.color : "var(--paper)", color: diff === k ? "var(--paper)" : d.color, border: `1px solid ${d.color}`, fontWeight: diff === k ? "bold" : "normal" }}>
-                  <div>{d.icon} {d.label}</div>
+                  <div className="flex items-center justify-center gap-1"><GameIcon ch={d.icon} size={22} />{d.label}</div>
                   <div className="pixel text-[10px] mt-0.5">+{d.xp} EXP</div>
                 </button>
               ))}
@@ -2881,7 +3140,7 @@ function TaskTab({ state, addTask, completeTask, deleteTask, addPreset, deletePr
                   return (
                     <li key={p.id} className="p-2" style={{ background: "var(--paper)", border: `1px solid ${d.color}` }}>
                       <div className="flex items-center gap-2">
-                        <span className="text-xl">{d.icon}</span>
+                        <GameIcon ch={d.icon} size={32} />
                         <div className="flex-1 min-w-0">
                           <div className="jp text-sm break-words" style={{ color: "var(--ink)" }}>{p.name}</div>
                           <div className="flex flex-wrap items-center gap-1 mt-0.5">
@@ -2933,7 +3192,7 @@ function StampRow({ entry, state }) {
     <li className="p-2" style={{ background: "var(--sky-pale)", border: "1px solid var(--rule-soft)" }}>
       <div className="flex items-baseline justify-between gap-2 mb-2">
         <div className="flex items-baseline gap-2 min-w-0">
-          <span>{d.icon}</span>
+          <GameIcon ch={d.icon} size={22} />
           <span className="jp text-sm truncate" style={{ color: "var(--ink)" }}>{entry.name}</span>
           {qual && <span className="jp text-[10px] px-1 flex-shrink-0" style={{ border: `1px solid ${qual.color}`, color: qual.color }}>{qual.name}</span>}
         </div>
@@ -4205,6 +4464,7 @@ function renderClozePreview(cloze) {
 }
 
 function RevengeSession({ bank, state, recordRevengeAnswer, recordClozeRevengeAnswer, editQuestion, startTimer, stopTimer, onExit }) {
+  const [battleKey] = useState(() => uid()); // バトル演出：この学習（セット）の識別
   const [editMode, setEditMode] = useState(null); // null | "q" | "a"（問題文・答えのその場編集）
   const [editText, setEditText] = useState("");
   // Build a unified queue of weakness items: regular questions + clozes
@@ -4278,6 +4538,7 @@ function RevengeSession({ bank, state, recordRevengeAnswer, recordClozeRevengeAn
   if (done) {
     return (
       <Box title="リベンジ完了！" icon={<Award size={18} />}>
+        <BattleResult state={state} battleKey={battleKey} />
         <div className="text-center py-4">
           <div className="text-5xl mb-2">💪</div>
           <div className="jp text-base mb-3" style={{ color: "var(--ink)" }}>苦手を打ち倒した！</div>
@@ -4312,6 +4573,7 @@ function RevengeSession({ bank, state, recordRevengeAnswer, recordClozeRevengeAn
         <div className="pixel text-xs" style={{ color: "var(--plum)" }}>💀 リベンジ ・ 残り {queue.length}</div>
       </div>
       <div className="text-center jp text-xs" style={{ color: "var(--plum)" }}>💪 苦手を倒せ！正解で +{XP_QA_REVENGE} EXP</div>
+      {!currentCloze && <BattleStage state={state} q={currentQ} bankName={currentBank && currentBank.name} battleKey={battleKey} />}
       <div className="rpg-box p-1" style={{ borderColor: "var(--plum)" }}>
         <div className="rpg-inner-border min-h-[180px] flex flex-col" style={{ borderColor: "var(--plum)" }}>
           <div className="flex items-start justify-between gap-2">
@@ -4381,6 +4643,7 @@ function RevengeSession({ bank, state, recordRevengeAnswer, recordClozeRevengeAn
 }
 
 function QStudySession({ bank, state, recordAnswer, awardXp, startTimer, stopTimer, incrementBankClears, updateBestStreak, recordClearSnapshot, toggleQuestionMark, saveSessionResume, clearSessionResume, resumeData, updateQuestionMemo, toggleQuestionExclude, editQuestion, addStudyNote, updateStudyNote, moveQuestions, addQuestionBank, onExit }) {
+  const [battleKey] = useState(() => uid()); // バトル演出：この学習（セット）の識別
   const [config] = useState(() => window.__qaConfig || { random: true, retryWrong: true, useTimer: true });
   const fromResume = config.fromResume && resumeData;
 
@@ -4532,6 +4795,7 @@ function QStudySession({ bank, state, recordAnswer, awardXp, startTimer, stopTim
     const totalClears = currentBank.clears || 0;
     return (
       <Box title="挑戦終了！" icon={<Award size={18} />}>
+        <BattleResult state={state} battleKey={battleKey} />
         <div className="text-center py-4">
           <div className="text-5xl mb-2">🏆</div>
           <div className="jp text-base mb-3" style={{ color: "var(--ink)" }}>{bank.name}{bank.year && ` ・ ${bank.year}`}</div>
@@ -4731,6 +4995,7 @@ function QStudySession({ bank, state, recordAnswer, awardXp, startTimer, stopTim
           </div>
         </div>
       )}
+      <BattleStage state={state} q={currentQ} bankName={bank.name} battleKey={battleKey} />
       <div className="rpg-box p-1">
         <div className="rpg-inner-border min-h-[180px] flex flex-col">
           <div className="flex items-start justify-between gap-2 mb-2">
@@ -5118,6 +5383,7 @@ function ClozeStudySession({ bank, state, recordClozeAnswer, awardXp, startTimer
 
 // ============ Mixed Study Session (一問一答 + 穴あき) ============
 function MixedStudySession({ bank, state, recordAnswer, recordClozeAnswer, awardXp, startTimer, stopTimer, incrementBankClears, updateBestStreak, recordClearSnapshot, toggleQuestionMark, toggleClozeMark, onExit }) {
+  const [battleKey] = useState(() => uid()); // バトル演出：この学習（セット）の識別
   const [config] = useState(() => window.__qaConfig || { random: true, retryWrong: true, useTimer: true });
   const items = [
     ...bank.questions.map((q) => ({ type: "q", qId: q.id })),
@@ -5181,6 +5447,7 @@ function MixedStudySession({ bank, state, recordAnswer, recordClozeAnswer, award
     const acc = stats.totalAnswered > 0 ? Math.round((stats.correct / stats.totalAnswered) * 100) : 0;
     return (
       <Box title="完全制覇！" icon={<Award size={18} />}>
+        <BattleResult state={state} battleKey={battleKey} />
         <div className="text-center py-4">
           <div className="text-5xl mb-2">🏆</div>
           <div className="jp text-base mb-3" style={{ color: "var(--ink)" }}>{bank.name}{bank.year && ` ・ ${bank.year}`}（ミックス）</div>
@@ -5216,6 +5483,7 @@ function MixedStudySession({ bank, state, recordAnswer, recordClozeAnswer, award
         <button onClick={exitSession} className="jp text-xs flex items-center gap-1" style={{ color: "var(--ink-soft)" }}><XIcon size={14} /> 終了</button>
         <div className="pixel text-xs" style={{ color: "var(--gold)" }}>🎯 ミックス ・ 残り {queue.length}</div>
       </div>
+      {!currentCloze && <BattleStage state={state} q={currentQ} bankName={currentBank && currentBank.name} battleKey={battleKey} />}
       <div className="rpg-box p-1">
         <div className="rpg-inner-border min-h-[180px] flex flex-col">
           <div className="flex items-start justify-between gap-2 mb-2">
@@ -5258,6 +5526,7 @@ function MixedStudySession({ bank, state, recordAnswer, recordClozeAnswer, award
 
 // ============ Cross-Year Revenge (全年度横断リベンジ) ============
 function CrossYearRevengeSession({ qualId, state, recordRevengeAnswer, recordClozeRevengeAnswer, startTimer, stopTimer, onExit }) {
+  const [battleKey] = useState(() => uid()); // バトル演出：この学習（セット）の識別
   // Collect all weakness items across banks for this qualId
   const buildItems = () => {
     const items = [];
@@ -5334,6 +5603,7 @@ function CrossYearRevengeSession({ qualId, state, recordRevengeAnswer, recordClo
   if (done) {
     return (
       <Box title="横断リベンジ完了！" icon={<Award size={18} />}>
+        <BattleResult state={state} battleKey={battleKey} />
         <div className="text-center py-4">
           <div className="text-5xl mb-2">🌟</div>
           <div className="jp text-base mb-1" style={{ color: "var(--ink)" }}>{qualName}</div>
@@ -5368,6 +5638,7 @@ function CrossYearRevengeSession({ qualId, state, recordRevengeAnswer, recordClo
         <div className="pixel text-xs" style={{ color: "var(--plum)" }}>💀 横断 ・ 残り {queue.length}</div>
       </div>
       <div className="text-center jp text-xs" style={{ color: "var(--plum)" }}>🌟 {qualName} 全年度の苦手</div>
+      {!currentCloze && <BattleStage state={state} q={currentQ} bankName={currentBank && currentBank.name} battleKey={battleKey} />}
       <div className="rpg-box p-1" style={{ borderColor: "var(--plum)" }}>
         <div className="rpg-inner-border min-h-[180px] flex flex-col" style={{ borderColor: "var(--plum)" }}>
           <div className="jp text-[10px] mb-1 flex items-center gap-2 flex-wrap" style={{ color: "var(--plum)" }}>
@@ -6156,13 +6427,103 @@ const FX_LABELS = {
   xpPct: (v) => `EXP+${v}%`, critPct: (v) => `会心率+${v}%`, goldPct: (v) => `ゴールド+${v}%`,
   bossDmgPct: (v) => `攻撃+${v}%`, dmgCutPct: (v) => `被ダメージ-${v}%`, hpPlus: (v) => `HP+${v}`,
 };
+Object.assign(FX_LABELS, {
+  dropPct: (v) => `素材ドロップ+${v}%`, comboXp: (v) => `必殺技でEXP+${v}`, forgePct: (v) => `強化成功率+${v}%`, revivePct: (v) => `ふんばり回復+${v}%`,
+});
 const fxText = (fx) => Object.entries(fx || {}).map(([k, v]) => (FX_LABELS[k] ? FX_LABELS[k](v) : "")).filter(Boolean).join("・");
+
+// ── 素材：魔物を倒すと落とす。欠片は科目ごと、星霊石は手強い魔物、賢者の結晶はコンボの必殺技から ──
+const RPG_MATERIALS = [
+  { id: "m-chiban", name: "地番の欠片", color: "#7fa3d8", dark: "#34508c", kind: "frag" },
+  { id: "m-keiyaku", name: "契約の欠片", color: "#86bd70", dark: "#4f7a3a", kind: "frag" },
+  { id: "m-kyoyo", name: "共用の欠片", color: "#a593d8", dark: "#5e4d93", kind: "frag" },
+  { id: "m-chokai", name: "懲戒の欠片", color: "#d6b56a", dark: "#8f6f2c", kind: "frag" },
+  { id: "m-zahyo", name: "座標の欠片", color: "#6fb8b4", dark: "#2f6f6c", kind: "frag" },
+  { id: "m-shoshiki", name: "書式の欠片", color: "#e3908a", dark: "#9a4d47", kind: "frag" },
+  { id: "m-meikyu", name: "迷宮の欠片", color: "#a7afc2", dark: "#5b6b8c", kind: "frag" },
+  { id: "m-star", name: "星霊石", color: "#c9a6e8", dark: "#6c5a96", kind: "star", desc: "手強い魔物（苦手な問題）を倒すと落とす" },
+  { id: "m-sage", name: "賢者の結晶", color: "#f2c14e", dark: "#a8833a", kind: "sage", desc: "10コンボごとの必殺技で手に入る" },
+];
+const matById = (id) => RPG_MATERIALS.find((m) => m.id === id) || null;
+const FRAG_IDS = RPG_MATERIALS.filter((m) => m.kind === "frag").map((m) => m.id);
+const fragCount = (mats) => FRAG_IDS.reduce((a, id) => a + Math.max(0, (mats && mats[id]) || 0), 0);
+// 欠片を n 個使う（多く持っている種類から順に）。足りなければ null
+function takeFrags(mats, n) {
+  const m = { ...(mats || {}) };
+  if (fragCount(m) < n) return null;
+  let left = n;
+  while (left > 0) {
+    const id = FRAG_IDS.reduce((best, k) => ((m[k] || 0) > (m[best] || 0) ? k : best), FRAG_IDS[0]);
+    m[id] = (m[id] || 0) - 1; left--;
+  }
+  return m;
+}
+function MaterialIcon({ id, size = 28 }) {
+  const m = matById(id);
+  if (!m) return null;
+  return (
+    <svg width={size} height={size} viewBox="0 0 32 32" aria-hidden="true" style={{ flexShrink: 0, filter: m.kind !== "frag" ? `drop-shadow(0 0 4px ${m.color})` : undefined }}>
+      {m.kind === "frag" ? (<>
+        <path d="M9 6l11-2 7 10-6 14-13-3-4-10z" fill={m.color} stroke={m.dark} strokeWidth="1.4" strokeLinejoin="round" />
+        <path d="M9 6l7 9 11-1M16 15l-8 10M16 15l5 13" fill="none" stroke={m.dark} strokeWidth=".8" opacity=".55" />
+        <path d="M11 9l4 5" stroke="#fff" strokeWidth="1.6" strokeLinecap="round" opacity=".75" />
+      </>) : m.kind === "star" ? (<>
+        <path d="M16 2l3.6 8.4L28 12l-6.4 6 1.8 9L16 22.4 8.6 27l1.8-9L4 12l8.4-1.6z" fill={m.color} stroke={m.dark} strokeWidth="1.4" strokeLinejoin="round" />
+        <path d="M16 8l1.8 4.6 4.6.6-3.4 3 1 4.6L16 18.6l-4 2.2 1-4.6-3.4-3 4.6-.6z" fill="#fff" opacity=".45" />
+      </>) : (<>
+        <path d="M16 2l8 8-3 18H11L8 10z" fill={m.color} stroke={m.dark} strokeWidth="1.4" strokeLinejoin="round" />
+        <path d="M8 10h16M16 2v26M12 10l4 18 4-18" fill="none" stroke={m.dark} strokeWidth=".8" opacity=".5" />
+        <path d="M11 7l3-3" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" opacity=".85" />
+      </>)}
+    </svg>
+  );
+}
+
+// ── スキルツリー：レベルが1上がるごとにスキルポイント1。3つの道に5つずつ、上から順に覚える ──
+const SKILL_TREE = [
+  { id: "sword", name: "剣の道", sub: "攻撃・会心", color: "#a24a45", nodes: [
+    { id: "a1", name: "鋭刃", cost: 1, fx: { critPct: 2 } },
+    { id: "a2", name: "魔力の刃", cost: 1, fx: { bossDmgPct: 10 } },
+    { id: "a3", name: "連撃の心得", cost: 2, fx: { comboXp: 10 } },
+    { id: "a4", name: "会心の極意", cost: 2, fx: { critPct: 3 } },
+    { id: "a5", name: "大賢者の審判", cost: 3, fx: { bossDmgPct: 20, critPct: 2 } },
+  ] },
+  { id: "book", name: "叡智の書", sub: "経験値・素材", color: "#34508c", nodes: [
+    { id: "b1", name: "探究心", cost: 1, fx: { xpPct: 3 } },
+    { id: "b2", name: "鑑定眼", cost: 1, fx: { dropPct: 25 } },
+    { id: "b3", name: "復習の加護", cost: 2, fx: { xpPct: 5 } },
+    { id: "b4", name: "錬金術", cost: 2, fx: { forgePct: 10 } },
+    { id: "b5", name: "叡智の泉", cost: 3, fx: { xpPct: 10, goldPct: 10 } },
+  ] },
+  { id: "shield", name: "守護の盾", sub: "HP・守り", color: "#4f8a72", nodes: [
+    { id: "c1", name: "鉄の意志", cost: 1, fx: { hpPlus: 15 } },
+    { id: "c2", name: "受け流し", cost: 1, fx: { dmgCutPct: 5 } },
+    { id: "c3", name: "不屈", cost: 2, fx: { revivePct: 20 } },
+    { id: "c4", name: "黄金の守り", cost: 2, fx: { goldPct: 10 } },
+    { id: "c5", name: "不動の構え", cost: 3, fx: { hpPlus: 30, dmgCutPct: 10 } },
+  ] },
+];
+const SKILL_RESET_COST = 500;
+const skillNodes = SKILL_TREE.flatMap((b) => b.nodes.map((n, i) => ({ ...n, branch: b, idx: i })));
+const skillPointsTotal = (state) => Math.max(0, (state.player.level || 1) - 1);
+const skillPointsUsed = (r) => (r.skills || []).reduce((a, id) => a + ((skillNodes.find((n) => n.id === id) || {}).cost || 0), 0);
+
+// ── 装備の強化（+1〜+10）：効果は1段階ごとに元の12%ずつ上がる ──
+const FORGE_MAX = 10;
+const forgedFx = (fx, p) => (p ? Object.fromEntries(Object.entries(fx || {}).map(([k, v]) => [k, Math.round(v * (1 + 0.12 * p) * 10) / 10])) : fx);
+// 持ち物1つ（{u, i, p}）を、強化を反映した装備データにする
+const rpgInvItem = (v) => { const it = v ? rpgItemById(v.i) : null; if (!it) return null; const p = v.p || 0; return { ...it, plus: p, fx: forgedFx(it.fx, p), label: p ? `${it.name} +${p}` : it.name }; };
+function forgeCost(it, p, forgePct = 0) {
+  const base = { N: 60, R: 150, SR: 300, SSR: 500 }[it.rarity] || 100;
+  return { gold: base * (p + 1), frag: 2 + p * 2, star: p >= 3 ? p - 2 : 0, sage: p >= 7 ? 1 : 0, rate: Math.min(100, Math.max(30, 100 - Math.max(0, p - 2) * 10) + forgePct) };
+}
 
 const RPG_DEFAULTS = {
   gold: 0, goldEarned: 0, inventory: [], consumables: { potion: 1, xpBook: 0, restTicket: 0 },
   equipped: { weapon: null, armor: null, accessory: null }, bossWins: 0, bossLosses: 0, bossLog: [],
   boosts: { xpUntil: null }, restDays: [], crits: 0,
   classId: null, pet: null, seen: { stars: 0, pet: 0 },
+  materials: {}, skills: [], forgeLog: { ok: 0, ng: 0 },
 };
 function normRpg(r) {
   const x = { ...RPG_DEFAULTS, ...(r || {}) };
@@ -6173,16 +6534,19 @@ function normRpg(r) {
   x.bossLog = Array.isArray(x.bossLog) ? x.bossLog : [];
   x.restDays = Array.isArray(x.restDays) ? x.restDays : [];
   x.seen = { ...RPG_DEFAULTS.seen, ...(x.seen || {}) };
+  x.materials = { ...(x.materials || {}) };
+  x.skills = Array.isArray(x.skills) ? x.skills : [];
+  x.forgeLog = { ...RPG_DEFAULTS.forgeLog, ...(x.forgeLog || {}) };
   return x;
 }
 const rpgItemById = (id) => RPG_ITEMS.find((i) => i.id === id) || null;
-const rpgEquippedItems = (r) => RPG_SLOTS.map((s) => { const inv = r.inventory.find((v) => v.u === r.equipped[s.id]); return inv ? rpgItemById(inv.i) : null; }).filter(Boolean);
+const rpgEquippedItems = (r) => RPG_SLOTS.map((s) => rpgInvItem(r.inventory.find((v) => v.u === r.equipped[s.id]))).filter(Boolean);
 
 // 装備とステータスから、実際の効果を計算する
 function getRpgBonuses(state) {
   const r = normRpg(state.rpg);
   const eq = rpgEquippedItems(r);
-  const gfx = getGrowthFx(state); // クラス・相棒・覚醒
+  const gfx = [...getGrowthFx(state), ...r.skills.map((id) => (skillNodes.find((n) => n.id === id) || {}).fx || {})]; // クラス・相棒・覚醒・スキル
   const sum = (k) => eq.reduce((a, it) => a + ((it.fx && it.fx[k]) || 0), 0) + gfx.reduce((a, f) => a + (f[k] || 0), 0);
   const st = calculateStatus(state);
   const boostActive = !!(r.boosts.xpUntil && Date.now() < r.boosts.xpUntil);
@@ -6192,7 +6556,11 @@ function getRpgBonuses(state) {
     goldPct: sum("goldPct"),
     bossDmgPct: sum("bossDmgPct") + Math.min(50, Math.floor(st.int / 40)),            // INTで攻撃力アップ
     dmgCutPct: Math.min(60, sum("dmgCutPct") + Math.min(20, Math.floor(st.def / 20))), // DEFで被ダメージ軽減
-    maxHp: Math.min(200, 60 + st.currentStreak * 5 + Math.floor(state.player.level * 2)) + sum("hpPlus"), // 連続学習・レベルでHPアップ
+    maxHp: Math.min(200, 60 + st.currentStreak * 5 + Math.floor(state.player.level * 2)) + Math.round(sum("hpPlus")), // 連続学習・レベルでHPアップ
+    dropPct: sum("dropPct"),       // 素材が落ちる確率（スキル）
+    comboXp: sum("comboXp"),       // 必殺技のときのEXP（スキル）
+    forgePct: sum("forgePct"),     // 強化の成功率（スキル）
+    revivePct: sum("revivePct"),   // ふんばりで回復するHP（スキル）
     boostActive,
   };
 }
@@ -6249,6 +6617,184 @@ const RpgRarityTag = ({ rarity }) => (
   <span className="pixel text-[9px] px-1" style={{ background: RARITY[rarity].color, color: "var(--paper)" }}>{rarity}</span>
 );
 
+// ── スキル（星の書）：3つの道を上から順に覚える ──
+const ROMAN = ["I", "II", "III", "IV", "V"];
+function SkillPanel({ state, actions, flash }) {
+  const r = normRpg(state.rpg);
+  const total = skillPointsTotal(state);
+  const left = total - skillPointsUsed(r);
+  const [just, setJust] = useState(null); // 覚えたばかりのスキル（光の演出）
+  const learn = (n) => {
+    const m = actions.learnSkill(n.id);
+    if (m && m.endsWith("覚えた！")) { setJust(n.id); SFX.play("skill"); setTimeout(() => setJust(null), 1000); }
+    if (m) flash(m);
+  };
+  return (
+    <>
+      <style>{BATTLE_CSS}</style>
+      <Box title="スキル" icon={<Sparkles size={18} />}>
+        <div className="flex items-center gap-3 mb-3 p-3" style={{ background: "var(--sky-pale)", border: "1px solid var(--rule-soft)" }}>
+          <div className="flex-1 min-w-0">
+            <div className="jp text-xs" style={{ color: "var(--ink-soft)" }}>スキルポイント</div>
+            <div className="jp" style={{ color: "var(--ink)" }}><span style={{ fontSize: 28, fontWeight: 800, color: left > 0 ? "var(--gold)" : "var(--ink)" }}>{left}</span><span className="text-sm"> / {total}</span></div>
+            <div className="jp text-[10px]" style={{ color: "var(--ink-mute)" }}>レベルが1上がるごとに1ポイント。同じ道は上から順に覚えます。</div>
+          </div>
+          {r.skills.length > 0 && <button onClick={() => { if (confirm(`${SKILL_RESET_COST}Gを払って、覚えたスキルをすべて忘れ、ポイントを戻しますか？`)) flash(actions.resetSkills()); }} className="jp btn-ghost text-[11px] px-2 py-1.5 flex-shrink-0">忘却の儀式<br />{SKILL_RESET_COST}G</button>}
+        </div>
+        <div className="grid gap-3 md:grid-cols-3">
+          {SKILL_TREE.map((b) => (
+            <div key={b.id} className="p-2" style={{ border: `1px solid ${b.color}55`, background: "var(--paper)" }}>
+              <div className="jp text-center mb-2"><span style={{ fontWeight: 800, color: b.color, letterSpacing: "0.1em" }}>{b.name}</span><span className="text-[10px] ml-1" style={{ color: "var(--ink-mute)" }}>{b.sub}</span></div>
+              {b.nodes.map((n, i) => {
+                const learned = r.skills.includes(n.id);
+                const open = !learned && (i === 0 || r.skills.includes(b.nodes[i - 1].id));
+                const can = open && left >= n.cost;
+                return (
+                  <div key={n.id}>
+                    {i > 0 && <div style={{ width: 2, height: 12, marginLeft: 21, background: learned ? b.color : "var(--rule-soft)" }} />}
+                    <div className="flex items-center gap-2" style={{ opacity: learned || open ? 1 : 0.45 }}>
+                      <div style={{ width: 44, height: 44, borderRadius: "50%", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'Cinzel', serif", fontWeight: 900, fontSize: 14,
+                        background: learned ? `radial-gradient(circle at 35% 30%, ${b.color}cc, ${b.color})` : "var(--paper)", color: learned ? "#fdfbf5" : b.color,
+                        border: `2px solid ${learned ? "#d6b56a" : open ? b.color : "var(--rule-soft)"}`,
+                        animation: just === n.id ? "sqfLearn .9s ease-out" : can ? "sqfPulse 1.8s ease-in-out infinite" : undefined }}>{ROMAN[i]}</div>
+                      <div className="flex-1 min-w-0">
+                        <div className="jp text-sm" style={{ color: "var(--ink)", fontWeight: 700 }}>{n.name}</div>
+                        <div className="jp text-[10px]" style={{ color: "var(--sky-deep)" }}>{fxText(n.fx)}</div>
+                      </div>
+                      {learned ? <span className="jp text-[10px]" style={{ color: b.color, fontWeight: 700 }}>習得済み</span>
+                        : <button disabled={!can} onClick={() => learn(n)} className="jp btn-primary text-[11px] px-2 py-1 flex-shrink-0">覚える<br />SP{n.cost}</button>}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+      </Box>
+    </>
+  );
+}
+
+// ── 鍛冶場：素材とゴールドで装備を強化する（+1〜+10） ──
+function ForgePanel({ state, actions }) {
+  const r = normRpg(state.rpg);
+  const bonus = getRpgBonuses(state);
+  const eqU = new Set(Object.values(r.equipped).filter(Boolean));
+  const list = r.inventory.map((v) => ({ v, it: rpgInvItem(v) })).filter((x) => x.it)
+    .sort((a, b) => (eqU.has(b.v.u) - eqU.has(a.v.u)) || (["N", "R", "SR", "SSR"].indexOf(b.it.rarity) - ["N", "R", "SR", "SSR"].indexOf(a.it.rarity)) || (b.it.plus - a.it.plus));
+  const [sel, setSel] = useState(() => (list[0] ? list[0].v.u : null));
+  const [phase, setPhase] = useState(null); // null | "hammer" | {ok, msg, plus}
+  const cur = list.find((x) => x.v.u === sel) || list[0];
+  const busy = phase === "hammer";
+  const strike = () => {
+    if (!cur || busy) return;
+    setPhase("hammer");
+    [0, 300, 600].forEach((t) => setTimeout(() => SFX.play("clang"), t));
+    setTimeout(() => {
+      const res = actions.forge(cur.v.u);
+      setPhase(res);
+      SFX.play(res.ok ? "forgeOk" : "forgeFail");
+      setTimeout(() => setPhase((p) => (p === res ? null : p)), 1800);
+    }, 900);
+  };
+  const sparks = Array.from({ length: 12 }, (_, i) => { const a = -Math.PI * (0.1 + 0.8 * (i / 11)); const d = 30 + (i % 4) * 9; return { dx: `${Math.round(Math.cos(a) * d)}px`, dy: `${Math.round(Math.sin(a) * d)}px`, delay: (i % 3) * 0.3 }; });
+  const have = (id) => r.materials[id] || 0;
+  return (
+    <>
+      <style>{BATTLE_CSS}</style>
+      <Box title="鍛冶場" icon={<Sword size={18} />}>
+        {!cur ? <p className="jp text-sm" style={{ color: "var(--ink-mute)" }}>強化できる装備を持っていません。ショップやボス討伐で手に入れましょう。</p> : (() => {
+          const it = cur.it;
+          const max = it.plus >= FORGE_MAX;
+          const c = forgeCost(it, it.plus, bonus.forgePct);
+          const next = forgedFx(rpgItemById(it.id).fx, it.plus + 1);
+          const rows = [["ゴールド", c.gold, r.gold, null], ["欠片（どの科目でも）", c.frag, fragCount(r.materials), "m-chiban"], ["星霊石", c.star, have("m-star"), "m-star"], ["賢者の結晶", c.sage, have("m-sage"), "m-sage"]].filter((x) => x[1] > 0);
+          const enough = rows.every((x) => x[2] >= x[1]);
+          return (
+            <div className="p-3 mb-3" style={{ background: "var(--sky-pale)", border: "1px solid var(--rule-soft)" }}>
+              <div className="flex items-center gap-4">
+                {/* 金床と槌 */}
+                <div className="relative flex-shrink-0" style={{ width: 120, height: 120 }}>
+                  <svg viewBox="0 0 120 120" width="120" height="120" style={{ position: "absolute", inset: 0 }} aria-hidden="true">
+                    <path d="M18 92h70c0-8 6-12 16-12v-8H30c-4 6-8 10-12 10z" fill="#5b6b8c" stroke="#22335c" strokeWidth="2" strokeLinejoin="round" />
+                    <path d="M44 92l-6 16h44l-6-16z" fill="#4a5a7c" stroke="#22335c" strokeWidth="2" strokeLinejoin="round" />
+                  </svg>
+                  <div style={{ position: "absolute", left: 32, top: 14, animation: phase && phase !== "hammer" ? (phase.ok ? "sqbIdle 1.2s ease-in-out infinite" : undefined) : undefined }}>
+                    <GameIcon ch={it.icon} id={it.id} rarity={it.rarity} size={56} />
+                    {it.plus > 0 && <span className="jp" style={{ position: "absolute", right: -8, bottom: -2, fontFamily: "'Cinzel', serif", fontWeight: 900, fontSize: 13, color: "#fdfbf5", background: "#b08a3e", borderRadius: 999, padding: "0 5px" }}>+{it.plus}</span>}
+                  </div>
+                  {busy && (<>
+                    <svg viewBox="0 0 40 60" width="40" height="60" style={{ position: "absolute", right: -4, top: -10, transformOrigin: "34px 54px", animation: "sqfHammer .3s ease-in-out 3" }} aria-hidden="true">
+                      <rect x="31" y="14" width="5" height="42" rx="2" fill="#8a5a32" stroke="#5f3f1f" strokeWidth="1" />
+                      <rect x="18" y="6" width="22" height="12" rx="2" fill="#a7afc2" stroke="#22335c" strokeWidth="1.4" />
+                    </svg>
+                    {sparks.map((s, i) => <span key={i} style={{ position: "absolute", left: 58, top: 60, width: 5, height: 5, borderRadius: "50%", background: i % 2 ? "#f2c14e" : "#fff3c4", boxShadow: "0 0 6px #f2c14e", "--dx": s.dx, "--dy": s.dy, animation: `sqfSpark .35s ease-out ${s.delay}s both` }} />)}
+                  </>)}
+                  {phase && phase !== "hammer" && (phase.ok
+                    ? <div style={{ position: "absolute", left: 10, top: 0, width: 100, height: 100, borderRadius: "50%", border: "3px solid #f2c14e", boxShadow: "0 0 24px #f2c14e", animation: "sqfGlow 1s ease-out forwards", pointerEvents: "none" }} />
+                    : <div style={{ position: "absolute", left: 30, top: 20, width: 60, height: 60, borderRadius: "50%", background: "radial-gradient(circle, rgba(120,120,130,0.7), rgba(120,120,130,0))", animation: "sqfSmoke 1.2s ease-out forwards", pointerEvents: "none" }} />)}
+                </div>
+                <div className="flex-1 min-w-0 jp">
+                  <div className="text-base" style={{ color: "var(--ink)", fontWeight: 800 }}>{it.label} <RpgRarityTag rarity={it.rarity} /></div>
+                  <div className="text-[11px]" style={{ color: "var(--sky-deep)" }}>いま：{fxText(it.fx)}</div>
+                  {!max && <div className="text-[11px]" style={{ color: "var(--gold)", fontWeight: 700 }}>+{it.plus + 1}：{fxText(next)}</div>}
+                  {phase && phase !== "hammer" && <div className="text-sm mt-1" style={{ fontWeight: 800, color: phase.ok ? "var(--gold)" : "var(--brick)", animation: "sqFadeIn .3s ease-out" }}>{phase.msg}</div>}
+                </div>
+              </div>
+              {max ? <p className="jp text-sm text-center mt-3" style={{ color: "var(--gold)", fontWeight: 800 }}>最大まで強化済み（+{FORGE_MAX}）</p> : (<>
+                <div className="grid grid-cols-2 gap-1.5 mt-3">
+                  {rows.map(([label, need, got, icon]) => (
+                    <div key={label} className="jp flex items-center gap-1.5 text-xs px-2 py-1" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)" }}>
+                      {icon ? <MaterialIcon id={icon} size={18} /> : <span style={{ color: "var(--gold)" }}>G</span>}
+                      <span className="flex-1 truncate" style={{ color: "var(--ink-soft)" }}>{label}</span>
+                      <span style={{ fontWeight: 800, color: got >= need ? "var(--ink)" : "var(--brick)" }}>{need.toLocaleString()}</span>
+                      <span className="text-[10px]" style={{ color: "var(--ink-mute)" }}>/{got.toLocaleString()}</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex items-center gap-3 mt-3">
+                  <div className="jp text-center flex-shrink-0" style={{ width: 84 }}>
+                    <div className="text-[10px]" style={{ color: "var(--ink-mute)" }}>成功率</div>
+                    <div style={{ fontSize: 22, fontWeight: 800, color: c.rate >= 80 ? "var(--sage)" : c.rate >= 50 ? "var(--gold)" : "var(--brick)" }}>{c.rate}%</div>
+                  </div>
+                  <button onClick={strike} disabled={!enough || busy} className="jp btn-primary flex-1 py-3 text-base">{busy ? "カン、カン、カン…" : "強化する"}</button>
+                </div>
+                <p className="jp text-[10px] mt-2" style={{ color: "var(--ink-mute)" }}>+3までは必ず成功します。失敗しても段階は下がりませんが、素材とゴールドは使います。+4から星霊石、+8から賢者の結晶が必要です。</p>
+              </>)}
+            </div>
+          );
+        })()}
+        {list.length > 0 && (
+          <div className="space-y-1">
+            <div className="jp text-xs" style={{ color: "var(--ink-soft)" }}>強化する装備を選ぶ</div>
+            {list.map(({ v, it }) => (
+              <button key={v.u} onClick={() => !busy && setSel(v.u)} className="w-full text-left flex items-center gap-2 p-1.5" style={{ border: `1px solid ${cur && cur.v.u === v.u ? "var(--gold)" : "var(--rule-soft)"}`, background: cur && cur.v.u === v.u ? "var(--cream)" : "var(--paper)" }}>
+                <GameIcon ch={it.icon} id={it.id} rarity={it.rarity} size={30} />
+                <span className="jp text-xs flex-1" style={{ color: "var(--ink)" }}>{it.label} <RpgRarityTag rarity={it.rarity} /></span>
+                {eqU.has(v.u) && <span className="jp text-[10px]" style={{ color: "var(--sage)" }}>装備中</span>}
+              </button>
+            ))}
+          </div>
+        )}
+      </Box>
+      <Box title="素材袋" icon={<Bookmark size={18} />}>
+        <div className="grid grid-cols-3 md:grid-cols-5 gap-1.5">
+          {RPG_MATERIALS.map((m) => (
+            <div key={m.id} className="jp flex items-center gap-1.5 px-2 py-1.5" title={m.desc || ""} style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)", opacity: have(m.id) > 0 ? 1 : 0.45 }}>
+              <MaterialIcon id={m.id} size={24} />
+              <div className="min-w-0">
+                <div className="text-[10px] truncate" style={{ color: "var(--ink-soft)" }}>{m.name}</div>
+                <div className="text-sm" style={{ fontWeight: 800, color: "var(--ink)" }}>{have(m.id)}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+        <p className="jp text-[10px] mt-2" style={{ color: "var(--ink-mute)" }}>魔物を倒すと、その科目の欠片を落とします。手強い魔物（苦手な問題）は欠片を2つと、星霊石を落とすことがあります。10コンボごとの必殺技で賢者の結晶が手に入ります。</p>
+      </Box>
+    </>
+  );
+}
+
 // ── 冒険タブ ──
 function AdventureTab({ state, actions, recordAnswer, startTimer, stopTimer }) {
   const r = normRpg(state.rpg);
@@ -6258,6 +6804,7 @@ function AdventureTab({ state, actions, recordAnswer, startTimer, stopTimer }) {
   const [slotOpen, setSlotOpen] = useState(null);   // 装備を選んでいるスロット
   const [qualId, setQualId] = useState("all");
   const [msg, setMsg] = useState("");
+  const [view, setView] = useState("base"); // base（拠点・ボス）| skill | forge
 
   if (battle) {
     return <BossBattle state={state} boss={battle.boss} pool={battle.pool} actions={actions} recordAnswer={recordAnswer} startTimer={startTimer} stopTimer={stopTimer} onExit={() => setBattle(null)} />;
@@ -6274,13 +6821,29 @@ function AdventureTab({ state, actions, recordAnswer, startTimer, stopTimer }) {
   };
   const flash = (t) => { setMsg(t); setTimeout(() => setMsg(""), 2500); };
   const mainAch = state.player.mainTitleId ? state.player.achievements.find((a) => a.id === state.player.mainTitleId) : null;
-  const eqMap = Object.fromEntries(RPG_SLOTS.map((s) => [s.id, (() => { const inv = r.inventory.find((v) => v.u === r.equipped[s.id]); return inv ? rpgItemById(inv.i) : null; })()]));
+  const eqMap = Object.fromEntries(RPG_SLOTS.map((s) => [s.id, rpgInvItem(r.inventory.find((v) => v.u === r.equipped[s.id]))]));
   const owned = new Set(state.player.achievements.map((a) => a.id));
   const boostLeft = bonus.boostActive ? Math.ceil((r.boosts.xpUntil - Date.now()) / 60000) : 0;
+  const spLeft = skillPointsTotal(state) - skillPointsUsed(r);
+  const msgBox = msg && <div className="jp text-sm p-2 text-center" style={{ background: "var(--cream)", border: "1px solid var(--gold)", color: "var(--ink)" }}>{msg}</div>;
+  // 画面上部の切り替え（拠点・ボス／スキル／鍛冶場）
+  const nav = (
+    <div className="grid grid-cols-3 gap-1.5">
+      {[["base", "拠点・ボス"], ["skill", "スキル"], ["forge", "鍛冶場"]].map(([id, label]) => (
+        <button key={id} onClick={() => setView(id)} className={`jp py-2 text-sm relative ${view === id ? "btn-primary" : "btn-ghost"}`}>
+          {label}
+          {id === "skill" && spLeft > 0 && <span className="absolute -top-1.5 -right-1 text-[10px] px-1.5" style={{ background: "var(--brick)", color: "var(--paper)", borderRadius: 999 }}>{spLeft}</span>}
+        </button>
+      ))}
+    </div>
+  );
+  if (view === "skill") return <div className="space-y-4">{nav}{msgBox}<SkillPanel state={state} actions={actions} flash={flash} /></div>;
+  if (view === "forge") return <div className="space-y-4">{nav}{msgBox}<ForgePanel state={state} actions={actions} /></div>;
 
   return (
     <div className="space-y-4">
-      {msg && <div className="jp text-sm p-2 text-center" style={{ background: "var(--cream)", border: "1px solid var(--gold)", color: "var(--ink)" }}>{msg}</div>}
+      {nav}
+      {msgBox}
 
       {/* 拠点 */}
       <Box title="冒険の拠点" icon={<Castle size={18} />}>
@@ -6288,7 +6851,7 @@ function AdventureTab({ state, actions, recordAnswer, startTimer, stopTimer }) {
           <div className="flex-shrink-0"><HeroPortrait state={state} size={150} /></div>
           <div className="flex-1 min-w-0">
             <div className="pixel text-sm mb-1" style={{ color: "var(--gold)" }}>💰 {r.gold.toLocaleString()} G</div>
-            <div className="flex gap-1 mb-1 text-xl">{RPG_SLOTS.map((s) => <span key={s.id} title={s.label} style={{ opacity: eqMap[s.id] ? 1 : 0.25 }}>{eqMap[s.id] ? eqMap[s.id].icon : "▫️"}</span>)}</div>
+            <div className="flex gap-1 mb-1 text-xl">{RPG_SLOTS.map((s) => <span key={s.id} title={s.label} style={{ opacity: eqMap[s.id] ? 1 : 0.25 }}>{eqMap[s.id] ? <GameIcon ch={eqMap[s.id].icon} id={eqMap[s.id].id} rarity={eqMap[s.id].rarity} size={34} /> : "▫️"}</span>)}</div>
             <div className="jp text-[10px]" style={{ color: "var(--ink-soft)" }}>
               会心率 {bonus.critPct}% ・ EXP+{bonus.xpPct}% ・ ゴールド+{bonus.goldPct}%
             </div>
@@ -6304,7 +6867,7 @@ function AdventureTab({ state, actions, recordAnswer, startTimer, stopTimer }) {
       {/* ボス戦 */}
       <Box title="ボス戦" icon={<Skull size={18} />}>
         <div className="flex items-center gap-3 mb-3">
-          <div className="text-5xl">{boss.icon}</div>
+          <div className="text-5xl"><GameIcon ch={boss.icon} id={boss.id} size={64} boss /></div>
           <div className="flex-1">
             <div className="jp text-base" style={{ color: "var(--brick)", fontWeight: "bold" }}>{boss.label}</div>
             <div className="pixel text-[10px]" style={{ color: "var(--ink-soft)" }}>HP {boss.hp} ・ ATK {boss.atk}</div>
@@ -6342,7 +6905,7 @@ function AdventureTab({ state, actions, recordAnswer, startTimer, stopTimer }) {
               <div key={s.id} style={{ border: "1px solid var(--rule-soft)", background: "var(--paper)" }}>
                 <button onClick={() => setSlotOpen(slotOpen === s.id ? null : s.id)} className="w-full text-left p-2 flex items-center gap-2" style={{ background: "transparent", border: "none" }}>
                   <span className="jp text-[10px] w-16 flex-shrink-0" style={{ color: "var(--ink-mute)" }}>{s.label}</span>
-                  {it ? <><span className="text-lg">{it.icon}</span><span className="jp text-sm flex-1" style={{ color: "var(--ink)" }}>{it.name}</span><RpgRarityTag rarity={it.rarity} /></> : <span className="jp text-xs flex-1" style={{ color: "var(--ink-mute)" }}>なし</span>}
+                  {it ? <><GameIcon ch={it.icon} id={it.id} rarity={it.rarity} size={30} /><span className="jp text-sm flex-1" style={{ color: "var(--ink)" }}>{it.label}</span><RpgRarityTag rarity={it.rarity} /></> : <span className="jp text-xs flex-1" style={{ color: "var(--ink-mute)" }}>なし</span>}
                   <span className="jp text-[10px]" style={{ color: "var(--ink-mute)" }}>{slotOpen === s.id ? "▲" : `変更(${candidates.length})`}</span>
                 </button>
                 {it && <div className="jp text-[10px] px-2 pb-1" style={{ color: "var(--sky-deep)" }}>{fxText(it.fx)}</div>}
@@ -6351,13 +6914,13 @@ function AdventureTab({ state, actions, recordAnswer, startTimer, stopTimer }) {
                     {candidates.length === 0 && <p className="jp text-[11px]" style={{ color: "var(--ink-mute)" }}>この部位の装備を持っていません。ショップやボス討伐で手に入ります。</p>}
                     {r.equipped[s.id] && <button onClick={() => { actions.equip(s.id, null); setSlotOpen(null); }} className="jp text-[11px] w-full py-1" style={{ border: "1px dashed var(--rule-soft)", background: "transparent", color: "var(--ink-soft)" }}>外す</button>}
                     {candidates.map((v) => {
-                      const ci = rpgItemById(v.i);
+                      const ci = rpgInvItem(v);
                       const on = r.equipped[s.id] === v.u;
                       return (
                         <div key={v.u} className="flex items-center gap-2 p-1" style={{ background: on ? "var(--sky-pale)" : "transparent" }}>
-                          <span className="text-lg">{ci.icon}</span>
+                          <GameIcon ch={ci.icon} id={ci.id} rarity={ci.rarity} size={30} />
                           <div className="flex-1 min-w-0">
-                            <div className="jp text-xs" style={{ color: "var(--ink)" }}>{ci.name} <RpgRarityTag rarity={ci.rarity} /></div>
+                            <div className="jp text-xs" style={{ color: "var(--ink)" }}>{ci.label} <RpgRarityTag rarity={ci.rarity} /></div>
                             <div className="jp text-[10px]" style={{ color: "var(--sky-deep)" }}>{fxText(ci.fx)}</div>
                           </div>
                           {on ? <span className="jp text-[10px]" style={{ color: "var(--sage)" }}>装備中</span>
@@ -6383,7 +6946,7 @@ function AdventureTab({ state, actions, recordAnswer, startTimer, stopTimer }) {
         <div className="space-y-1">
           {RPG_CONSUMABLES.map((c) => (
             <div key={c.id} className="flex items-center gap-2 p-1.5" style={{ border: "1px solid var(--rule-soft)", background: "var(--paper)" }}>
-              <span className="text-xl">{c.icon}</span>
+              <GameIcon ch={c.icon} size={36} />
               <div className="flex-1 min-w-0">
                 <div className="jp text-xs" style={{ color: "var(--ink)" }}>{c.name} ×{r.consumables[c.id] || 0}</div>
                 <div className="jp text-[10px]" style={{ color: "var(--ink-mute)" }}>{c.desc}</div>
@@ -6400,7 +6963,7 @@ function AdventureTab({ state, actions, recordAnswer, startTimer, stopTimer }) {
         <div className="space-y-1">
           {RPG_ITEMS.filter((it) => it.price).map((it) => (
             <div key={it.id} className="flex items-center gap-2 p-1.5" style={{ border: "1px solid var(--rule-soft)", background: "var(--paper)" }}>
-              <span className="text-xl">{it.icon}</span>
+              <GameIcon ch={it.icon} id={it.id} rarity={it.rarity} size={36} />
               <div className="flex-1 min-w-0">
                 <div className="jp text-xs" style={{ color: "var(--ink)" }}>{it.name} <RpgRarityTag rarity={it.rarity} /> <span className="text-[10px]" style={{ color: "var(--ink-mute)" }}>{RPG_SLOTS.find((s) => s.id === it.slot).label}</span></div>
                 <div className="jp text-[10px]" style={{ color: "var(--sky-deep)" }}>{fxText(it.fx)}</div>
@@ -6519,7 +7082,7 @@ function BossBattle({ state, boss, pool, actions, recordAnswer, startTimer, stop
     return (
       <Box title={result.won ? "勝利！" : "敗北…"} icon={result.won ? <Award size={18} /> : <Skull size={18} />}>
         <div className="text-center py-3">
-          <div className="text-6xl mb-2" style={{ filter: result.won ? "grayscale(1) opacity(0.4)" : "none" }}>{boss.icon}</div>
+          <div className="text-6xl mb-2" style={{ filter: result.won ? "grayscale(1) opacity(0.4)" : "none" }}><GameIcon ch={boss.icon} id={boss.id} size={76} boss /></div>
           <div className="jp text-base mb-2" style={{ color: result.won ? "var(--sage)" : "var(--brick)" }}>
             {result.won ? `${boss.label}を倒した！` : result.fled ? `${boss.label}は逃げていった…` : "力尽きてしまった…"}
           </div>
@@ -6527,7 +7090,7 @@ function BossBattle({ state, boss, pool, actions, recordAnswer, startTimer, stop
           {it && (
             <div className="mt-3 p-2 inline-block" style={{ border: `2px solid ${RARITY[it.rarity].color}`, background: "var(--paper)" }}>
               <div className="jp text-[10px]" style={{ color: "var(--ink-mute)" }}>戦利品</div>
-              <div className="text-3xl">{it.icon}</div>
+              <div className="flex justify-center my-1"><GameIcon ch={it.icon} id={it.id} rarity={it.rarity} size={48} /></div>
               <div className="jp text-sm" style={{ color: "var(--ink)" }}>{it.name} <RpgRarityTag rarity={it.rarity} /></div>
               <div className="jp text-[10px]" style={{ color: "var(--sky-deep)" }}>{fxText(it.fx)}</div>
             </div>
@@ -6549,7 +7112,7 @@ function BossBattle({ state, boss, pool, actions, recordAnswer, startTimer, stop
       <div className="rpg-box p-1">
         <div className="rpg-inner-border">
           <div className="flex items-center gap-3">
-            <div className={`text-5xl ${hit === "boss" ? "sq-shake" : ""}`}>{boss.icon}</div>
+            <div className={`text-5xl ${hit === "boss" ? "sq-shake" : ""}`}><GameIcon ch={boss.icon} id={boss.id} size={64} boss /></div>
             <div className="flex-1">
               <div className="jp text-sm mb-1" style={{ color: "var(--brick)", fontWeight: "bold" }}>{boss.label}</div>
               {bar(bossHp, boss.hp, "linear-gradient(90deg, var(--brick), #c66060)")}
@@ -6607,7 +7170,7 @@ function RpgBonusBox({ state }) {
     <Box title="装備と効果" icon={<Castle size={18} />}>
       <div className="flex gap-2 mb-2 flex-wrap">
         {eq.length === 0 && <span className="jp text-xs" style={{ color: "var(--ink-mute)" }}>装備なし（冒険タブで装備できます）</span>}
-        {eq.map((it) => <span key={it.id} className="jp text-xs px-1.5 py-0.5" style={{ border: `1px solid ${RARITY[it.rarity].color}` }}>{it.icon} {it.name}</span>)}
+        {eq.map((it) => <span key={it.id} className="jp text-xs px-1.5 py-0.5" style={{ border: `1px solid ${RARITY[it.rarity].color}` }}>{it.icon} {it.label}</span>)}
       </div>
       {(() => {
         const c = getClassInfo(state), p = getPetInfo(state), aw = getAwakening(state);
@@ -6716,7 +7279,40 @@ const RPG_SCENES = {
 };
 
 // キャラクター・背景・オーラ・光の粒・相棒・★をまとめて描く
-function HeroPortrait({ state, size = 160 }) {
+// 白金テーマの主人公：少女の立ち絵（アーチ形の額縁）。覚醒の★・相棒・クラスはドット絵版と同じ情報を出す
+function WhiteHeroPortrait({ state, size = 160 }) {
+  const [imgOk, setImgOk] = useState(true);
+  const cls = getClassInfo(state);
+  const pet = getPetInfo(state);
+  const aw = getAwakening(state);
+  const scene = RPG_SCENES[getCharacterTier(state.player.level)] || RPG_SCENES.tier1;
+  if (!imgOk) return <HeroPortrait state={state} size={size} pixel />;
+  const h = Math.round(size * 1.3);
+  return (
+    <div style={{ width: size, display: "inline-block" }}>
+      <div style={{ width: size, height: h, position: "relative", padding: 3, borderRadius: `${size / 2}px ${size / 2}px 4px 4px`, background: "linear-gradient(180deg, #d6b56a, #b08a3e)", boxShadow: aw.stars >= 3 ? "0 0 14px rgba(214,181,106,0.85)" : "0 4px 12px rgba(40,50,80,0.15)" }}>
+        <div style={{ width: "100%", height: "100%", overflow: "hidden", position: "relative", borderRadius: `${size / 2 - 3}px ${size / 2 - 3}px 2px 2px`, background: "#e9e4d6" }}>
+          <img src={WHITE_HERO_URL} alt="主人公の立ち絵" onError={() => setImgOk(false)} style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "center 16%", display: "block" }} />
+          {aw.stars > 0 && (
+            <div style={{ position: "absolute", top: size * 0.1, left: 0, right: 0, textAlign: "center", fontSize: Math.max(10, size * 0.08), color: "#ffe7a3", letterSpacing: 2, textShadow: "0 0 6px rgba(176,138,62,0.95), 0 1px 1px rgba(0,0,0,0.3)" }}>{"★".repeat(aw.stars)}</div>
+          )}
+          {pet && (
+            <div title={`${pet.name}（${pet.stageName}）`} style={{ position: "absolute", right: "6%", bottom: "4%", width: size * 0.26, height: size * 0.26, borderRadius: "50%", background: "rgba(253,251,245,0.92)", border: "1px solid #b08a3e", display: "flex", alignItems: "center", justifyContent: "center", fontSize: size * 0.15, animation: "sqBob 1.8s ease-in-out infinite" }}>{pet.icon}</div>
+          )}
+        </div>
+      </div>
+      <div className="jp text-center mt-1.5 px-1 py-0.5" style={{ background: "#fdfbf5", border: "1px solid #b08a3e", borderRadius: 4, color: "#22335c", fontWeight: 700, fontSize: Math.max(10, size * 0.07) }}>
+        {cls ? `${cls.icon} ${cls.rankName}` : "クラス未選択"}
+      </div>
+      <div className="jp text-center mt-0.5" style={{ fontSize: Math.max(9, size * 0.06), color: "#5b6b8c" }}>{scene.name}</div>
+      <style>{`@keyframes sqBob{0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)}}`}</style>
+    </div>
+  );
+}
+
+function HeroPortrait({ state, size = 160, pixel = false }) {
+  // 白金テーマでは少女の立ち絵を出す（pixel を付けたときはドット絵のまま）
+  if (!pixel && ((state.displaySettings && state.displaySettings.theme) || "white") === "white") return <WhiteHeroPortrait state={state} size={size} />;
   const level = state.player.level;
   const tier = getCharacterTier(level);
   const ti = tierIndex(level);
@@ -6884,9 +7480,390 @@ function GrowthPanels({ state, actions }) {
 // ============ 回答パネル（確信度・間違いの種類） ============
 // 答えを見た後に表示する。正解は「確実/自信なし」の2択、
 // 不正解は原因（知識不足・混同・読み違い・ケアレス）を1タップで選ぶ。
-function AnswerPanel({ onAnswer, wrongLabel = "不正解", correctLabel = "正解", sureClass = "btn-success", question, srSettings }) {
+// ============ バトル演出（問題を解く画面） ============
+// 問題1問＝魔物1体。答えのボタン（AnswerPanel）を押すと battleBus に結果が届き、BattleStage が攻撃・反撃を演出する。
+// 出題の順番や記録の保存にはかかわらない（見た目と効果音だけ）。設定でオフにもできる（displaySettings.battle）。
+
+// ── 効果音：Web Audio で合成する（設定でオンにしたときだけ鳴る） ──
+const SFX = {
+  enabled: false,
+  ctx: null,
+  ac() {
+    if (!this.ctx) { const C = window.AudioContext || window.webkitAudioContext; if (!C) return null; this.ctx = new C(); }
+    if (this.ctx.state === "suspended") this.ctx.resume();
+    return this.ctx;
+  },
+  tone(ac, f, t, dur, type = "square", vol = 0.06, slide) {
+    const o = ac.createOscillator(), g = ac.createGain(), t0 = ac.currentTime + t;
+    o.type = type; o.frequency.setValueAtTime(f, t0);
+    if (slide) o.frequency.exponentialRampToValueAtTime(slide, t0 + dur);
+    g.gain.setValueAtTime(vol, t0); g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    o.connect(g); g.connect(ac.destination); o.start(t0); o.stop(t0 + dur + 0.03);
+  },
+  noise(ac, t, dur, vol = 0.1, hp = 1000) {
+    const len = Math.floor(ac.sampleRate * dur), buf = ac.createBuffer(1, len, ac.sampleRate), d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
+    const src = ac.createBufferSource(), f = ac.createBiquadFilter(), g = ac.createGain();
+    src.buffer = buf; f.type = "highpass"; f.frequency.value = hp; g.gain.value = vol;
+    src.connect(f); f.connect(g); g.connect(ac.destination); src.start(ac.currentTime + t);
+  },
+  play(name) {
+    if (!this.enabled) return;
+    try {
+      const ac = this.ac(); if (!ac) return;
+      const T = (...a) => this.tone(ac, ...a), N = (...a) => this.noise(ac, ...a);
+      if (name === "hit") { N(0, 0.12, 0.12, 1600); T(520, 0, 0.1, "square", 0.05, 260); }
+      else if (name === "crit") { N(0, 0.18, 0.14, 1200); T(660, 0, 0.08, "square", 0.06); T(990, 0.07, 0.18, "square", 0.06, 1320); }
+      else if (name === "miss") { T(190, 0, 0.26, "sawtooth", 0.08, 60); N(0, 0.2, 0.1, 300); }
+      else if (name === "defeat") { T(880, 0.02, 0.08, "triangle", 0.05); T(1175, 0.09, 0.08, "triangle", 0.05); T(1568, 0.16, 0.14, "triangle", 0.05); }
+      else if (name === "combo") { [784, 988, 1319, 1568].forEach((f, i) => T(f, i * 0.07, i === 3 ? 0.3 : 0.08, "square", 0.05)); }
+      else if (name === "levelup") { [523, 659, 784, 1047].forEach((f, i) => T(f, i * 0.1, i === 3 ? 0.5 : 0.12, "triangle", 0.07)); }
+      else if (name === "result") { [659, 784, 1047].forEach((f, i) => T(f, i * 0.12, i === 2 ? 0.4 : 0.12, "triangle", 0.06)); }
+      else if (name === "drop") { T(1320, 0, 0.06, "triangle", 0.04); T(1760, 0.06, 0.12, "triangle", 0.04); }
+      else if (name === "clang") { N(0, 0.09, 0.12, 2500); T(1250, 0, 0.18, "square", 0.03, 900); }
+      else if (name === "forgeOk") { [784, 988, 1175, 1568].forEach((f, i) => T(f, i * 0.08, i === 3 ? 0.45 : 0.1, "triangle", 0.07)); }
+      else if (name === "forgeFail") { T(240, 0, 0.4, "sawtooth", 0.06, 110); N(0.05, 0.3, 0.05, 400); }
+      else if (name === "skill") { [523, 784, 1047, 1568].forEach((f, i) => T(f, i * 0.05, i === 3 ? 0.4 : 0.07, "triangle", 0.06)); }
+    } catch (e) { /* 音が出せなくても学習は続ける */ }
+  },
+};
+
+// ── 回答の結果を BattleStage に伝える仕組み ──
+const battleBus = typeof EventTarget !== "undefined" ? new EventTarget() : null;
+const emitBattle = (detail) => { try { if (battleBus) battleBus.dispatchEvent(new CustomEvent("answer", { detail })); } catch (e) { /* 演出だけなので失敗しても無視 */ } };
+// 戦利品（素材・必殺技のEXP）を StudyRPG に渡して記録してもらう
+const emitReward = (detail) => { try { if (battleBus) battleBus.dispatchEvent(new CustomEvent("reward", { detail })); } catch (e) { /* 失敗しても学習は続ける */ } };
+
+// ── 1回の学習（出撃）の記録：HP・コンボ・討伐数。リザルト画面で使う ──
+const BATTLE = { key: null, hp: 100, maxHp: 100, combo: 0, maxCombo: 0, defeated: 0, crits: 0, escaped: 0, faints: 0, mats: {}, start: null };
+const xpTotalOf = (p) => { let t = p.xp || 0; for (let l = 1; l < (p.level || 1); l++) t += getXpForNextLevel(l); return t; };
+function resetBattle(state) {
+  const b = getRpgBonuses(state);
+  Object.assign(BATTLE, { hp: b.maxHp, maxHp: b.maxHp, combo: 0, maxCombo: 0, defeated: 0, crits: 0, escaped: 0, faints: 0, mats: {}, start: { xp: xpTotalOf(state.player), level: state.player.level, gold: normRpg(state.rpg).gold } });
+}
+// コンボの節目で出る必殺技（カットイン）
+const COMBO_CUTS = [
+  { n: 5, name: "連撃・星屑の矢" },
+  { n: 10, name: "閃光・叡智の剣" },
+  { n: 20, name: "秘奥義・大賢者の審判" },
+  { n: 30, name: "極意・天地開闢" },
+];
+const comboCut = (n) => COMBO_CUTS.find((c) => c.n === n) || (n > 30 && n % 10 === 0 ? COMBO_CUTS[COMBO_CUTS.length - 1] : null);
+
+// ── 魔物：問題ごとに種族（形）は固定、色と名前は科目（問題集の名前）で決まる ──
+const hashStr = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619); return h >>> 0; };
+const MON_THEMES = [
+  { re: /区分所有/, prefix: "共用", mat: "m-kyoyo", body: "#a593d8", dark: "#5e4d93", light: "#e4dcf6" },
+  { re: /調査士法/, prefix: "懲戒", mat: "m-chokai", body: "#d6b56a", dark: "#8f6f2c", light: "#f6ead0" },
+  { re: /登記|不登/, prefix: "地番", mat: "m-chiban", body: "#7fa3d8", dark: "#34508c", light: "#dfe8f6" },
+  { re: /民法/, prefix: "契約", mat: "m-keiyaku", body: "#86bd70", dark: "#4f7a3a", light: "#e2f0da" },
+  { re: /測量|計算|座標/, prefix: "座標", mat: "m-zahyo", body: "#6fb8b4", dark: "#2f6f6c", light: "#d8efee" },
+  { re: /書式|作図|記述/, prefix: "書式", mat: "m-shoshiki", body: "#e3908a", dark: "#9a4d47", light: "#f8e0dd" },
+];
+const MON_THEME_DEFAULT = { prefix: "迷宮の", mat: "m-meikyu", body: "#a7afc2", dark: "#5b6b8c", light: "#e6e9f0" };
+const MON_UNKNOWN = { body: "#3d4258", dark: "#1f2233", light: "#5d6380", eye: "#f2c14e" };
+const EYE = "#22335c";
+const monEyes = (c, y = 58, gap = 10, r = 4) => (<>
+  <ellipse cx={50 - gap} cy={y} rx={r} ry={r * 1.35} fill={c.eye || EYE} /><ellipse cx={50 + gap} cy={y} rx={r} ry={r * 1.35} fill={c.eye || EYE} />
+  {!c.eye && <><circle cx={50 - gap + 1.3} cy={y - 2} r="1.3" fill="#fff" /><circle cx={50 + gap + 1.3} cy={y - 2} r="1.3" fill="#fff" /></>}
+</>);
+const MONSTER_SPECIES = [
+  { id: "slime", name: "スライム", draw: (c) => (<>
+    <path d="M16 80c0-26 16-52 34-60 18 8 34 34 34 60 0 6-6 8-12 8H28c-6 0-12-2-12-8z" fill={c.body} stroke={c.dark} strokeWidth="2.5" strokeLinejoin="round" />
+    <path d="M28 58c2-12 8-22 15-28" fill="none" stroke={c.light} strokeWidth="4" strokeLinecap="round" opacity=".8" />
+    {monEyes(c, 60, 11)}<path d="M44 72c4 3 8 3 12 0" fill="none" stroke={c.eye || EYE} strokeWidth="2.2" strokeLinecap="round" />
+  </>) },
+  { id: "bat", name: "バット", draw: (c) => (<>
+    <path d="M38 50C28 36 12 34 4 44c8 2 10 8 8 15 6-4 12-2 16 4 2-6 6-8 10-6zM62 50c10-14 26-16 34-6-8 2-10 8-8 15-6-4-12-2-16 4-2-6-6-8-10-6z" fill={c.dark} stroke={c.dark} strokeWidth="2" strokeLinejoin="round" />
+    <path d="M38 38l-2-12 9 8M62 38l2-12-9 8" fill={c.body} stroke={c.dark} strokeWidth="2" strokeLinejoin="round" />
+    <circle cx="50" cy="54" r="16" fill={c.body} stroke={c.dark} strokeWidth="2.5" />
+    {monEyes(c, 52, 7, 3.2)}<path d="M45 61l2 4 2-4M51 61l2 4 2-4" fill="#fff" stroke={c.dark} strokeWidth=".8" />
+  </>) },
+  { id: "mush", name: "マタンゴ", draw: (c) => (<>
+    <rect x="33" y="50" width="34" height="36" rx="12" fill="#f6ecd8" stroke={c.dark} strokeWidth="2.5" />
+    <path d="M12 54c0-22 17-36 38-36s38 14 38 36z" fill={c.body} stroke={c.dark} strokeWidth="2.5" strokeLinejoin="round" />
+    <circle cx="32" cy="38" r="5" fill={c.light} /><circle cx="56" cy="30" r="6" fill={c.light} /><circle cx="72" cy="44" r="4" fill={c.light} />
+    <path d="M39 61l7 3M61 61l-7 3" stroke={c.eye || EYE} strokeWidth="2.2" strokeLinecap="round" />{monEyes(c, 69, 7, 3)}
+  </>) },
+  { id: "wisp", name: "ウィスプ", draw: (c) => (<>
+    <path d="M50 10c10 18 28 26 26 48a26 26 0 0 1-52 0c-2-18 12-24 18-36 2 6 6 8 8 8 0-8-2-14 0-20z" fill={c.body} stroke={c.dark} strokeWidth="2.5" strokeLinejoin="round" opacity=".95" />
+    <path d="M50 40c6 8 14 12 13 22a13 13 0 0 1-26 0c0-8 6-10 8-16 1 3 3 4 5 4z" fill={c.light} opacity=".85" />
+    {monEyes(c, 62, 8, 3.4)}
+  </>) },
+  { id: "ghost", name: "ゴースト", draw: (c) => (<>
+    <path d="M24 88V46a26 26 0 0 1 52 0v42l-8.6-7-8.8 7-8.6-7-8.6 7-8.8-7z" fill={c.light} stroke={c.dark} strokeWidth="2.5" strokeLinejoin="round" />
+    <path d="M24 60c-6 0-10-4-12-8M76 60c6 0 10-4 12-8" fill="none" stroke={c.dark} strokeWidth="2.2" strokeLinecap="round" />
+    {monEyes(c, 48, 9, 3.8)}<ellipse cx="50" cy="64" rx="5" ry="6" fill={c.eye || EYE} />
+  </>) },
+  { id: "golem", name: "ゴーレム", draw: (c) => (<>
+    <path d="M26 22h48l8 14v36l-10 14H28L18 72V36z" fill="#a39d8f" stroke="#5f5a50" strokeWidth="2.5" strokeLinejoin="round" />
+    <path d="M26 22h48l4 7H22z" fill={c.body} opacity=".9" /><path d="M34 22l4 10-4 6M70 64l-6 6 2 10" fill="none" stroke="#5f5a50" strokeWidth="1.6" />
+    <rect x="32" y="46" width="12" height="5" rx="1.5" fill={c.eye || "#f2c14e"} /><rect x="56" y="46" width="12" height="5" rx="1.5" fill={c.eye || "#f2c14e"} />
+    <path d="M38 68h24" stroke="#5f5a50" strokeWidth="3" strokeLinecap="round" />
+  </>) },
+  { id: "imp", name: "インプ", draw: (c) => (<>
+    <path d="M70 70c12 0 18-6 20-14l-4 2" fill="none" stroke={c.dark} strokeWidth="2.5" strokeLinecap="round" />
+    <path d="M30 44l-14-8 4 14M70 44l14-8-4 14" fill={c.dark} stroke={c.dark} strokeWidth="2" strokeLinejoin="round" />
+    <path d="M34 30l-6-16 14 10M66 30l6-16-14 10" fill="#f6ecd8" stroke={c.dark} strokeWidth="2" strokeLinejoin="round" />
+    <circle cx="50" cy="54" r="24" fill={c.body} stroke={c.dark} strokeWidth="2.5" />
+    <path d="M39 47l7 3M61 47l-7 3" stroke={c.eye || EYE} strokeWidth="2.4" strokeLinecap="round" />{monEyes(c, 55, 9, 3.4)}
+    <path d="M40 67c6 5 14 5 20 0" fill="none" stroke={c.eye || EYE} strokeWidth="2.2" strokeLinecap="round" /><path d="M44 67l2 4 2-3M52 68l2 3 2-4" fill="#fff" />
+  </>) },
+  { id: "mimic", name: "ミミック", draw: (c) => (<>
+    <path d="M16 50h68v32a4 4 0 0 1-4 4H20a4 4 0 0 1-4-4z" fill="#a8743f" stroke="#5f3f1f" strokeWidth="2.5" />
+    <path d="M18 46c0-14 14-24 32-24s32 10 32 24l-4 8H22z" fill="#b98552" stroke="#5f3f1f" strokeWidth="2.5" strokeLinejoin="round" transform="rotate(-8 18 50)" />
+    <path d="M22 54h56l-4 10-6-6-6 8-6-8-6 8-6-8-6 8-6-6z" fill="#fff" stroke="#5f3f1f" strokeWidth="1.5" strokeLinejoin="round" />
+    <path d="M40 64c4 6 16 6 20 0" fill="#c94a4a" />
+    <path d="M16 70h68M50 50v36" stroke={c.body} strokeWidth="4" /><circle cx="50" cy="74" r="4" fill={c.light} stroke={c.dark} strokeWidth="1.5" />
+    {monEyes({ ...c, eye: c.eye || "#f2c14e" }, 38, 12, 3)}
+  </>) },
+];
+function monsterFor(q, bankName) {
+  const th = MON_THEMES.find((t) => t.re.test(bankName || "")) || MON_THEME_DEFAULT;
+  const sp = MONSTER_SPECIES[hashStr(String(q.id)) % MONSTER_SPECIES.length];
+  const seen = (q.correct || 0) + (q.wrong || 0) > 0 || !!q.sr_nextReview;
+  const rank = !seen ? "unknown" : isQuestionWeak(q) ? "elite" : "normal";
+  return { key: String(q.id), sp, th, rank, name: `${rank === "elite" ? "手強い" : ""}${th.prefix}${sp.name}` };
+}
+
+// テーマごとの戦闘画面の配色と主人公の顔（MentorBubble と同じ切り抜き）
+const BATTLE_THEME = {
+  white: { bg: "linear-gradient(180deg, #dce7f2 0%, #eef1ef 46%, #efe4c8 100%)", ground: "linear-gradient(180deg, rgba(176,138,62,0), rgba(176,138,62,0.22))", border: "1px solid #b08a3e", text: "#22335c", sub: "#5b6b8c", chip: "rgba(253,251,245,0.92)", gold: "#b08a3e", avatar: WHITE_HERO_URL, face: [69, 12], ring: "#b08a3e", hill: "rgba(127,163,216,0.28)", hill2: "rgba(34,51,92,0.13)" },
+  classic: { bg: "linear-gradient(180deg, #16244a 0%, #22386a 55%, #2d4474 100%)", ground: "linear-gradient(180deg, rgba(160,185,215,0), rgba(160,185,215,0.18))", border: "1px solid rgba(190,205,230,0.6)", text: "#eef1f6", sub: "#c9d4e2", chip: "rgba(20,30,60,0.75)", gold: "#dcbc6e", avatar: HERO_URL, face: [52, 13], ring: "#c9d3e6", hill: "rgba(160,185,215,0.18)", hill2: "rgba(10,18,38,0.45)" },
+  dot: { bg: "linear-gradient(180deg, #cfe6f5 0%, #e3edf5 55%, #d9e8c8 100%)", ground: "linear-gradient(180deg, rgba(109,132,84,0), rgba(109,132,84,0.25))", border: "2px solid var(--rule)", text: "var(--ink)", sub: "var(--ink-soft)", chip: "var(--paper)", gold: "var(--gold)", avatar: HERO_URL, face: [52, 13], ring: "var(--rule)", hill: "rgba(109,132,84,0.25)", hill2: "rgba(53,65,86,0.15)" },
+};
+const BATTLE_CSS = `
+@keyframes sqbEnter{0%{opacity:0;transform:translateX(34px) scale(.8)}100%{opacity:1;transform:none}}
+@keyframes sqbDefeat{0%{opacity:1;filter:brightness(1)}12%{filter:brightness(3.2)}30%{transform:translateX(7px)}100%{opacity:0;transform:scale(.55) translateY(12px);filter:brightness(2) blur(3px)}}
+@keyframes sqbEscape{0%{transform:none}28%{transform:translateX(-46px) scale(1.12)}48%{transform:translateX(-6px)}100%{opacity:0;transform:translateX(70px)}}
+@keyframes sqbIdle{0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)}}
+@keyframes sqbDmg{0%{opacity:0;transform:translate(-50%,0) scale(.5)}15%{opacity:1;transform:translate(-50%,-16px) scale(1.3)}70%{opacity:1;transform:translate(-50%,-28px) scale(1)}100%{opacity:0;transform:translate(-50%,-38px)}}
+@keyframes sqbSlash{0%{opacity:0;stroke-dashoffset:150}15%{opacity:1}55%{stroke-dashoffset:0;opacity:1}100%{opacity:0;stroke-dashoffset:0}}
+@keyframes sqbBurst{0%{opacity:1;transform:translate(0,0) scale(1)}100%{opacity:0;transform:translate(var(--dx),var(--dy)) scale(.2)}}
+@keyframes sqbShake{0%,100%{transform:translateX(0)}20%{transform:translateX(-8px)}40%{transform:translateX(7px)}60%{transform:translateX(-4px)}80%{transform:translateX(3px)}}
+@keyframes sqbRed{0%{opacity:0}20%{opacity:1}100%{opacity:0}}
+@keyframes sqbLunge{0%,100%{transform:none}35%{transform:translateX(22px) scale(1.12)}}
+@keyframes sqbHurt{0%,100%{transform:none;filter:none}30%{transform:translateX(-7px) rotate(-8deg);filter:sepia(1) saturate(4) hue-rotate(-40deg)}}
+@keyframes sqbPop{0%{transform:translateX(-50%) scale(1.8);opacity:0}100%{transform:translateX(-50%) scale(1);opacity:1}}
+@keyframes sqbHp{from{width:100%}to{width:0}}
+@keyframes sqbCut{0%{transform:translateX(-105%)}14%{transform:translateX(0)}82%{transform:translateX(0);opacity:1}100%{transform:translateX(18%);opacity:0}}
+@keyframes sqbBig{0%{opacity:0;transform:translate(-50%,-50%) scale(2.2)}18%{opacity:1;transform:translate(-50%,-50%) scale(1)}80%{opacity:1}100%{opacity:0;transform:translate(-50%,-50%) scale(1.05)}}
+@keyframes sqbAura{0%,100%{opacity:.55;transform:scale(1)}50%{opacity:.95;transform:scale(1.08)}}
+@keyframes sqbFlash{0%{opacity:.9}100%{opacity:0}}
+@keyframes sqbDrop{0%{opacity:0;transform:translate(-50%,10px) scale(.6)}25%{opacity:1;transform:translate(-50%,-6px) scale(1.15)}75%{opacity:1;transform:translate(-50%,-14px)}100%{opacity:0;transform:translate(-50%,-22px)}}
+@keyframes sqfHammer{0%{transform:rotate(-55deg)}45%{transform:rotate(12deg)}55%{transform:rotate(8deg)}100%{transform:rotate(-55deg)}}
+@keyframes sqfSpark{0%{opacity:1;transform:translate(0,0) scale(1)}100%{opacity:0;transform:translate(var(--dx),var(--dy)) scale(.2)}}
+@keyframes sqfGlow{0%{opacity:0;transform:scale(.6)}30%{opacity:1;transform:scale(1.15)}100%{opacity:0;transform:scale(1.6)}}
+@keyframes sqfSmoke{0%{opacity:0;transform:translateY(6px) scale(.8)}30%{opacity:.85}100%{opacity:0;transform:translateY(-26px) scale(1.4)}}
+@keyframes sqfLearn{0%{box-shadow:0 0 0 0 rgba(214,181,106,0.9)}100%{box-shadow:0 0 0 22px rgba(214,181,106,0)}}
+@keyframes sqfPulse{0%,100%{box-shadow:0 0 0 0 rgba(214,181,106,0.55)}50%{box-shadow:0 0 0 6px rgba(214,181,106,0)}}
+`;
+
+function MonsterView({ m, anim, delay = 0, size = 92 }) {
+  const c = m.rank === "unknown" ? MON_UNKNOWN : m.th;
+  const a = anim === "defeat" ? "sqbDefeat .6s ease-in forwards" : anim === "escape" ? "sqbEscape .75s ease-in-out forwards" : `sqbEnter .35s ease-out ${delay}s both`;
+  return (
+    <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", animation: a }}>
+      <div className="jp" style={{ fontSize: 11, fontWeight: 700, color: m.rank === "elite" ? "#a24a45" : "inherit", whiteSpace: "nowrap", marginBottom: 2 }}>{m.rank === "unknown" ? "？？？" : m.name}</div>
+      <div style={{ width: 74, height: 5, borderRadius: 3, background: "rgba(0,0,0,0.15)", overflow: "hidden", marginBottom: 2 }}>
+        <div style={{ height: "100%", width: "100%", background: m.rank === "elite" ? "linear-gradient(90deg,#a24a45,#e0948a)" : "linear-gradient(90deg,#c9564e,#e6a35c)", animation: anim === "defeat" ? "sqbHp .3s ease-out forwards" : undefined }} />
+      </div>
+      <div style={{ position: "relative", width: size, height: size, animation: anim === "enter" ? "sqbIdle 2.4s ease-in-out infinite" : undefined }}>
+        {m.rank === "elite" && <div style={{ position: "absolute", inset: -8, borderRadius: "50%", background: "radial-gradient(circle, rgba(201,74,74,0.45) 0%, rgba(201,74,74,0.12) 55%, transparent 72%)", animation: "sqbAura 1.6s ease-in-out infinite" }} />}
+        <svg viewBox="0 0 100 100" width={size} height={size} style={{ position: "relative", display: "block", overflow: "visible" }}>{m.sp.draw(c)}</svg>
+        {m.rank === "unknown" && <div className="jp" style={{ position: "absolute", left: "50%", top: "8%", transform: "translateX(-50%)", fontSize: size * 0.3, fontWeight: 800, color: "#f2c14e", textShadow: "0 0 8px rgba(242,193,78,0.8)" }}>？</div>}
+      </div>
+      <div style={{ width: size * 0.7, height: 7, borderRadius: "50%", background: "rgba(34,51,92,0.18)", marginTop: -3 }} />
+    </div>
+  );
+}
+
+// battleKey：1回の学習（セット）ごとに変わる値。変わったときだけ HP・コンボを最初からにする
+function BattleStage({ state, q, bankName, battleKey }) {
+  if (BATTLE.key !== battleKey) { resetBattle(state); BATTLE.key = battleKey; }
+  const ds = state.displaySettings || {};
+  const theme = ds.theme || "white";
+  const P = BATTLE_THEME[theme] || BATTLE_THEME.white;
+  const mon = q ? monsterFor(q, bankName) : null;
+  const monRef = useRef(mon); monRef.current = mon;
+  const qRef = useRef(q); qRef.current = q;
+  const stRef = useRef(state); stRef.current = state;
+  const [fx, setFx] = useState(null);   // 直前の回答の演出 { n, ok, crit, dmg, taken, faint, cut, mon }
+  const [doneQ, setDoneQ] = useState(null); // 回答済みの問題（次の問題に切り替わるまで魔物を出さない。同じ問題の再出題は別物として出す）
+  const fxN = useRef(0);
+  useEffect(() => {
+    if (!battleBus) return undefined;
+    const on = (e) => {
+      const { correct, conf } = e.detail || {};
+      const m = monRef.current;
+      if (!m) return;
+      const b = getRpgBonuses(stRef.current);
+      const n = ++fxN.current;
+      let hold = 900;
+      if (correct) {
+        const crit = conf === "sure";
+        BATTLE.combo++; BATTLE.maxCombo = Math.max(BATTLE.maxCombo, BATTLE.combo); BATTLE.defeated++; if (crit) BATTLE.crits++;
+        const dmg = Math.round((30 + stRef.current.player.level * 2) * (1 + b.bossDmgPct / 100) * (crit ? 2 : 1) * (0.9 + Math.random() * 0.2));
+        const cut = comboCut(BATTLE.combo);
+        if (cut) hold = 1100;
+        // 素材のドロップ：欠片は科目ごと、手強い魔物は星霊石も、10コンボごとの必殺技で賢者の結晶
+        const dropMul = 1 + (b.dropPct || 0) / 100;
+        const mats = {};
+        if (Math.random() < (m.rank === "elite" ? 1 : m.rank === "unknown" ? 0.5 : 0.35) * dropMul) mats[m.th.mat || "m-meikyu"] = m.rank === "elite" ? 2 : 1;
+        if (Math.random() < (m.rank === "elite" ? 0.3 : crit ? 0.03 : 0) * dropMul) mats["m-star"] = 1;
+        if (cut && cut.n >= 10) mats["m-sage"] = 1;
+        const xpBonus = cut && b.comboXp ? b.comboXp : 0;
+        if (Object.keys(mats).length || xpBonus) {
+          Object.entries(mats).forEach(([k, v]) => { BATTLE.mats[k] = (BATTLE.mats[k] || 0) + v; });
+          emitReward({ mats, xp: xpBonus });
+        }
+        setFx({ n, ok: true, crit, dmg, cut, mon: m, drops: Object.keys(mats) });
+        SFX.play(crit ? "crit" : "hit");
+        if (Object.keys(mats).length) setTimeout(() => SFX.play("drop"), 320);
+        setTimeout(() => SFX.play(cut ? "combo" : "defeat"), 170);
+      } else {
+        BATTLE.combo = 0; BATTLE.escaped++;
+        const taken = Math.max(1, Math.round((10 + Math.random() * 8 + (m.rank === "elite" ? 6 : 0)) * (1 - b.dmgCutPct / 100)));
+        BATTLE.hp -= taken;
+        let faint = false;
+        if (BATTLE.hp <= 0) { BATTLE.faints++; BATTLE.hp = Math.ceil(BATTLE.maxHp * (0.3 + (b.revivePct || 0) / 100)); faint = true; }
+        setFx({ n, ok: false, taken, faint, mon: m });
+        SFX.play("miss");
+      }
+      setDoneQ(qRef.current);
+      setTimeout(() => setFx((f) => (f && f.n === n ? null : f)), hold);
+    };
+    battleBus.addEventListener("answer", on);
+    return () => battleBus.removeEventListener("answer", on);
+  }, []);
+
+  if (ds.battle === false || !mon) return null;
+  const showCur = q !== doneQ;
+  const hpPct = Math.max(0, Math.min(100, (BATTLE.hp / BATTLE.maxHp) * 100));
+  const kind = mon.rank === "unknown" ? ["初見の魔物", "#5b6b8c"] : mon.rank === "elite" ? ["手強い魔物", "#a24a45"] : ["復習の魔物", "#4f8a72"];
+  const parts = fx && fx.ok ? Array.from({ length: 10 }, (_, i) => { const a = (i / 10) * Math.PI * 2 + (fx.n % 7) * 0.3; const r = 34 + ((i * 13 + fx.n * 7) % 22); return { dx: `${Math.round(Math.cos(a) * r)}px`, dy: `${Math.round(Math.sin(a) * r)}px`, c: i % 3 === 0 ? "#fff3c4" : fx.crit ? "#f2c14e" : (fx.mon.rank === "unknown" ? MON_UNKNOWN : fx.mon.th).body }; }) : [];
+  return (
+    <div className="relative overflow-hidden select-none" style={{ height: 156, borderRadius: 8, background: P.bg, border: P.border, color: P.text, boxShadow: "0 6px 18px rgba(40,50,80,0.12)", animation: fx && !fx.ok ? "sqbShake .38s ease-in-out" : undefined }}>
+      <style>{BATTLE_CSS}</style>
+      {/* 遠景（山並みと城） */}
+      <svg viewBox="0 0 400 100" preserveAspectRatio="none" aria-hidden="true" style={{ position: "absolute", left: 0, right: 0, bottom: "30%", width: "100%", height: 70 }}>
+        <path d="M0 100V62l38-22 30 16 44-34 40 26 30-14 52 30 34-18 46 22 40-28 46 30v30z" fill={P.hill} />
+        <path d="M250 100V58h6v-8l4-6 4 6v8h8V46l5-9 5 9v12h8v-6l4-5 4 5v48zM0 100V80l60-10 70 14 90-12 80 10 100-8v26z" fill={P.hill2} />
+      </svg>
+      <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: "40%", background: P.ground }} />
+      {/* 魔物の種類 */}
+      <div className="jp" style={{ position: "absolute", left: 10, top: 8, fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 999, background: P.chip, border: `1px solid ${kind[1]}`, color: kind[1] }}>{kind[0]}</div>
+      {/* コンボ */}
+      {BATTLE.combo >= 2 && (
+        <div key={`combo${BATTLE.combo}`} style={{ position: "absolute", left: "50%", top: 8, transform: "translateX(-50%)", animation: "sqbPop .28s ease-out both", fontFamily: "'Cinzel', 'Shippori Mincho B1', serif", fontWeight: 900, fontSize: 18, color: P.gold, textShadow: "0 1px 0 rgba(255,255,255,0.6), 0 0 10px rgba(214,181,106,0.6)", whiteSpace: "nowrap" }}>
+          {BATTLE.combo}<span style={{ fontSize: 11, marginLeft: 3, letterSpacing: 1 }}>COMBO</span>
+        </div>
+      )}
+      {/* 主人公（顔・HP） */}
+      <div style={{ position: "absolute", left: 10, bottom: 10, display: "flex", alignItems: "flex-end", gap: 8 }}>
+        <div key={fx ? `hero${fx.n}` : "hero"} style={{ width: 54, height: 54, borderRadius: "50%", flexShrink: 0, backgroundColor: "#e9e4d6", backgroundImage: `url(${P.avatar})`, backgroundSize: "300% auto", backgroundPosition: `${P.face[0]}% ${P.face[1]}%`, border: `2px solid ${P.ring}`, boxShadow: "0 2px 6px rgba(0,0,0,0.2)", animation: fx ? (fx.ok ? "sqbLunge .32s ease-out" : "sqbHurt .4s ease-out") : undefined }} />
+        <div style={{ width: 96, position: "relative" }}>
+          <div className="jp" style={{ fontSize: 10, color: P.sub, fontWeight: 700 }}>HP {BATTLE.hp}/{BATTLE.maxHp}</div>
+          <div style={{ height: 7, borderRadius: 4, background: "rgba(0,0,0,0.15)", overflow: "hidden" }}>
+            <div style={{ height: "100%", width: `${hpPct}%`, background: hpPct < 30 ? "linear-gradient(90deg,#a24a45,#e0948a)" : "linear-gradient(90deg,#4f8a72,#8cc4a8)", transition: "width .4s" }} />
+          </div>
+          {fx && !fx.ok && <div key={`t${fx.n}`} className="jp" style={{ position: "absolute", left: "50%", top: -18, animation: "sqbDmg .8s ease-out forwards", color: "#c94a4a", fontWeight: 900, fontSize: 18, textShadow: "0 0 3px #fff, 0 0 3px #fff" }}>-{fx.taken}</div>}
+          {fx && fx.faint && <div className="jp" style={{ position: "absolute", left: 0, top: -34, fontSize: 11, fontWeight: 800, color: "#a24a45", whiteSpace: "nowrap" }}>ふんばった！</div>}
+        </div>
+      </div>
+      {/* 魔物 */}
+      <div style={{ position: "absolute", right: "7%", bottom: 8, width: 120, height: 136 }}>
+        {fx && <MonsterView key={`leave${fx.n}`} m={fx.mon} anim={fx.ok ? "defeat" : "escape"} />}
+        {showCur && <MonsterView key={`m${mon.key}`} m={mon} anim="enter" delay={fx ? 0.45 : 0} />}
+        {fx && fx.ok && (
+          <>
+            <svg key={`s${fx.n}`} viewBox="0 0 100 100" style={{ position: "absolute", left: 10, top: 26, width: 100, height: 100, overflow: "visible", pointerEvents: "none" }}>
+              <path d="M12 88L88 12" stroke={fx.crit ? "#f2c14e" : "#ffffff"} strokeWidth={fx.crit ? 7 : 5} strokeLinecap="round" strokeDasharray="150" style={{ animation: "sqbSlash .38s ease-out forwards", filter: "drop-shadow(0 0 4px rgba(255,255,255,0.9))" }} />
+              {fx.crit && <path d="M12 12L88 88" stroke="#ffffff" strokeWidth="5" strokeLinecap="round" strokeDasharray="150" style={{ animation: "sqbSlash .38s ease-out .08s both", filter: "drop-shadow(0 0 4px rgba(242,193,78,0.9))" }} />}
+            </svg>
+            {parts.map((p, i) => <span key={`p${fx.n}-${i}`} style={{ position: "absolute", left: "50%", top: "62%", width: 7, height: 7, marginLeft: -3, borderRadius: "50%", background: p.c, boxShadow: `0 0 6px ${p.c}`, "--dx": p.dx, "--dy": p.dy, animation: "sqbBurst .55s ease-out .08s both", pointerEvents: "none" }} />)}
+            <div key={`d${fx.n}`} style={{ position: "absolute", left: "50%", top: "30%", animation: "sqbDmg .8s ease-out forwards", fontFamily: "'Cinzel', serif", fontWeight: 900, fontSize: fx.crit ? 30 : 24, color: fx.crit ? "#f2c14e" : "#ffffff", textShadow: "0 2px 0 #22335c, 0 0 6px rgba(34,51,92,0.7)", whiteSpace: "nowrap", pointerEvents: "none" }}>
+              {fx.crit && <div className="jp" style={{ fontSize: 11, letterSpacing: 2, textAlign: "center" }}>CRITICAL!</div>}{fx.dmg}
+            </div>
+          </>
+        )}
+        {fx && !fx.ok && <div key={`e${fx.n}`} className="jp" style={{ position: "absolute", left: "50%", top: "18%", transform: "translateX(-50%)", fontSize: 11, fontWeight: 800, color: P.sub, whiteSpace: "nowrap", animation: "sqbRed .9s ease-out forwards" }}>逃げられた…</div>}
+        {fx && fx.drops && fx.drops.length > 0 && (
+          <div key={`drop${fx.n}`} style={{ position: "absolute", left: "50%", bottom: 6, display: "flex", gap: 2, alignItems: "center", animation: "sqbDrop 1s ease-out .25s both", pointerEvents: "none" }}>
+            {fx.drops.map((id) => <MaterialIcon key={id} id={id} size={22} />)}
+            <span className="jp" style={{ fontSize: 11, fontWeight: 800, color: P.gold, textShadow: "0 0 3px #fff" }}>GET</span>
+          </div>
+        )}
+      </div>
+      {/* 被ダメージの赤いふち */}
+      {fx && !fx.ok && <div key={`r${fx.n}`} style={{ position: "absolute", inset: 0, pointerEvents: "none", boxShadow: "inset 0 0 40px rgba(201,74,74,0.55)", animation: "sqbRed .5s ease-out forwards" }} />}
+      {fx && fx.crit && <div key={`w${fx.n}`} style={{ position: "absolute", inset: 0, pointerEvents: "none", background: "rgba(255,248,220,0.7)", animation: "sqbFlash .25s ease-out forwards" }} />}
+      {/* コンボの必殺技（カットイン） */}
+      {fx && fx.cut && (
+        <div key={`cut${fx.n}`} style={{ position: "absolute", left: 0, right: 0, top: "50%", height: 74, marginTop: -37, pointerEvents: "none", animation: "sqbCut 1.05s cubic-bezier(.2,.8,.2,1) forwards", background: "linear-gradient(90deg, rgba(34,51,92,0.92) 0%, rgba(34,51,92,0.85) 55%, rgba(34,51,92,0) 100%)", borderTop: "2px solid #d6b56a", borderBottom: "2px solid #d6b56a", display: "flex", alignItems: "center", gap: 12, paddingLeft: 12 }}>
+          <div style={{ width: 62, height: 62, borderRadius: "50%", flexShrink: 0, backgroundImage: `url(${P.avatar})`, backgroundSize: "300% auto", backgroundPosition: `${P.face[0]}% ${P.face[1]}%`, border: "2px solid #d6b56a", boxShadow: "0 0 14px rgba(214,181,106,0.8)" }} />
+          <div>
+            <div style={{ fontFamily: "'Cinzel', serif", fontWeight: 900, fontSize: 12, letterSpacing: 2, color: "#d6b56a" }}>{BATTLE.combo} COMBO</div>
+            <div style={{ fontFamily: "'Shippori Mincho B1', serif", fontWeight: 800, fontSize: 20, letterSpacing: "0.08em", color: "#fdfbf5", textShadow: "0 0 10px rgba(214,181,106,0.8)" }}>{fx.cut.name}</div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── リザルト画面：このセットの討伐数・最大コンボ・獲得EXPとゴールド ──
+function BattleResult({ state, battleKey }) {
+  const ds = state.displaySettings || {};
+  const P = BATTLE_THEME[ds.theme || "white"] || BATTLE_THEME.white;
+  const mine = !!BATTLE.start && BATTLE.key === battleKey; // このセットで実際に戦ったときだけ出す
+  useEffect(() => { if (mine && ds.battle !== false) SFX.play("result"); }, []);
+  if (ds.battle === false || !mine) return null;
+  const xp = Math.max(0, xpTotalOf(state.player) - BATTLE.start.xp);
+  const gold = Math.max(0, normRpg(state.rpg).gold - BATTLE.start.gold);
+  const lvUp = state.player.level - BATTLE.start.level;
+  const rows = [["討伐", `${BATTLE.defeated}体`], ["最大コンボ", `${BATTLE.maxCombo}`], ["会心", `${BATTLE.crits}回`], ["逃げられた", `${BATTLE.escaped}体`]];
+  return (
+    <div className="relative overflow-hidden mb-3" style={{ borderRadius: 8, background: P.bg, border: P.border, color: P.text, padding: "12px 14px", animation: "sqFadeIn .35s ease-out" }}>
+      <style>{BATTLE_CSS}</style>
+      <div className="flex items-center gap-3">
+        <div style={{ width: 64, height: 64, borderRadius: "50%", flexShrink: 0, backgroundColor: "#e9e4d6", backgroundImage: `url(${P.avatar})`, backgroundSize: "300% auto", backgroundPosition: `${P.face[0]}% ${P.face[1]}%`, border: `2px solid ${P.ring}`, boxShadow: "0 0 12px rgba(214,181,106,0.5)" }} />
+        <div className="flex-1 min-w-0">
+          <div style={{ fontFamily: "'Cinzel', 'Shippori Mincho B1', serif", fontWeight: 900, fontSize: 20, letterSpacing: 2, color: P.gold }}>VICTORY</div>
+          <div className="jp text-xs" style={{ color: P.sub }}>{BATTLE.faints > 0 ? "ふんばりながらも、最後まで戦い抜きました。" : BATTLE.escaped === 0 ? "一体も逃さず、見事な戦いでした！" : "おつかれさまでした。逃げた魔物は、また現れます。"}</div>
+        </div>
+      </div>
+      <div className="grid grid-cols-4 gap-1.5 mt-3">
+        {rows.map(([k, v]) => (
+          <div key={k} className="text-center" style={{ background: P.chip, borderRadius: 6, padding: "6px 2px", border: `1px solid ${P.ring}55` }}>
+            <div className="jp" style={{ fontSize: 10, color: P.sub }}>{k}</div>
+            <div className="jp" style={{ fontSize: 16, fontWeight: 800 }}>{v}</div>
+          </div>
+        ))}
+      </div>
+      <div className="flex items-center justify-center gap-4 mt-3 jp" style={{ fontWeight: 800 }}>
+        <span style={{ color: P.gold, fontSize: 15 }}>+{xp} EXP</span>
+        <span style={{ color: P.gold, fontSize: 15 }}>+{gold} G</span>
+        {lvUp > 0 && <span style={{ color: "#c94a4a", fontSize: 15, animation: "sqbAura 1.2s ease-in-out infinite" }}>LEVEL UP ×{lvUp}</span>}
+      </div>
+      {Object.keys(BATTLE.mats).length > 0 && (
+        <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 mt-2 jp">
+          <span style={{ fontSize: 11, color: P.sub }}>戦利品</span>
+          {Object.entries(BATTLE.mats).map(([id, n]) => (
+            <span key={id} className="flex items-center gap-1" style={{ fontSize: 12, fontWeight: 700 }}><MaterialIcon id={id} size={20} />{(matById(id) || {}).name}×{n}</span>
+          ))}
+        </div>
+      )}
+      {lvUp > 0 && <div className="jp text-center mt-1" style={{ fontSize: 11, color: P.sub }}>スキルポイントを {lvUp} 獲得しました（冒険 → スキル）</div>}
+    </div>
+  );
+}
+
+function AnswerPanel({ onAnswer: onAnswerRaw, wrongLabel = "不正解", correctLabel = "正解", sureClass = "btn-success", question, srSettings }) {
   const [stage, setStage] = useState("choose"); // choose | wrong
   const [confident, setConfident] = useState(false);
+  // 回答をバトル演出（BattleStage）にも伝えてから、いつもの記録処理へ
+  const onAnswer = (correct, meta) => { emitBattle({ correct, conf: meta && meta.conf }); onAnswerRaw(correct, meta); };
   const pv = question ? previewIntervals(question, srSettings) : null; // 次回までの日数
   const submitWrong = (errType) => onAnswer(false, { errType: errType || null, confident });
 
@@ -6959,6 +7936,7 @@ function TodayTab({ state, recordSRAnswer, updateSrSettings, startTimer, stopTim
   const [queue, setQueue] = useState(null); // null = 開始前 / [] = セット完了
   const [showAnswer, setShowAnswer] = useState(false);
   const [result, setResult] = useState({ sure: 0, unsure: 0, wrong: 0, err: {} });
+  const [battleKey, setBattleKey] = useState(null); // バトル演出：セットを始めるたびに変える
   const timerStartedByMe = useRef(false);
 
   const item = queue && queue.length > 0 ? queue[0] : null;
@@ -6976,6 +7954,7 @@ function TodayTab({ state, recordSRAnswer, updateSrSettings, startTimer, stopTim
     const pool = [...due, ...(includeNew ? shuffle(fresh) : [])];
     const picked = pool.slice(0, setSize);
     if (picked.length === 0) return;
+    setBattleKey(uid());
     setQueue(picked);
     setShowAnswer(false);
     setResult({ sure: 0, unsure: 0, wrong: 0, err: {} });
@@ -7051,6 +8030,7 @@ function TodayTab({ state, recordSRAnswer, updateSrSettings, startTimer, stopTim
     const errList = ERROR_TYPES.filter((t) => result.err[t.id]);
     return (
       <Box title="セット完了！" icon={<Award size={18} />}>
+        <BattleResult state={state} battleKey={battleKey} />
         <div className="grid grid-cols-3 gap-2 mb-3">
           <Mini label="◎ 確実" value={`${result.sure}問`} />
           <Mini label="△ 自信なし" value={`${result.unsure}問`} highlight={result.unsure > 0} />
@@ -7082,6 +8062,7 @@ function TodayTab({ state, recordSRAnswer, updateSrSettings, startTimer, stopTim
         <button onClick={() => { stopMyTimer(); setQueue(null); }} className="jp text-xs flex items-center gap-1" style={{ color: "var(--ink-soft)" }}><XIcon size={14} /> 中断</button>
         <div className="pixel text-xs" style={{ color: "var(--sky-deep)" }}>📅 残り {queue.length}</div>
       </div>
+      <BattleStage state={state} q={q} bankName={item.bankName} battleKey={battleKey} />
       <div className="rpg-box p-1">
         <div className="rpg-inner-border min-h-[180px] flex flex-col">
           <div className="flex items-start justify-between gap-2 mb-2">
@@ -7587,7 +8568,7 @@ function Box({ title, icon, children }) {
       <div className="rpg-inner-border">
         {title && (
           <div className="flex items-center gap-2 mb-3">
-            {icon && <span style={{ color: "var(--sky-deep)" }}>{icon}</span>}
+            {icon && <span className="box-ico" style={{ color: "var(--sky-deep)" }}>{icon}</span>}
             <h2 className="jp text-sm md:text-base" style={{ color: "var(--ink)" }}>{title}</h2>
           </div>
         )}
@@ -7620,3 +8601,6 @@ function DecorSwirls() {
 }
 
 export default App;
+
+// デモモードの見本帳（demo/icons.html）で使う
+export { GameIcon, Ico, RPG_ITEMS, RPG_CONSUMABLES, RPG_BOSSES, DIFFICULTIES, WHITE_CSS };

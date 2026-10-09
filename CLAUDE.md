@@ -30,6 +30,9 @@ RPG風の資格学習Webアプリ。利用者本人（Yuki）が、土地家屋�
 | ビルド | `npm.cmd run build` |
 | 公開 | `npm.cmd run deploy`（`gh-pages -d dist`。dist を gh-pages ブランチへ送る） |
 | 条文データ更新 | `node scripts/fetch-laws.mjs`（法改正時。public/laws/*.json を作り直す） |
+| デモ（見た目の確認用） | `npm.cmd run demo` → http://localhost:5174/studyquest/（ログイン不要・架空データ・クラウドに一切つながない）。アイコン見本帳は /studyquest/demo/icons.html |
+
+- デモモードは `demo/vite.demo.config.js` が `src/firebase.js` を `demo/firebase-mock.js` に差し替えて動かす。架空データは `demo/demo-data.js`。画面の確認はこれで行う（本番データに触れない）。
 
 公開の流れ：`git add -A` → `git commit -m "…"` → `git push` → `npm.cmd run build` → `npm.cmd run deploy`
 - GitHub Pages の公開元は **gh-pages ブランチ**。`.github/workflows/deploy.yml` はあるが、Pagesの設定が「GitHub Actions」ではないため使われていない。
@@ -62,7 +65,7 @@ RPG風の資格学習Webアプリ。利用者本人（Yuki）が、土地家屋�
 - `userdata/{uid}/reviewlogs/{YYYY-MM-DD}`：FSRSの回答履歴（arrayUnion で追記）
 - セキュリティルール：`match /userdata/{userId}/{document=**}` で本人のみ読み書き可。サブコレクションを増やしてもこれでカバーされる。
 
-state の主なキー：`player` / `qualifications` / `tasks` / `studyLog` / `folders` / `studyNotes` / `sessionResume` / `timer` / `srSettings` / `displaySettings`（qFont, qSize, theme, showTitle, themeV）/ `rpg`（gold, inventory, equipped, consumables, bossWins, classId, pet, seen など）
+state の主なキー：`player` / `qualifications` / `tasks` / `studyLog` / `folders` / `studyNotes` / `sessionResume` / `timer` / `srSettings` / `displaySettings`（qFont, qSize, theme, showTitle, themeV, battle, sfx）/ `rpg`（gold, inventory, equipped, consumables, bossWins, classId, pet, seen, materials, skills, forgeLog など）
 
 問題の主なフィールド：`q` `a` `correct` `wrong` `marked` `excluded` `memo` `clozes` / 確信度 `lastConf` `unsureCnt` `cwCnt` `errTypes` / 回答日 `ah`（`YYMMDD`＋s/u/w、直近20件）/ FSRS `fs{s,d,st,r,l,lr}` `sr_nextReview`（ローカル日付 YYYY-MM-DD）`sr_interval` `sr_streak` / 画像 `images[{id, side}]`
 問題集：`clears` `clearHistory[{date, accuracy}]` `qualId` `folderId` `year` `order`
@@ -77,6 +80,10 @@ state の主なキー：`player` / `qualifications` / `tasks` / `studyLog` / `fo
 - 苦手問題の書き出し：`WeakExportPanel`／周回の記録：`LapRecordsPanel` `AnswerHistory`
 - 冒険（RPG）：`AdventureTab` `BossBattle` `RPG_ITEMS` `getRpgBonuses` `RPG_ACHIEVEMENTS`、EXP付与 `awardXp`（会心・ゴールド・ドロップ）
 - 育成：`GrowthPanels` `getClassInfo` `getPetInfo` `getAwakening` `HeroPortrait` `RPG_SCENES`
+- ホームの吹き出し（名言）：`STUDY_QUOTES` `mentorStatusLines` `MentorBubble`
+- アイコン：`Ico`＋`LINE_ICONS`（白金テーマは線のアイコン）、`GameIcon`＋`GAME_ART`（装備・道具・タスク・ボスのメダル絵。CSS の .ico-emoji / .ico-line で切り替え）
+- バトル演出：`BattleStage`（問題の上に魔物。`AnswerPanel` が `emitBattle` で結果を送る）`BattleResult` `MONSTER_SPECIES` `MON_THEMES`（問題集名→科目の色・素材）`SFX`（効果音・既定オフ）`BATTLE`（1セットのHP・コンボ）。設定 `displaySettings.battle` `displaySettings.sfx`
+- 育成：素材 `RPG_MATERIALS`（戦利品は `emitReward`→StudyRPG が記録）、スキル `SKILL_TREE`（SP＝レベル−1）、鍛冶 `forgeCost` `forgedFx` `rpgInvItem`（持ち物 `{u,i,p}` の p が強化段階）。`SkillPanel` `ForgePanel`。rpg に `materials` `skills` `forgeLog` を追加
 - テーマ：`DISPLAY_DEFAULTS`（既定は white）`THEME_PAL`（classic/white の配色）`CLASSIC_CSS` `WHITE_CSS` `ClassicThemeStyle` `TitleScreen` `ClassicInfoBar` `MenuHome`（クラシック）`SignpostHome`（白金・道しるべ）`migrateDisplay`
 
 ## テーマの仕組み
