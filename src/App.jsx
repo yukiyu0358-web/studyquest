@@ -600,7 +600,8 @@ function SignpostHome({ state, todayCount, onCommand }) {
   const post = SIGNPOSTS.find((p) => p.id === focus);
   const tool = SIGN_TOOLS.find((t) => t.id === focus);
   const message = post ? post.desc(todayCount) : tool ? tool.desc : null;
-  const subLine = [cls ? `クラス：${cls.rankName}` : null, mainAch && mainAch.job ? `称号：${mainAch.job}` : null].filter(Boolean).join("　／　");
+  const stg = heroStage(player.level);
+  const subLine = [`姿：${stg.name}`, cls ? `クラス：${cls.rankName}` : null, mainAch && mainAch.job ? `称号：${mainAch.job}` : null].filter(Boolean).join("　／　");
   const mincho = { fontFamily: "'Shippori Mincho B1', serif" };
   const clickPost = (p) => {
     setFocus(p.id);
@@ -656,7 +657,8 @@ function SignpostHome({ state, todayCount, onCommand }) {
         {/* 主人公 */}
         <div className="rpg-box p-3 md:p-5 order-1 md:order-2">
           <div className="flex flex-col sm:flex-row gap-4 md:gap-6">
-            <button onClick={() => onCommand("status")} title="ステータス画面へ" className="flex-shrink-0 w-full sm:w-[230px] h-[280px] sm:h-[370px]" style={{ ...P.portraitFrame, cursor: "pointer" }}>
+            <button onClick={() => onCommand("status")} title="ステータス画面へ" className="flex-shrink-0 w-full sm:w-[230px] h-[280px] sm:h-[370px]" style={{ ...P.portraitFrame, position: "relative", marginTop: stg.crest ? 18 : 0, ...(stg.idx > 0 ? { background: stg.frame, boxShadow: stg.glow } : {}), cursor: "pointer" }}>
+              <HeroDecor stage={stg} w={230} />
               <div className="w-full h-full overflow-hidden flex items-center justify-center" style={{ borderRadius: "145px 145px 2px 2px", background: "#e9e4d6" }}>
                 {imgOk ? (
                   <img src={WHITE_HERO_URL} alt="主人公の立ち絵" onError={() => setImgOk(false)} style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "center 16%", display: "block" }} />
@@ -1526,8 +1528,14 @@ function StudyRPG({ user }) {
         const prevTier = getCharacterTier(prevLv);
         const newTier = getCharacterTier(lv);
         const tierChanged = prevTier !== newTier;
-        setShowLevelUp({ level: lv, title: newTitle, tierChanged, newTier });
-        setTimeout(() => setShowLevelUp(null), tierChanged ? 4000 : 2800);
+        const dotTheme = ((s.displaySettings && s.displaySettings.theme) || "white") === "dot";
+        // ドットテーマは従来の「装備が進化した」、白金・クラシックはレベルアップのあとに進化の演出
+        setShowLevelUp({ level: lv, title: newTitle, tierChanged: tierChanged && dotTheme, newTier });
+        setTimeout(() => setShowLevelUp(null), tierChanged && dotTheme ? 4000 : 2800);
+        if (tierChanged && !dotTheme) {
+          const from = HERO_STAGES[Math.max(0, TIER_ORDER.indexOf(prevTier))], toIdx = Math.max(0, TIER_ORDER.indexOf(newTier));
+          setTimeout(() => showEvolution({ big: "進化", from: from.name, to: HERO_STAGES[toIdx].name, sub: `Lv${HERO_STAGE_LV[toIdx]}に到達。新しい姿になった！`, stage: { ...HERO_STAGES[toIdx], idx: toIdx } }), 2900);
+        }
       }
       const r = normRpg(s.rpg);
       return { ...s, player: { ...s.player, xp, level: lv }, rpg: { ...r, gold: r.gold + gold, goldEarned: r.goldEarned + gold, crits: r.crits + (crit ? 1 : 0) } };
@@ -1702,19 +1710,26 @@ function StudyRPG({ user }) {
     setRpgEvent({ ...ev, id });
     setTimeout(() => setRpgEvent((e) => (e && e.id === id ? null : e)), 3400);
   };
+  // 進化の演出（主人公の姿・覚醒・相棒）。テーマに合わせた主人公の顔を使う
+  const [evolution, setEvolution] = useState(null);
+  const showEvolution = (ev) => {
+    const th = BATTLE_THEME[(stateRef.current.displaySettings && stateRef.current.displaySettings.theme) || "white"] || BATTLE_THEME.white;
+    setEvolution({ avatar: th.avatar, face: th.face, ...ev, id: uid() });
+  };
   useEffect(() => {
     if (!loaded) return;
     const r = normRpg(state.rpg);
     const aw = getAwakening(state);
     if (aw.stars > (r.seen.stars || 0)) {
       updateRpg((x) => ({ ...x, seen: { ...x.seen, stars: aw.stars } }));
-      showRpgEvent({ icon: "★".repeat(aw.stars), title: `覚醒 ★${aw.stars}`, sub: `しっかり覚えた問題が${aw.mastered}問に！` });
+      showEvolution({ big: "覚醒", from: aw.stars > 1 ? `★${aw.stars - 1}` : null, to: `覚醒 ★${aw.stars}`, sub: `しっかり覚えた問題が${aw.mastered}問に！ EXP+${aw.stars * 3}%・会心率+${aw.stars}%`, stage: heroStage(state.player.level) });
       return;
     }
     const pet = getPetInfo(state);
     if (pet && pet.stage > (r.seen.pet || 0)) {
       updateRpg((x) => ({ ...x, seen: { ...x.seen, pet: pet.stage } }));
-      showRpgEvent({ icon: pet.icon, title: pet.stage === 1 ? `${pet.name}が生まれた！` : `${pet.name}が進化した！`, sub: `${pet.stageName}になった` });
+      const prev = pet.type.stages[Math.max(0, pet.stage - 1)];
+      showEvolution({ big: pet.stage === 1 ? "誕生" : "進化", from: prev[1], to: `${pet.name}（${pet.stageName}）`, sub: pet.type.bonusText(pet.stage), icon: pet.icon, prevIcon: prev[0], avatar: null });
     }
   }, [state, loaded]);
 
@@ -2418,6 +2433,8 @@ function StudyRPG({ user }) {
       {rpgToast && (
         <div key={rpgToast.id} className="milestone-toast fixed left-1/2 top-20 z-50 pointer-events-none jp text-sm px-3 py-2" style={{ background: "var(--paper)", border: `2px solid ${rpgToast.color || "var(--gold)"}`, color: "var(--ink)", boxShadow: "2px 2px 0 rgba(0,0,0,0.15)", whiteSpace: "nowrap" }}>{rpgToast.text}</div>
       )}
+
+      {evolution && <EvolutionScene key={evolution.id} ev={evolution} onClose={() => setEvolution((e) => (e && e.id === evolution.id ? null : e))} />}
 
       {rpgEvent && (
         <div key={rpgEvent.id} className="fixed inset-0 z-50 pointer-events-none flex items-center justify-center">
@@ -6795,6 +6812,123 @@ function ForgePanel({ state, actions }) {
   );
 }
 
+// ── 主人公の進化の道のり：6つの姿（まだの姿は影で見せる） ──
+function EvolutionRoad({ state }) {
+  const lv = state.player.level;
+  const cur = heroStage(lv).idx;
+  const th = BATTLE_THEME[(state.displaySettings && state.displaySettings.theme) || "white"] || BATTLE_THEME.white;
+  return (
+    <Box title="進化の道のり" icon={<Sparkles size={18} />}>
+      <div className="grid grid-cols-3 md:grid-cols-6 gap-2">
+        {HERO_STAGES.map((s, i) => {
+          const got = i <= cur;
+          return (
+            <div key={s.name} className="jp text-center p-2" style={{ background: i === cur ? "var(--cream)" : "var(--paper)", border: `1px solid ${i === cur ? "var(--gold)" : "var(--rule-soft)"}` }}>
+              <div style={{ width: 60, height: 60, margin: "0 auto", padding: 3, borderRadius: "50%", background: got ? s.frame : "var(--rule-soft)", boxShadow: got ? s.glow : "none" }}>
+                <div style={{ width: "100%", height: "100%", borderRadius: "50%", backgroundColor: "#e9e4d6", backgroundImage: `url(${th.avatar})`, backgroundSize: "300% auto", backgroundPosition: `${th.face[0]}% ${th.face[1]}%`, filter: got ? "none" : "brightness(0) opacity(0.35)" }} />
+              </div>
+              <div className="text-[11px] mt-1" style={{ fontWeight: 800, color: got ? "var(--ink)" : "var(--ink-mute)" }}>{got ? s.name : "？？？"}</div>
+              <div className="text-[10px]" style={{ color: i === cur ? "var(--gold)" : "var(--ink-mute)" }}>{i === cur ? "いまの姿" : `Lv${HERO_STAGE_LV[i]}`}</div>
+            </div>
+          );
+        })}
+      </div>
+      <p className="jp text-[10px] mt-2" style={{ color: "var(--ink-mute)" }}>レベル10・20・30・40・50で姿が進化し、額縁・紋章・翼・星の光が豪華になります。{cur < HERO_STAGES.length - 1 ? `次の進化まで あとLv${HERO_STAGE_LV[cur + 1] - lv}。` : "最後の姿に到達しました！"}</p>
+    </Box>
+  );
+}
+
+// ── モンスター図鑑：問題1問＝魔物1体。発見（解いた）→ 討伐（正解した）→ 制覇（しっかり覚えた） ──
+const DEX_PAGE = 48;
+const dexStatus = (q) => (q.fs && q.fs.s >= MASTERED_STABILITY ? 3 : (q.correct || 0) > 0 ? 2 : ((q.wrong || 0) > 0 || !!q.sr_nextReview) ? 1 : 0); // 0未発見 1発見 2討伐 3制覇
+function MonsterDex({ state }) {
+  const banks = state.questionBanks.filter((b) => (b.questions || []).length > 0);
+  const [bankId, setBankId] = useState(() => (banks[0] ? banks[0].id : null));
+  const [page, setPage] = useState(0);
+  const [pick, setPick] = useState(null);
+  const [showQ, setShowQ] = useState(false);
+  const all = { n: 0, s1: 0, s2: 0, s3: 0 };
+  banks.forEach((b) => b.questions.forEach((q) => { const s = dexStatus(q); all.n++; if (s >= 1) all.s1++; if (s >= 2) all.s2++; if (s >= 3) all.s3++; }));
+  const bank = banks.find((b) => b.id === bankId) || banks[0];
+  if (!bank) return <Box title="モンスター図鑑" icon={<BookOpen size={18} />}><p className="jp text-sm" style={{ color: "var(--ink-mute)" }}>問題集を取り込むと、魔物が図鑑に登録されます。</p></Box>;
+  const qs = bank.questions;
+  const st = qs.map(dexStatus);
+  const cnt = [1, 2, 3].map((k) => st.filter((s) => s >= k).length);
+  const medals = [["銅", "全部発見", cnt[0] === qs.length, "#b07a4a"], ["銀", "全部討伐", cnt[1] === qs.length, "#8a96b0"], ["金", "全部制覇", cnt[2] === qs.length, "#d6b56a"]];
+  const pages = Math.ceil(qs.length / DEX_PAGE);
+  const cur = Math.min(page, pages - 1);
+  const pq = pick ? qs.find((q) => q.id === pick) : null;
+  const bar = (v, color) => <div style={{ height: 6, borderRadius: 3, background: "var(--beige)", overflow: "hidden" }}><div style={{ width: `${qs.length ? (v / qs.length) * 100 : 0}%`, height: "100%", background: color }} /></div>;
+  return (
+    <Box title="モンスター図鑑" icon={<BookOpen size={18} />}>
+      <div className="jp text-[11px] mb-2" style={{ color: "var(--ink-soft)" }}>全体：発見 {all.s1}/{all.n} ・ 討伐 {all.s2} ・ 制覇 {all.s3}</div>
+      <select className="rpg-input mb-3 text-sm" value={bank.id} onChange={(e) => { setBankId(e.target.value); setPage(0); setPick(null); }}>
+        {banks.map((b) => <option key={b.id} value={b.id}>{b.name}{b.year ? `（${b.year}）` : ""}</option>)}
+      </select>
+      <div className="grid grid-cols-3 gap-2 mb-2 jp">
+        {[["発見", cnt[0], "#7fa3d8"], ["討伐", cnt[1], "#4f8a72"], ["制覇", cnt[2], "#d6b56a"]].map(([k, v, c]) => (
+          <div key={k}><div className="flex justify-between text-[11px]" style={{ color: "var(--ink-soft)" }}><span>{k}</span><span style={{ fontWeight: 800, color: "var(--ink)" }}>{v}/{qs.length}</span></div>{bar(v, c)}</div>
+        ))}
+      </div>
+      <div className="flex gap-2 mb-3">
+        {medals.map(([m, label, got, c]) => (
+          <div key={m} className="jp flex items-center gap-1.5 text-[11px] px-2 py-1 flex-1 justify-center" style={{ border: `1px solid ${got ? c : "var(--rule-soft)"}`, background: got ? "var(--cream)" : "var(--paper)", opacity: got ? 1 : 0.5 }}>
+            <span style={{ width: 18, height: 18, borderRadius: "50%", background: got ? `radial-gradient(circle at 35% 30%, #fff, ${c})` : "var(--rule-soft)", border: `1px solid ${c}`, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 800, color: "#22335c" }}>{m}</span>{label}
+          </div>
+        ))}
+      </div>
+      {pq && (() => {
+        const m = monsterFor(pq, bank.name);
+        const s = dexStatus(pq);
+        const view = s === 0 ? { ...m, rank: "unknown" } : m;
+        return (
+          <div className="p-3 mb-3 jp" style={{ background: "var(--sky-pale)", border: "1px solid var(--gold)", animation: "sqFadeIn .25s ease-out" }}>
+            <div className="flex items-center gap-3">
+              <svg viewBox="0 0 100 100" width="84" height="84" style={{ flexShrink: 0, overflow: "visible" }}>{view.sp.draw(view.rank === "unknown" ? MON_UNKNOWN : view.th)}</svg>
+              <div className="flex-1 min-w-0">
+                <div className="text-[10px]" style={{ color: "var(--ink-mute)" }}>No.{qs.indexOf(pq) + 1}</div>
+                <div className="text-base" style={{ fontWeight: 800, color: m.rank === "elite" && s > 0 ? "var(--brick)" : "var(--ink)" }}>{s === 0 ? "？？？" : m.name}</div>
+                <div className="text-[11px]" style={{ color: "var(--ink-soft)" }}>{["まだ出会っていない魔物", "発見（まだ倒していない）", "討伐済み", "制覇（しっかり覚えた）"][s]}</div>
+                {s > 0 && <div className="text-[11px]" style={{ color: "var(--ink-soft)" }}>討伐 {pq.correct || 0}回 ・ 逃走 {pq.wrong || 0}回{pq.sr_nextReview ? ` ・ 次の出現 ${pq.sr_nextReview}` : ""}</div>}
+              </div>
+              <button onClick={() => setPick(null)} className="jp text-xs px-2 py-1 btn-ghost flex-shrink-0">閉じる</button>
+            </div>
+            {s > 0 && (showQ ? (
+              <div className="mt-2 text-sm" style={{ color: "var(--ink)" }}>
+                <div className="p-2" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)" }}>{renderFormattedText(pq.q, pq.q_formats)}</div>
+                <div className="p-2 mt-1" style={{ background: "var(--paper)", border: "1px solid var(--gold)" }}>{renderFormattedText(pq.a, pq.a_formats)}</div>
+              </div>
+            ) : <button onClick={() => setShowQ(true)} className="jp btn-ghost w-full mt-2 py-1.5 text-xs">この魔物の問題を見る</button>)}
+          </div>
+        );
+      })()}
+      <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-1.5">
+        {qs.slice(cur * DEX_PAGE, (cur + 1) * DEX_PAGE).map((q, i) => {
+          const s = st[cur * DEX_PAGE + i];
+          const m = monsterFor(q, bank.name);
+          return (
+            <button key={q.id} onClick={() => { setPick(q.id); setShowQ(false); }} className="relative p-1" title={s ? m.name : "？？？"}
+              style={{ background: pick === q.id ? "var(--cream)" : "var(--paper)", border: `1px solid ${s === 3 ? "#d6b56a" : pick === q.id ? "var(--gold)" : "var(--rule-soft)"}`, borderRadius: 6, cursor: "pointer" }}>
+              <svg viewBox="0 0 100 100" width="100%" height="44" style={{ display: "block", overflow: "visible", opacity: s === 1 ? 0.6 : 1 }}>{m.sp.draw(s === 0 ? MON_UNKNOWN : m.th)}</svg>
+              <div className="jp text-[9px]" style={{ color: "var(--ink-mute)" }}>No.{cur * DEX_PAGE + i + 1}</div>
+              {s === 3 && <span style={{ position: "absolute", top: 1, right: 3, fontSize: 10, color: "#d6b56a" }}>★</span>}
+              {s > 0 && m.rank === "elite" && <span style={{ position: "absolute", top: 3, left: 3, width: 6, height: 6, borderRadius: "50%", background: "var(--brick)" }} />}
+            </button>
+          );
+        })}
+      </div>
+      {pages > 1 && (
+        <div className="flex items-center justify-center gap-3 mt-3 jp text-sm">
+          <button disabled={cur === 0} onClick={() => setPage(cur - 1)} className="btn-ghost px-3 py-1">← 前</button>
+          <span style={{ color: "var(--ink-soft)" }}>{cur + 1} / {pages}</span>
+          <button disabled={cur >= pages - 1} onClick={() => setPage(cur + 1)} className="btn-ghost px-3 py-1">次 →</button>
+        </div>
+      )}
+      <p className="jp text-[10px] mt-2" style={{ color: "var(--ink-mute)" }}>魔物を選ぶと、その問題を確認できます。赤い点は「手強い魔物」（苦手な問題）、★は制覇（21日以上覚えていられる）です。</p>
+    </Box>
+  );
+}
+
 // ── 冒険タブ ──
 function AdventureTab({ state, actions, recordAnswer, startTimer, stopTimer }) {
   const r = normRpg(state.rpg);
@@ -6828,8 +6962,8 @@ function AdventureTab({ state, actions, recordAnswer, startTimer, stopTimer }) {
   const msgBox = msg && <div className="jp text-sm p-2 text-center" style={{ background: "var(--cream)", border: "1px solid var(--gold)", color: "var(--ink)" }}>{msg}</div>;
   // 画面上部の切り替え（拠点・ボス／スキル／鍛冶場）
   const nav = (
-    <div className="grid grid-cols-3 gap-1.5">
-      {[["base", "拠点・ボス"], ["skill", "スキル"], ["forge", "鍛冶場"]].map(([id, label]) => (
+    <div className="grid grid-cols-4 gap-1.5">
+      {[["base", "拠点・ボス"], ["skill", "スキル"], ["forge", "鍛冶場"], ["dex", "図鑑・進化"]].map(([id, label]) => (
         <button key={id} onClick={() => setView(id)} className={`jp py-2 text-sm relative ${view === id ? "btn-primary" : "btn-ghost"}`}>
           {label}
           {id === "skill" && spLeft > 0 && <span className="absolute -top-1.5 -right-1 text-[10px] px-1.5" style={{ background: "var(--brick)", color: "var(--paper)", borderRadius: 999 }}>{spLeft}</span>}
@@ -6839,6 +6973,7 @@ function AdventureTab({ state, actions, recordAnswer, startTimer, stopTimer }) {
   );
   if (view === "skill") return <div className="space-y-4">{nav}{msgBox}<SkillPanel state={state} actions={actions} flash={flash} /></div>;
   if (view === "forge") return <div className="space-y-4">{nav}{msgBox}<ForgePanel state={state} actions={actions} /></div>;
+  if (view === "dex") return <div className="space-y-4">{nav}<EvolutionRoad state={state} /><MonsterDex state={state} /></div>;
 
   return (
     <div className="space-y-4">
@@ -7278,6 +7413,54 @@ const RPG_SCENES = {
   tier6: { name: "天空の聖域",   bg: "linear-gradient(#2a3a7a 0%, #7a6ab8 50%, #e9defa 50%, #cdbff0 100%)", deco: ["☁️", "🌟"] },
 };
 
+// ── 主人公の進化段階（姿）：レベル10・20・30・40・50で進化。額縁・紋章・翼・光が豪華になる ──
+const HERO_STAGES = [
+  { name: "白銀の見習い", color: "#a9b1c2", frame: "linear-gradient(180deg, #e6e9f0, #a9b1c2)", glow: "0 6px 18px rgba(40,50,80,0.14)" },
+  { name: "蒼の魔導士", color: "#7fa3d8", frame: "linear-gradient(180deg, #e9cf8e, #b08a3e)", glow: "0 0 18px rgba(127,163,216,0.6)" },
+  { name: "翠の導師", color: "#6fb8b4", frame: "linear-gradient(180deg, #f1dfae, #b08a3e 60%, #6fb8b4)", glow: "0 0 22px rgba(111,184,180,0.65)", corners: true },
+  { name: "金の賢者", color: "#d6b56a", frame: "linear-gradient(180deg, #fff1c4, #d6b56a 50%, #a8833a)", glow: "0 0 26px rgba(214,181,106,0.8)", corners: true, crest: true },
+  { name: "紫焔の大賢者", color: "#a593d8", frame: "linear-gradient(180deg, #f1dfae, #a593d8 55%, #6c5a96)", glow: "0 0 30px rgba(165,147,216,0.85)", corners: true, crest: true, wings: true },
+  { name: "星詠みの大賢者", color: "#f2c14e", frame: "linear-gradient(135deg, #fff3c4, #e9cf8e 25%, #d98fa6 50%, #8c79c8 75%, #e9cf8e)", glow: "0 0 36px rgba(242,193,78,0.9)", corners: true, crest: true, wings: true, stars: true },
+];
+const HERO_STAGE_LV = [1, 10, 20, 30, 40, 50];
+const heroStage = (level) => { const i = Math.max(0, tierIndex(level)); return { ...HERO_STAGES[i], idx: i }; };
+// 額縁の飾り（紋章・翼・四隅の金細工・星のきらめき）。親要素は position: relative にする
+function HeroDecor({ stage, w }) {
+  const cw = stage.wings ? w * 0.62 : w * 0.2;
+  return (
+    <>
+      {stage.crest && (
+        <svg viewBox={stage.wings ? "0 0 124 40" : "0 0 40 40"} width={cw} height={cw * (stage.wings ? 40 / 124 : 1)} aria-hidden="true"
+          style={{ position: "absolute", left: "50%", top: -(cw * (stage.wings ? 40 / 124 : 1)) * 0.42, transform: "translateX(-50%)", zIndex: 2, overflow: "visible", filter: `drop-shadow(0 0 6px ${stage.color})` }}>
+          {stage.wings && [1, -1].map((s) => (
+            <g key={s} transform={s === -1 ? "translate(124 0) scale(-1 1)" : undefined}>
+              <g style={{ transformBox: "view-box", transformOrigin: "48px 22px", animation: "sqhFlap 3s ease-in-out infinite" }}>
+                <path d="M48 22C40 8 22 2 4 6c8 3 12 6 14 9-6 0-10 1-12 4 7 0 12 1 15 3-5 1-8 3-9 6 9-1 18 0 26 2 4 1 8-1 10-8z" fill="#fdfbf5" stroke={stage.color} strokeWidth="1.4" strokeLinejoin="round" />
+                <path d="M44 20c-8-4-18-6-28-5M42 24c-7-2-15-2-22-1" fill="none" stroke={stage.color} strokeWidth=".8" opacity=".7" />
+              </g>
+            </g>
+          ))}
+          <g transform={stage.wings ? "translate(42 0)" : undefined}>
+            <path d="M20 2l6 8-6 26-6-26z" fill="#fdfbf5" stroke="#b08a3e" strokeWidth="1.2" />
+            <circle cx="20" cy="18" r="8" fill={stage.color} stroke="#b08a3e" strokeWidth="2" />
+            <circle cx="17.5" cy="15.5" r="2.4" fill="#fff" opacity=".8" />
+          </g>
+        </svg>
+      )}
+      {stage.corners && [0, 1].map((s) => (
+        <svg key={s} viewBox="0 0 30 30" width={w * 0.16} height={w * 0.16} aria-hidden="true" style={{ position: "absolute", bottom: -4, [s ? "right" : "left"]: -4, zIndex: 2, transform: s ? "scaleX(-1)" : undefined }}>
+          <path d="M3 27V12c0-5 4-9 9-9M3 27h15c5 0 9-4 9-9" fill="none" stroke="#b08a3e" strokeWidth="2.4" strokeLinecap="round" />
+          <circle cx="7" cy="23" r="3" fill={stage.color} stroke="#b08a3e" strokeWidth="1.2" />
+        </svg>
+      ))}
+      {stage.stars && [[8, 18], [88, 12], [94, 46], [4, 52], [50, 4], [76, 80], [18, 84]].map(([x, y], i) => (
+        <span key={i} aria-hidden="true" style={{ position: "absolute", left: `${x}%`, top: `${y}%`, zIndex: 2, fontSize: 10 + (i % 3) * 3, color: "#fff3c4", textShadow: "0 0 6px #f2c14e", animation: `sqTwinkleT 2.6s ease-in-out ${i * 0.37}s infinite`, pointerEvents: "none" }}>✦</span>
+      ))}
+      <style>{"@keyframes sqhFlap{0%,100%{transform:rotate(0)}50%{transform:rotate(-6deg)}}"}</style>
+    </>
+  );
+}
+
 // キャラクター・背景・オーラ・光の粒・相棒・★をまとめて描く
 // 白金テーマの主人公：少女の立ち絵（アーチ形の額縁）。覚醒の★・相棒・クラスはドット絵版と同じ情報を出す
 function WhiteHeroPortrait({ state, size = 160 }) {
@@ -7288,9 +7471,11 @@ function WhiteHeroPortrait({ state, size = 160 }) {
   const scene = RPG_SCENES[getCharacterTier(state.player.level)] || RPG_SCENES.tier1;
   if (!imgOk) return <HeroPortrait state={state} size={size} pixel />;
   const h = Math.round(size * 1.3);
+  const stg = heroStage(state.player.level);
   return (
-    <div style={{ width: size, display: "inline-block" }}>
-      <div style={{ width: size, height: h, position: "relative", padding: 3, borderRadius: `${size / 2}px ${size / 2}px 4px 4px`, background: "linear-gradient(180deg, #d6b56a, #b08a3e)", boxShadow: aw.stars >= 3 ? "0 0 14px rgba(214,181,106,0.85)" : "0 4px 12px rgba(40,50,80,0.15)" }}>
+    <div style={{ width: size, display: "inline-block", marginTop: stg.crest ? size * 0.12 : 0 }}>
+      <div style={{ width: size, height: h, position: "relative", padding: 3, borderRadius: `${size / 2}px ${size / 2}px 4px 4px`, background: stg.frame, boxShadow: stg.glow }}>
+        <HeroDecor stage={stg} w={size} />
         <div style={{ width: "100%", height: "100%", overflow: "hidden", position: "relative", borderRadius: `${size / 2 - 3}px ${size / 2 - 3}px 2px 2px`, background: "#e9e4d6" }}>
           <img src={WHITE_HERO_URL} alt="主人公の立ち絵" onError={() => setImgOk(false)} style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "center 16%", display: "block" }} />
           {aw.stars > 0 && (
@@ -7304,7 +7489,8 @@ function WhiteHeroPortrait({ state, size = 160 }) {
       <div className="jp text-center mt-1.5 px-1 py-0.5" style={{ background: "#fdfbf5", border: "1px solid #b08a3e", borderRadius: 4, color: "#22335c", fontWeight: 700, fontSize: Math.max(10, size * 0.07) }}>
         {cls ? `${cls.icon} ${cls.rankName}` : "クラス未選択"}
       </div>
-      <div className="jp text-center mt-0.5" style={{ fontSize: Math.max(9, size * 0.06), color: "#5b6b8c" }}>{scene.name}</div>
+      <div className="jp text-center mt-0.5" style={{ fontSize: Math.max(9, size * 0.065), color: stg.idx > 0 ? "#8f6f2c" : "#5b6b8c", fontWeight: 700 }}>{stg.name}</div>
+      <div className="jp text-center" style={{ fontSize: Math.max(9, size * 0.055), color: "#5b6b8c" }}>{scene.name}</div>
       <style>{`@keyframes sqBob{0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)}}`}</style>
     </div>
   );
@@ -7523,6 +7709,10 @@ const SFX = {
       else if (name === "clang") { N(0, 0.09, 0.12, 2500); T(1250, 0, 0.18, "square", 0.03, 900); }
       else if (name === "forgeOk") { [784, 988, 1175, 1568].forEach((f, i) => T(f, i * 0.08, i === 3 ? 0.45 : 0.1, "triangle", 0.07)); }
       else if (name === "forgeFail") { T(240, 0, 0.4, "sawtooth", 0.06, 110); N(0.05, 0.3, 0.05, 400); }
+      else if (name === "evolve") {
+        T(196, 0, 1.7, "sine", 0.06, 1568); T(294, 0.05, 1.7, "triangle", 0.03, 2349); N(0.2, 1.4, 0.03, 3000);
+        [523, 659, 784, 1047, 1319].forEach((f, i) => T(f, 1.9 + i * 0.1, i === 4 ? 0.9 : 0.14, "triangle", 0.07));
+      }
       else if (name === "skill") { [523, 784, 1047, 1568].forEach((f, i) => T(f, i * 0.05, i === 3 ? 0.4 : 0.07, "triangle", 0.06)); }
     } catch (e) { /* 音が出せなくても学習は続ける */ }
   },
@@ -7855,6 +8045,58 @@ function BattleResult({ state, battleKey }) {
         </div>
       )}
       {lvUp > 0 && <div className="jp text-center mt-1" style={{ fontSize: 11, color: P.sub }}>スキルポイントを {lvUp} 獲得しました（冒険 → スキル）</div>}
+    </div>
+  );
+}
+
+// ── 進化の演出（全画面）：暗転 → 光の柱と粒 → 影が脈打つ → 閃光 → 新しい姿 ──
+// ev: { id, big（"進化"など）, from, to, sub, avatar, face, stage, icon, prevIcon }
+const EVO_CSS = `
+@keyframes sqeBg{from{opacity:0}to{opacity:1}}
+@keyframes sqePillar{0%{opacity:0;transform:translateX(-50%) scaleY(0)}35%{opacity:.95;transform:translateX(-50%) scaleY(1)}100%{opacity:.55;transform:translateX(-50%) scaleY(1)}}
+@keyframes sqeRise{0%{opacity:0;transform:translateY(0)}15%{opacity:1}100%{opacity:0;transform:translateY(-75vh)}}
+@keyframes sqeSil{0%{filter:brightness(0) drop-shadow(0 0 2px #fff)}100%{filter:brightness(0) drop-shadow(0 0 28px #fff)}}
+@keyframes sqePulse{0%,100%{transform:scale(1)}50%{transform:scale(1.08)}}
+@keyframes sqeHide{to{opacity:0;visibility:hidden}}
+@keyframes sqeFlash{0%{opacity:0}35%{opacity:1}100%{opacity:0}}
+@keyframes sqeRays{from{transform:translate(-50%,-50%) rotate(0deg)}to{transform:translate(-50%,-50%) rotate(360deg)}}
+@keyframes sqeIn{0%{opacity:0;transform:translateY(12px) scale(.92)}100%{opacity:1;transform:none}}
+@keyframes sqeMsg{0%{opacity:0}15%{opacity:1}85%{opacity:1}100%{opacity:0}}
+@keyframes sqeTitle{0%{opacity:0;transform:scale(1.9);letter-spacing:.7em}100%{opacity:1;transform:scale(1);letter-spacing:.25em}}
+`;
+function EvolutionScene({ ev, onClose }) {
+  useEffect(() => { SFX.play("evolve"); const t = setTimeout(onClose, 7000); return () => clearTimeout(t); }, []);
+  const S = 180;
+  const ring = (ev.stage && ev.stage.frame) || "linear-gradient(135deg, #fff3c4, #d6b56a 50%, #a8833a)";
+  const subject = (icon, avatar) => avatar
+    ? <div style={{ width: S, height: S, borderRadius: "50%", backgroundColor: "#e9e4d6", backgroundImage: `url(${avatar})`, backgroundSize: "300% auto", backgroundPosition: `${ev.face[0]}% ${ev.face[1]}%` }} />
+    : <div style={{ width: S, height: S, borderRadius: "50%", background: "rgba(253,251,245,0.12)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 108, lineHeight: 1 }}>{icon}</div>;
+  const parts = Array.from({ length: 30 }, (_, i) => ({ left: (i * 37 + 7) % 100, size: 3 + (i % 4) * 2, delay: (i * 0.13) % 2.2, dur: 1.8 + (i % 5) * 0.35 }));
+  return (
+    <div onClick={onClose} role="dialog" aria-label={`${ev.big}：${ev.to}`} className="fixed inset-0 flex flex-col items-center justify-center jp select-none"
+      style={{ zIndex: 70, background: "radial-gradient(circle at 50% 42%, rgba(46,60,110,0.94), rgba(8,12,28,0.97))", animation: "sqeBg .5s ease-out both", cursor: "pointer", overflow: "hidden" }}>
+      <style>{EVO_CSS}</style>
+      <div style={{ position: "absolute", left: "50%", top: 0, bottom: 0, width: 190, transformOrigin: "top", background: "linear-gradient(90deg, transparent, rgba(255,243,196,0.5), rgba(255,255,255,0.75), rgba(255,243,196,0.5), transparent)", animation: "sqePillar 1.5s ease-out .3s both" }} />
+      {parts.map((p, i) => <span key={i} style={{ position: "absolute", bottom: -10, left: `${p.left}%`, width: p.size, height: p.size, borderRadius: "50%", background: i % 3 ? "#fff3c4" : "#f2c14e", boxShadow: "0 0 8px #f2c14e", animation: `sqeRise ${p.dur}s ease-out ${p.delay}s infinite` }} />)}
+      <div style={{ position: "absolute", left: "50%", top: "42%", width: 0, height: 0, animation: "sqeBg .6s ease-out 2s both" }}>
+        <div style={{ position: "absolute", left: 0, top: 0, width: 620, height: 620, borderRadius: "50%", background: "repeating-conic-gradient(from 0deg, rgba(255,243,196,0.22) 0deg 8deg, rgba(255,243,196,0) 8deg 24deg)", animation: "sqeRays 14s linear infinite", maskImage: "radial-gradient(circle, #000 30%, transparent 70%)", WebkitMaskImage: "radial-gradient(circle, #000 30%, transparent 70%)" }} />
+      </div>
+      <div style={{ position: "relative", height: 26, marginBottom: 14 }}>
+        <div style={{ position: "absolute", left: "50%", transform: "translateX(-50%)", whiteSpace: "nowrap", color: "#fdfbf5", fontSize: 15, letterSpacing: "0.15em", animation: "sqeMsg 1.8s ease-out .2s both" }}>まばゆい光に包まれていく……</div>
+      </div>
+      <div style={{ position: "relative", width: S + 12, height: S + 12 }}>
+        {/* 進化前：影になって脈打つ */}
+        <div style={{ position: "absolute", inset: 6, animation: "sqeSil 1.6s ease-in .2s both, sqePulse .45s ease-in-out .3s 4, sqeHide .01s linear 1.95s both" }}>{subject(ev.prevIcon || ev.icon, ev.avatar)}</div>
+        {/* 進化後：新しい額縁で現れる */}
+        <div style={{ position: "absolute", inset: 0, padding: 6, borderRadius: "50%", background: ring, boxShadow: `0 0 40px ${(ev.stage && ev.stage.color) || "#f2c14e"}`, animation: "sqeIn .5s ease-out 1.95s both" }}>{subject(ev.icon, ev.avatar)}</div>
+      </div>
+      <div style={{ marginTop: 22, textAlign: "center", color: "#fdfbf5", padding: "0 16px" }}>
+        <div style={{ fontFamily: "'Shippori Mincho B1', serif", fontWeight: 800, fontSize: 34, color: "#f2c14e", textShadow: "0 0 18px rgba(242,193,78,0.8)", animation: "sqeTitle .7s cubic-bezier(.2,.8,.2,1) 2.1s both" }}>{ev.big}！</div>
+        <div style={{ fontSize: 16, marginTop: 6, animation: "sqeIn .5s ease-out 2.5s both" }}>{ev.from ? <>{ev.from}<span style={{ color: "#f2c14e", margin: "0 10px" }}>→</span></> : null}<span style={{ fontWeight: 800, fontSize: 20 }}>{ev.to}</span></div>
+        {ev.sub && <div style={{ fontSize: 12, marginTop: 6, color: "#c9d4e2", animation: "sqeIn .5s ease-out 2.8s both" }}>{ev.sub}</div>}
+        <div style={{ fontSize: 11, marginTop: 18, color: "#8f9cb8", animation: "sqeIn .5s ease-out 3.4s both" }}>タップで閉じる</div>
+      </div>
+      <div style={{ position: "absolute", inset: 0, background: "#fffdf4", pointerEvents: "none", animation: "sqeFlash .8s ease-out 1.6s both" }} />
     </div>
   );
 }

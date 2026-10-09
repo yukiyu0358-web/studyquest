@@ -84,6 +84,8 @@ state の主なキー：`player` / `qualifications` / `tasks` / `studyLog` / `fo
 - アイコン：`Ico`＋`LINE_ICONS`（白金テーマは線のアイコン）、`GameIcon`＋`GAME_ART`（装備・道具・タスク・ボスのメダル絵。CSS の .ico-emoji / .ico-line で切り替え）
 - バトル演出：`BattleStage`（問題の上に魔物。`AnswerPanel` が `emitBattle` で結果を送る）`BattleResult` `MONSTER_SPECIES` `MON_THEMES`（問題集名→科目の色・素材）`SFX`（効果音・既定オフ）`BATTLE`（1セットのHP・コンボ）。設定 `displaySettings.battle` `displaySettings.sfx`
 - 育成：素材 `RPG_MATERIALS`（戦利品は `emitReward`→StudyRPG が記録）、スキル `SKILL_TREE`（SP＝レベル−1）、鍛冶 `forgeCost` `forgedFx` `rpgInvItem`（持ち物 `{u,i,p}` の p が強化段階）。`SkillPanel` `ForgePanel`。rpg に `materials` `skills` `forgeLog` を追加
+- 進化：`HERO_STAGES`（Lv1/10/20/30/40/50 の6つの姿。額縁・紋章・翼・星）`heroStage` `HeroDecor` `EvolutionScene`（全画面の進化演出。`showEvolution` で出す：主人公の段階変化・覚醒★・相棒）`EvolutionRoad`
+- モンスター図鑑：`MonsterDex` `dexStatus`（0未発見 1発見 2討伐 3制覇＝fs.s≥21）
 - テーマ：`DISPLAY_DEFAULTS`（既定は white）`THEME_PAL`（classic/white の配色）`CLASSIC_CSS` `WHITE_CSS` `ClassicThemeStyle` `TitleScreen` `ClassicInfoBar` `MenuHome`（クラシック）`SignpostHome`（白金・道しるべ）`migrateDisplay`
 
 ## テーマの仕組み
