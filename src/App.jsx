@@ -1682,6 +1682,37 @@ function StudyRPG({ user }) {
       });
       return { ok: success, plus: success ? p + 1 : p, msg: success ? `${it.name} +${p + 1} に強化成功！` : "強化に失敗…（素材は失われました）" };
     },
+    // 週替わりボスの結果（勝てば星霊石・賢者の結晶も。勝てるのは週に1回）
+    weeklyFinish: ({ won, gold, xp, itemId }) => {
+      const wk = weekKey();
+      updateRpg((x) => {
+        const already = x.weekly && x.weekly.week === wk && x.weekly.won;
+        const win = won && !already;
+        return {
+          ...x, gold: x.gold + (already ? 0 : gold), goldEarned: x.goldEarned + (already ? 0 : gold),
+          materials: win ? { ...x.materials, "m-star": (x.materials["m-star"] || 0) + WEEKLY_REWARD.star, "m-sage": (x.materials["m-sage"] || 0) + WEEKLY_REWARD.sage } : x.materials,
+          inventory: win && itemId ? [...x.inventory, { u: uid(), i: itemId }].slice(-150) : x.inventory,
+          weekly: { week: wk, won: !!(already || won), tries: ((x.weekly && x.weekly.week === wk && x.weekly.tries) || 0) + 1 },
+        };
+      });
+      if (won && xp) setTimeout(() => awardXp(xp), 300);
+      if (won) setTimeout(() => showRpgToast(`星霊石×${WEEKLY_REWARD.star}・賢者の結晶×${WEEKLY_REWARD.sage} を手に入れた！［週替わりボス］`, "#b08a3e"), 1200);
+    },
+    // 模試の塔の結果：正答率に応じたゴールドと欠片。合格圏（85%）で踏破ボーナス。最高記録を残す
+    dungeonFinish: ({ n, acc }) => {
+      const passed = acc >= PASS_LINE;
+      const gold = Math.round(n * 3 * acc) + (passed ? 100 : 0);
+      const frag = Math.round(n * acc / 5);
+      const fid = FRAG_IDS[Math.floor(Math.random() * FRAG_IDS.length)];
+      updateRpg((x) => {
+        const dg = x.dungeon || {};
+        const best = { ...(dg.best || {}) };
+        best[n] = Math.max(best[n] || 0, Math.round(acc * 1000) / 1000);
+        return { ...x, gold: x.gold + gold, goldEarned: x.goldEarned + gold, materials: frag ? { ...x.materials, [fid]: (x.materials[fid] || 0) + frag } : x.materials, dungeon: { ...dg, best, runs: (dg.runs || 0) + 1, clears: (dg.clears || 0) + (passed ? 1 : 0) } };
+      });
+      if (passed) setTimeout(() => grantItem(rollRpgItem(1.5), "模試の塔の踏破"), 800);
+      return `報酬：${gold}G${frag ? `・${(matById(fid) || {}).name}×${frag}` : ""}${passed ? "・踏破の装備" : ""}`;
+    },
     // デイリークエストの報酬（ゴールドと欠片）
     claimQuest: (id) => {
       const cur = stateRef.current;
@@ -6605,7 +6636,7 @@ const RPG_DEFAULTS = {
   equipped: { weapon: null, armor: null, accessory: null }, bossWins: 0, bossLosses: 0, bossLog: [],
   boosts: { xpUntil: null }, restDays: [], crits: 0,
   classId: null, pet: null, seen: { stars: 0, pet: 0 },
-  materials: {}, skills: [], forgeLog: { ok: 0, ng: 0 }, daily: null, storySeen: -1,
+  materials: {}, skills: [], forgeLog: { ok: 0, ng: 0 }, daily: null, storySeen: -1, weekly: null, dungeon: null,
 };
 function normRpg(r) {
   const x = { ...RPG_DEFAULTS, ...(r || {}) };
@@ -7230,7 +7261,204 @@ function StoryPanel({ pp }) {
   );
 }
 
-function WorldView({ state, actions, todayCount }) {
+// ── 週替わりボス：その週いちばん合格力の低い地域（科目）から現れる。勝てるのは週に1回 ──
+const weekKey = () => { const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return localDateStr(d); }; // その週の月曜日
+const WEEKLY_BOSS = {
+  "不動産登記法の王都": { name: "王都を蝕む影竜", icon: "🐉", boss: "dragon" },
+  "民法の古の森": { name: "古の森の大樹霊", icon: "👻", boss: "ghost" },
+  "区分所有の双子塔": { name: "双子塔の番人", icon: "🗿", boss: "golem" },
+  "調査士法の砦": { name: "砦の黒騎士", icon: "🦹", boss: "shadow" },
+  "測量の星見台": { name: "星見台の天球獣", icon: "🐉", boss: "dragon" },
+  "書式の迷宮": { name: "迷宮の書魔", icon: "👹", boss: "maou" },
+  "未踏の地": { name: "霧の主", icon: "🟢", boss: "slime" },
+};
+const WEEKLY_REWARD = { gold: 250, xp: 150, star: 2, sage: 1, luck: 2.5 };
+const shuffleArr = (a) => { const x = [...a]; for (let i = x.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [x[i], x[j]] = [x[j], x[i]]; } return x; };
+// 指定した問題集から出題：苦手を優先し、足りなければ間違いの多い問題・定着の浅い問題で補う
+function buildPoolFromBanks(banks, n) {
+  const all = banks.flatMap((b) => (b.questions || []).filter((q) => !q.excluded).map((q) => ({ bankId: b.id, bankName: b.name, q })));
+  let pool = shuffleArr(all.filter((x) => isQuestionWeak(x.q))).slice(0, n);
+  if (pool.length < n) {
+    const rest = all.filter((x) => !isQuestionWeak(x.q)).sort((a, b) => (b.q.wrong || 0) - (a.q.wrong || 0) || (((a.q.fs && a.q.fs.s) || 0) - ((b.q.fs && b.q.fs.s) || 0)));
+    pool = [...pool, ...rest.slice(0, n - pool.length)];
+  }
+  return shuffleArr(pool).map((x) => ({ bankId: x.bankId, bankName: x.bankName, qId: x.q.id }));
+}
+function weeklyBossFor(pp) {
+  const regs = pp.regions.filter((g) => g.total > 0);
+  if (regs.length === 0) return null;
+  const g = [...regs].sort((a, b) => a.power - b.power)[0];
+  const def = WEEKLY_BOSS[g.name] || WEEKLY_BOSS["未踏の地"];
+  return { id: def.boss, weekly: true, idx: 3, loop: 0, icon: def.icon, name: def.name, label: `${def.name}（週替わり）`, region: g, hp: Math.min(260, 150 + g.weak * 2), atk: 22 };
+}
+function WeeklyBossCard({ state, pp, onStart }) {
+  const r = normRpg(state.rpg);
+  const wb = weeklyBossFor(pp);
+  const done = r.weekly && r.weekly.week === weekKey() && r.weekly.won;
+  if (!wb) return null;
+  return (
+    <Box title="週替わりボス" icon={<Skull size={18} />}>
+      <div className="flex items-center gap-3">
+        <div style={{ flexShrink: 0, filter: done ? "grayscale(1) opacity(0.5)" : undefined }}><GameIcon ch={wb.icon} id={wb.id} size={64} boss /></div>
+        <div className="flex-1 min-w-0 jp">
+          <div className="text-[10px]" style={{ color: "var(--ink-mute)" }}>今週の出現地：{wb.region.name}（合格力 {pctTxt(wb.region.power)}・いちばん低い地域）</div>
+          <div className="text-base" style={{ fontWeight: 800, color: "var(--brick)" }}>{wb.name}</div>
+          <div className="text-[10px]" style={{ color: "var(--ink-soft)" }}>HP {wb.hp} ・ ATK {wb.atk} ・ 苦手な問題を優先して12問</div>
+          <div className="text-[10px]" style={{ color: "var(--gold)", fontWeight: 700 }}>報酬：{WEEKLY_REWARD.gold}G・EXP{WEEKLY_REWARD.xp}・星霊石×{WEEKLY_REWARD.star}・賢者の結晶×{WEEKLY_REWARD.sage}・装備</div>
+        </div>
+      </div>
+      {done ? <p className="jp text-sm text-center mt-2" style={{ color: "var(--sage)", fontWeight: 700 }}>今週は撃破済み！ 来週また新しいボスが現れます。</p>
+        : <button onClick={() => onStart(wb, buildPoolFromBanks(wb.region.banks, 12))} className="jp btn-danger w-full py-2.5 mt-3">⚔ 挑む（12問）</button>}
+    </Box>
+  );
+}
+
+// ── ダンジョン（模試の塔）：本番のように時間を計って一気に解く。1問正解ごとに1階層もぐる ──
+const DUNGEON_SIZES = [20, 40, 60]; // 1問1分
+function DungeonCard({ state, pp, onStart }) {
+  const r = normRpg(state.rpg);
+  const dg = r.dungeon || {};
+  const banks = pp.regions.flatMap((g) => g.banks);
+  const avail = banks.reduce((n, b) => n + (b.questions || []).filter((q) => !q.excluded).length, 0);
+  return (
+    <Box title="模試の塔（ダンジョン）" icon={<Castle size={18} />}>
+      <p className="jp text-xs mb-2" style={{ color: "var(--ink-soft)" }}>本番のように、時間を計って一気に解きます（1問1分）。最後に「合格圏（85%）・基準点（75%）」で判定します。回答はいつもどおり復習の記録に反映されます。</p>
+      <div className="grid grid-cols-3 gap-2">
+        {DUNGEON_SIZES.map((n) => {
+          const best = dg.best && dg.best[n];
+          return (
+            <button key={n} disabled={avail < n} onClick={() => onStart(n, shuffleArr(banks.flatMap((b) => (b.questions || []).filter((q) => !q.excluded).map((q) => ({ bankId: b.id, bankName: b.name, qId: q.id })))).slice(0, n))} className="jp btn-ghost py-2 px-1 text-center" style={{ opacity: avail < n ? 0.45 : 1, cursor: avail < n ? "not-allowed" : "pointer" }}>
+              <div className="text-sm" style={{ fontWeight: 800 }}>{n}階層</div>
+              <div className="text-[10px]" style={{ color: "var(--ink-mute)" }}>{n}問・{n}分</div>
+              <div className="text-[10px]" style={{ color: best >= PASS_LINE ? "var(--gold)" : "var(--ink-soft)" }}>{best != null ? `最高 ${Math.round(best * 100)}%${best >= PASS_LINE ? " 踏破" : ""}` : "未挑戦"}</div>
+            </button>
+          );
+        })}
+      </div>
+    </Box>
+  );
+}
+function DungeonRun({ state, pool, minutes, actions, recordAnswer, startTimer, stopTimer, onExit }) {
+  const [battleKey] = useState(() => uid());
+  const [idx, setIdx] = useState(0);
+  const [showAnswer, setShowAnswer] = useState(false);
+  const [res, setRes] = useState([]); // {bankId, qId, correct}
+  const [done, setDone] = useState(null); // { acc, correct, total, timeUp, retreat, reward }
+  const [startMs] = useState(() => Date.now());
+  const [now, setNow] = useState(Date.now());
+  const timerStartedByMe = useRef(false);
+  const finished = useRef(false);
+  const limitMs = minutes * 60000;
+  useEffect(() => {
+    if (!state.timer.startMs) { startTimer(null, "qa"); timerStartedByMe.current = true; }
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => { clearInterval(t); if (timerStartedByMe.current) { stopTimer(); timerStartedByMe.current = false; } };
+  }, []);
+  const finish = (list, why) => {
+    if (finished.current) return;
+    finished.current = true;
+    if (timerStartedByMe.current) { stopTimer(); timerStartedByMe.current = false; }
+    const correct = list.filter((x) => x.correct).length;
+    const acc = correct / pool.length; // 解けなかった問題は不正解として数える
+    const reward = actions.dungeonFinish({ n: pool.length, acc });
+    setDone({ acc, correct, total: pool.length, answered: list.length, why, reward, used: Math.min(limitMs, Date.now() - startMs) });
+  };
+  const left = Math.max(0, limitMs - (now - startMs));
+  useEffect(() => { if (left <= 0 && !done) finish(res, "時間切れ"); }, [left]);
+  const item = pool[idx];
+  const bank = item ? state.questionBanks.find((b) => b.id === item.bankId) : null;
+  const q = bank ? (bank.questions || []).find((x) => x.id === item.qId) : null;
+  const answer = (correct, meta) => {
+    if (!q || done) return;
+    recordAnswer(item.bankId, q.id, correct, meta);
+    const list = [...res, { bankId: item.bankId, qId: q.id, correct }];
+    setRes(list);
+    setShowAnswer(false);
+    if (idx + 1 >= pool.length) finish(list, "最下層に到達");
+    else setIdx(idx + 1);
+  };
+  const mmss = (ms) => `${Math.floor(ms / 60000)}:${String(Math.floor((ms % 60000) / 1000)).padStart(2, "0")}`;
+
+  if (done) {
+    const verdict = done.acc >= PASS_LINE ? ["合格圏！ 塔を踏破しました", "var(--gold)"] : done.acc >= BASE_LINE ? ["基準点クリア。合格ラインまであと少し", "var(--sage)"] : ["基準点に届かず。手強い魔物を鍛え直そう", "var(--brick)"];
+    const byRegion = {};
+    res.forEach((x) => {
+      const b = state.questionBanks.find((bb) => bb.id === x.bankId);
+      const th = MON_THEMES.find((t) => t.re.test((b && b.name) || "")) || MON_THEME_DEFAULT;
+      const g = byRegion[th.region] || (byRegion[th.region] = { n: 0, c: 0, th });
+      g.n++; if (x.correct) g.c++;
+    });
+    const wrongs = res.filter((x) => !x.correct).map((x) => { const b = state.questionBanks.find((bb) => bb.id === x.bankId); return b && (b.questions || []).find((qq) => qq.id === x.qId); }).filter(Boolean);
+    return (
+      <Box title="模試の塔：結果" icon={<Award size={18} />}>
+        <BattleResult state={state} battleKey={battleKey} />
+        <div className="jp text-center py-2">
+          <div className="text-[11px]" style={{ color: "var(--ink-mute)" }}>{done.why} ・ {done.answered}/{done.total}問を解答 ・ {mmss(done.used)}</div>
+          <div style={{ fontSize: 40, fontWeight: 800, color: verdict[1], fontFamily: "'Cinzel', 'Shippori Mincho B1', serif" }}>{Math.round(done.acc * 100)}%</div>
+          <div className="text-sm" style={{ fontWeight: 800, color: verdict[1] }}>{verdict[0]}</div>
+          <div className="text-[11px] mt-1" style={{ color: "var(--ink-soft)" }}>{done.correct}問正解 ・ 択一20問なら 約{Math.round(done.acc * 20)}問</div>
+          {done.reward && <div className="text-xs mt-1" style={{ color: "var(--gold)", fontWeight: 700 }}>{done.reward}</div>}
+        </div>
+        {Object.keys(byRegion).length > 0 && (
+          <div className="space-y-1 mb-3">
+            {Object.entries(byRegion).map(([name, g]) => (
+              <div key={name} className="jp flex items-center gap-2 text-xs">
+                <span className="w-32 truncate" style={{ color: g.th.dark, fontWeight: 700 }}>{name}</span>
+                <div className="flex-1" style={{ height: 8, borderRadius: 4, background: "var(--beige)", overflow: "hidden" }}><div style={{ width: `${(g.c / g.n) * 100}%`, height: "100%", background: g.th.body }} /></div>
+                <span style={{ color: "var(--ink-soft)", minWidth: 52, textAlign: "right" }}>{g.c}/{g.n}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        {wrongs.length > 0 && (
+          <details className="jp text-xs mb-3">
+            <summary style={{ cursor: "pointer", color: "var(--ink-soft)" }}>まちがえた問題（{wrongs.length}問）を見る</summary>
+            <div className="space-y-1 mt-1">
+              {wrongs.map((w) => <div key={w.id} className="p-2" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)" }}><div>{renderFormattedText(w.q, w.q_formats)}</div><div className="mt-1" style={{ color: "var(--sky-deep)" }}>→ {renderFormattedText(w.a, w.a_formats)}</div></div>)}
+            </div>
+          </details>
+        )}
+        <button onClick={onExit} className="jp btn-primary w-full py-2">塔を出る</button>
+      </Box>
+    );
+  }
+  if (!q) return null;
+  const floor = res.filter((x) => x.correct).length;
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between jp text-xs">
+        <button onClick={() => { if (confirm("撤退しますか？（解いていない問題は不正解として数えます）")) finish(res, "撤退"); }} className="flex items-center gap-1" style={{ color: "var(--ink-soft)" }}><XIcon size={14} /> 撤退</button>
+        <span style={{ color: "var(--ink-soft)" }}>問題 {idx + 1}/{pool.length}</span>
+        <span style={{ fontWeight: 800, color: left < 60000 ? "var(--brick)" : "var(--sky-deep)", fontVariantNumeric: "tabular-nums" }}>残り {mmss(left)}</span>
+      </div>
+      <div className="jp flex items-center gap-2">
+        <span className="text-[11px]" style={{ color: "var(--gold)", fontWeight: 800, whiteSpace: "nowrap" }}>地下{floor}階</span>
+        <div className="flex-1" style={{ height: 6, borderRadius: 3, background: "var(--beige)", overflow: "hidden" }}><div style={{ width: `${(floor / pool.length) * 100}%`, height: "100%", background: "linear-gradient(90deg, #6c5a96, #d6b56a)" }} /></div>
+        <span className="text-[10px]" style={{ color: "var(--ink-mute)" }}>最下層 {pool.length}階</span>
+      </div>
+      <BattleStage state={state} q={q} bankName={bank.name} battleKey={battleKey} />
+      <div className="rpg-box p-1">
+        <div className="rpg-inner-border min-h-[180px] flex flex-col">
+          <div className="jp text-[10px] mb-2" style={{ color: "var(--ink-mute)" }}>{bank.name}</div>
+          <div className="qtext jp text-base md:text-lg flex-1 break-words" style={{ color: "var(--ink)" }}>{renderFormattedText(q.q, q.q_formats)}</div>
+          <QuestionImages bankId={bank.id} question={q} side="q" />
+          {showAnswer ? (
+            <>
+              <div className="jp text-[10px] mt-3 mb-1" style={{ color: "var(--gold)" }}>答え</div>
+              <div className="qtext jp text-base md:text-lg break-words p-2" style={{ background: "var(--sky-pale)", border: "1px solid var(--gold)", color: "var(--ink)" }}>{renderFormattedText(q.a, q.a_formats)}</div>
+              <QuestionImages bankId={bank.id} question={q} side="a" />
+              <AnswerPanel onAnswer={answer} question={q} srSettings={state.srSettings} />
+            </>
+          ) : (
+            <button onClick={() => setShowAnswer(true)} className="jp btn-info mt-3 py-2 flex items-center justify-center gap-1"><Eye size={16} /> 答えを見る</button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function WorldView({ state, actions, todayCount, onWeekly, onDungeon }) {
   const qual = mainQual(state);
   const linked = qual && state.questionBanks.some((b) => b.qualId === qual.id);
   const pp = passPower(state, linked ? qual.id : null);
@@ -7238,6 +7466,8 @@ function WorldView({ state, actions, todayCount }) {
     <>
       <FinalBoss state={state} qual={qual} pp={pp} />
       <DailyQuests state={state} actions={actions} todayCount={todayCount} />
+      <WeeklyBossCard state={state} pp={pp} onStart={onWeekly} />
+      <DungeonCard state={state} pp={pp} onStart={onDungeon} />
       <WorldMap pp={pp} />
       <StoryPanel pp={pp} />
     </>
@@ -7250,11 +7480,15 @@ function AdventureTab({ state, actions, recordAnswer, startTimer, stopTimer, tod
   const bonus = getRpgBonuses(state);
   const boss = getNextBoss(r);
   const [battle, setBattle] = useState(null);       // { boss, pool }
+  const [dungeon, setDungeon] = useState(null);     // { pool, minutes }（模試の塔）
   const [slotOpen, setSlotOpen] = useState(null);   // 装備を選んでいるスロット
   const [qualId, setQualId] = useState("all");
   const [msg, setMsg] = useState("");
   const [view, setView] = useState("world"); // world（世界）| base（拠点・ボス）| skill | forge | dex
 
+  if (dungeon) {
+    return <DungeonRun state={state} pool={dungeon.pool} minutes={dungeon.minutes} actions={actions} recordAnswer={recordAnswer} startTimer={startTimer} stopTimer={stopTimer} onExit={() => setDungeon(null)} />;
+  }
   if (battle) {
     return <BossBattle state={state} boss={battle.boss} pool={battle.pool} actions={actions} recordAnswer={recordAnswer} startTimer={startTimer} stopTimer={stopTimer} onExit={() => setBattle(null)} />;
   }
@@ -7289,7 +7523,7 @@ function AdventureTab({ state, actions, recordAnswer, startTimer, stopTimer, tod
   if (view === "skill") return <div className="space-y-4">{nav}{msgBox}<SkillPanel state={state} actions={actions} flash={flash} /></div>;
   if (view === "forge") return <div className="space-y-4">{nav}{msgBox}<ForgePanel state={state} actions={actions} /></div>;
   if (view === "dex") return <div className="space-y-4">{nav}<EvolutionRoad state={state} /><MonsterDex state={state} /></div>;
-  if (view === "world") return <div className="space-y-4">{nav}<WorldView state={state} actions={actions} todayCount={todayCount} /></div>;
+  if (view === "world") return <div className="space-y-4">{nav}<WorldView state={state} actions={actions} todayCount={todayCount} onWeekly={(boss, pool) => { if (pool.length === 0) { flash("出題できる問題がありません"); return; } setBattle({ boss, pool }); }} onDungeon={(n, pool) => setDungeon({ pool, minutes: n })} /></div>;
 
   return (
     <div className="space-y-4">
@@ -7477,10 +7711,11 @@ function BossBattle({ state, boss, pool, actions, recordAnswer, startTimer, stop
     if (finished.current) return;
     finished.current = true;
     if (timerStartedByMe.current) { stopTimer(); timerStartedByMe.current = false; }
-    const gold = won ? 60 + 40 * boss.idx + 30 * boss.loop : 10;
-    const xp = won ? 80 + 30 * boss.idx + 20 * boss.loop : 0;
-    const itemId = won ? rollRpgItem(1 + boss.idx * 0.6 + boss.loop) : null;
-    actions.bossFinish({ won, bossId: boss.id, loop: boss.loop, gold, xp, itemId });
+    const gold = boss.weekly ? (won ? WEEKLY_REWARD.gold : 15) : won ? 60 + 40 * boss.idx + 30 * boss.loop : 10;
+    const xp = boss.weekly ? (won ? WEEKLY_REWARD.xp : 0) : won ? 80 + 30 * boss.idx + 20 * boss.loop : 0;
+    const itemId = won ? rollRpgItem(boss.weekly ? WEEKLY_REWARD.luck : 1 + boss.idx * 0.6 + boss.loop) : null;
+    if (boss.weekly) actions.weeklyFinish({ won, gold, xp, itemId }); // 週替わりボスはいつものボスの進み具合には数えない
+    else actions.bossFinish({ won, bossId: boss.id, loop: boss.loop, gold, xp, itemId });
     setResult({ won, fled, gold, xp, itemId });
   };
 
