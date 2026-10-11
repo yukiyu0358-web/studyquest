@@ -91,6 +91,7 @@
   .xp-shimmer { background: linear-gradient(90deg, var(--sky-deep) 0%, var(--sky) 50%, var(--sky-deep) 100%); background-size: 200% 100%; animation: shimmer 2.5s linear infinite; }
   .blink { animation: blink 1s steps(2) infinite; }
   button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--sky-deep); outline-offset: 2px; }
+  .grid > * { min-width: 0; } /* 横並びの枠が、中の長い文字に押されて画面からはみ出さないように（iPhoneでの見切れ対策） */
   .ico-line { display: none; } /* 線のアイコン：白金テーマでだけ表示（App.jsx の WHITE_CSS） */
   .swirl { position: absolute; pointer-events: none; opacity: 0.18; }
   .boot { display: flex; align-items: center; justify-content: center; min-height: 100vh; color: var(--sky-deep); font-family: 'Press Start 2P', monospace; font-size: 12px; }
@@ -103,7 +104,7 @@
   .sync-dot.error { background: var(--brick); }
 </style>
 
-  <script type="module" crossorigin src="/studyquest/assets/index-BfOXT5Ia.js"></script>
+  <script type="module" crossorigin src="/studyquest/assets/index-DdP_H8jj.js"></script>
   <link rel="stylesheet" crossorigin href="/studyquest/assets/index-tn0RQdqM.css">
 </head>
 <body>
