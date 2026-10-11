@@ -138,9 +138,22 @@ export const GAME_ART_BY_ID = {
   maou: oniArt(GA.goldL),
 };
 export const GAME_RING = { N: "#a9b1c2", R: "#4f7fb8", SR: "#b08a3e" };
+// 塗りの絵（public/art/items/）：装備は id、道具は絵文字で引く。あればメダルの中に絵を出す
+const ITEM_ART = `${(import.meta.env && import.meta.env.BASE_URL) || "/"}art/items/`;
+export const PAINTED_BY_ID = {
+  "w-staff": "a13", "w-pen": "a07", "w-chain": "a01", "w-holy": "b01", "w-divine": "b01",
+  "a-robe": "a10", "a-vest": "b09", "a-coat": "b07", "a-border": "a02", "a-immovable": "a03",
+  "x-compass": "b05", "x-glasses": "a16", "x-level": "b03", "x-charm": "a09",
+};
+export const PAINTED_BY_CH = { "🧪": "b04", "📕": "b02", "🎫": "a11" };
+export const paintedUrl = (file) => `${ITEM_ART}${file}.png`;
 export function GameIcon({ ch, id, rarity, size = 28, boss = false }) {
   const gid = useId();
-  const art = (id && GAME_ART_BY_ID[id]) || GAME_ART[ch];
+  const painted = (id && PAINTED_BY_ID[id]) || (!boss && PAINTED_BY_CH[ch]);
+  const art = painted ? (
+    <image href={paintedUrl(painted)} x="7" y="7" width="34" height="34" preserveAspectRatio="xMidYMid meet"
+      style={id === "w-divine" ? { filter: "drop-shadow(0 0 2px #f2c14e) drop-shadow(0 0 3px #d98fa6)" } : undefined} />
+  ) : (id && GAME_ART_BY_ID[id]) || GAME_ART[ch];
   const emoji = <span className={art ? "ico-emoji sq-emo" : "sq-emo"} style={{ fontSize: size * 0.8, lineHeight: 1 }}>{ch}</span>;
   if (!art) return emoji;
   const ring = rarity === "SSR" ? `url(#${gid})` : boss ? "#a24a45" : GAME_RING[rarity] || "#c9b07a";

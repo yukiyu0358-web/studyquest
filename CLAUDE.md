@@ -55,6 +55,7 @@ RPG風の資格学習Webアプリ。利用者本人（Yuki）が、土地家屋�
 - `src/firebase.js`：Firebase初期化。`src/main.jsx`：起動。
 - `public/hero.jpg`：クラシックテーマの立ち絵（少年）。`public/sprites/tier1〜6.png`：ドット絵の主人公（以前は App.jsx に埋め込み）。
 - `public/white-title.jpg`／`public/white-hero.jpg`：白金テーマのタイトル・背景の絵と、メニューの立ち絵（白髪の少女）。`public/white-hero-s1〜s5.jpg` を置くと、Lv10/20/30/40/50 の姿の立ち絵に自動で切り替わる（無ければ前の姿→基本の絵）。
+- `public/art/`：描きおろしの絵（元の大きな絵は利用者の「イラスト」フォルダ。アプリ用に縮小済み）。`title-wide.jpg`（PCのタイトル・背景）`title-tall.jpg`（スマホのタイトル）`scene.jpg`（会話・ログインボーナスの背景）`forge.jpg`（鍛冶場・ショップ）`party.jpg`（仲間の欄）`ally-registrar/surveyor/explorer.jpg`（仲間の立ち絵）。`art/items/a01〜a16・b01〜b10.png`：道具の絵（白背景を透明にして切り出し）。装備・道具との対応は icons.jsx の `PAINTED_BY_ID` `PAINTED_BY_CH`
 - `public/laws/*.json`：条文データ（不動産登記法・令・規則、民法、区分所有法、土地家屋調査士法）。
 - `scripts/fetch-laws.mjs`：e-Gov法令API v2 から条文を取得するスクリプト。
 
@@ -95,6 +96,7 @@ state の主なキー：`player` / `qualifications` / `tasks` / `studyLog` / `fo
 - 合格力の推移と週報：`PowerChart`（rpg.powerLog に1日1件）`weeklyReport`（週はじめに会話で。rpg.reportWeek）。会話は `talkQ` で順番待ち
 - 論点カルテ `topicKarte` `TopicKarte`（記憶率の低い話トップ5、集中攻撃）。書式の鍛錬場 `ShoshikiDojo`（rpg.shoshiki）。逆算プラン `examPlan` `newTodayCount`（ホームの今日の目標）
 - ログインボーナス `LoginBonus` `claimLogin`（rpg.login）。季節のイベント `SEASON_EVENTS` `activeEvents`（ボーナスは getRpgBonuses に加算）
+- 仲間 `ALLIES`（リーネ・カイ・ミラ。地域を1つ・2つ・3つ解放で加入、`alliesJoined`）`PartyCard`。会話の話し手に仲間の id を使える（まだ加入していない仲間のせりふは飛ばす）。演出・会話・ログインボーナスはタイトル画面の間は出さない（`showTitleNow`）
 - テーマ：`DISPLAY_DEFAULTS`（既定は white）`THEME_PAL`（classic/white の配色）`CLASSIC_CSS` `WHITE_CSS` `ClassicThemeStyle` `TitleScreen` `ClassicInfoBar` `MenuHome`（クラシック）`SignpostHome`（白金・道しるべ）`migrateDisplay`
 
 ## テーマの仕組み

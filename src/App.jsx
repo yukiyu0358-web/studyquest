@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { fsrs as createFsrs, createEmptyCard, Rating, State } from "ts-fsrs";
 import Papa from "papaparse";
 import { fbAuth, fbDb, fbFieldValue } from "./firebase";
-import { LINE_ICONS, Ico, Sword, Plus, Check, Trash2, Sparkles, ScrollIcon, Upload, Play, Pause, BookOpen, Calendar, Home, FileQuestion, Eye, Shuffle, XIcon, Award, Clock, TrendingUp, Crown, Pencil, Bookmark, StarIcon, FolderIcon, Up, Down, Skull, Sword2, StatusIcon, LogoutIcon, Search, Castle, GA, swordArt, crossedSwords, oniArt, GAME_ART, GAME_ART_BY_ID, GAME_RING, GameIcon } from "./game/icons"; // アイコン
+import { LINE_ICONS, Ico, Sword, Plus, Check, Trash2, Sparkles, ScrollIcon, Upload, Play, Pause, BookOpen, Calendar, Home, FileQuestion, Eye, Shuffle, XIcon, Award, Clock, TrendingUp, Crown, Pencil, Bookmark, StarIcon, FolderIcon, Up, Down, Skull, Sword2, StatusIcon, LogoutIcon, Search, Castle, GA, swordArt, crossedSwords, oniArt, GAME_ART, GAME_ART_BY_ID, GAME_RING, GameIcon, paintedUrl } from "./game/icons"; // アイコン
 import { SFX } from "./game/sfx"; // 効果音
 import { STUDY_QUOTES } from "./data/quotes"; // 名言
 import { REGION_TALK, STORY_TALKS } from "./data/story"; // 物語の会話
@@ -78,6 +78,8 @@ const todayStr = () => { const d = new Date(); return `${d.getFullYear()}-${Stri
 const HERO_URL = `${(import.meta.env && import.meta.env.BASE_URL) || "/"}hero.jpg`;
 // 白金テーマ：タイトル・背景の絵（white-title.jpg）と、メニューの立ち絵（white-hero.jpg）
 const WHITE_TITLE_URL = `${(import.meta.env && import.meta.env.BASE_URL) || "/"}white-title.jpg`;
+// 白金テーマの描きおろしの絵（public/art/）：タイトル（横長・縦長）、会話の背景、鍛冶場、仲間
+const ART_URL = `${(import.meta.env && import.meta.env.BASE_URL) || "/"}art/`;
 const WHITE_HERO_URL = `${(import.meta.env && import.meta.env.BASE_URL) || "/"}white-hero.jpg`;
 const readPref = (key, fallback) => { try { return localStorage.getItem(key) || fallback; } catch (e) { return fallback; } };
 const writePref = (key, value) => { try { localStorage.setItem(key, value); } catch (e) { /* 保存できなくても動作は続ける */ } };
@@ -113,7 +115,7 @@ html[data-theme="classic"] ::placeholder{color:#7f8aa6}
 const WHITE_CSS = `
 html[data-theme="white"]{--ink:#22335c;--ink-soft:#4a5a7c;--ink-mute:#7a8aa8;--paper:#fdfbf5;--cream:#f6f0e2;--beige:#ece4d0;--greige:#d9cfb5;--rule:#b08a3e;--rule-soft:#d8c9a3;--gold:#b08a3e;--gold-light:#d6b56a;--sage:#4f8a72;--brick:#a24a45;--slate:#3d5a8c;--sky:#d4b878;--sky-light:#efe6cf;--sky-pale:#f8f3e6;--sky-deep:#2f4570;--mint:#7fb8a4;--plum:#7c6aa6;--hl:rgba(214,181,106,0.4);--memo-bg:#fbf3dc;background:#f6f2e8;color-scheme:light}
 html[data-theme="white"] body{background:transparent !important;color:var(--ink);font-family:'Zen Kaku Gothic New','Noto Emoji','Hiragino Kaku Gothic ProN',sans-serif}
-html[data-theme="white"] body::before{content:"";position:fixed;left:-48px;top:-48px;right:-48px;bottom:-48px;z-index:-2;background:#f6f2e8 url("${WHITE_TITLE_URL}") center 30%/cover no-repeat;filter:blur(24px) brightness(1.08) saturate(.8)}
+html[data-theme="white"] body::before{content:"";position:fixed;left:-48px;top:-48px;right:-48px;bottom:-48px;z-index:-2;background:#f6f2e8 url("${ART_URL}title-wide.jpg") center 30%/cover no-repeat;filter:blur(24px) brightness(1.08) saturate(.8)}
 html[data-theme="white"] body::after{content:"";position:fixed;left:0;top:0;right:0;bottom:0;z-index:-1;background:rgba(250,247,238,.62)}
 html[data-theme="white"] .jp{font-family:'Zen Kaku Gothic New','Noto Emoji','Hiragino Kaku Gothic ProN',sans-serif}
 html[data-theme="white"] .pixel{font-family:'Shippori Mincho B1','Noto Emoji','Hiragino Mincho ProN',serif;font-weight:800;letter-spacing:.02em}
@@ -208,7 +210,7 @@ const THEME_PAL = {
     classBadge: { background: "#fdfbf5", border: "1px solid #b08a3e", borderRadius: 2, color: "#b08a3e" },
     portraitFrame: { border: "1px solid #b08a3e", borderRadius: "150px 150px 4px 4px", padding: 5, background: "#fdfbf5", boxShadow: "0 6px 18px rgba(40,50,80,0.14)" },
     gaugeExp: ["#2f4570", "#7fa6d6"], gaugeToday: ["#b08a3e", "#e6c98a"], gaugeMastery: ["#4f8a72", "#a7cdb8"],
-    title: { bg: "#f6f2e8", image: WHITE_TITLE_URL, backdropFilter: "blur(26px) brightness(1.08) saturate(0.85)", overlay: "rgba(250,247,238,0.6)", imgFilter: "none", vignette: "none", sparkle: "#c9a55a", press: "#22335c", pressSub: "#b08a3e", footer: "#5b6b8c", copy: "学ぶ、だから、どこまでも行ける。", mask: "radial-gradient(ellipse 62% 58% at 55% 47%, #000 64%, transparent 100%)" },
+    title: { fullArt: { wide: `${ART_URL}title-wide.jpg`, tall: `${ART_URL}title-tall.jpg` }, bg: "#f6f2e8", image: WHITE_TITLE_URL, backdropFilter: "blur(26px) brightness(1.08) saturate(0.85)", overlay: "rgba(250,247,238,0.6)", imgFilter: "none", vignette: "none", sparkle: "#c9a55a", press: "#22335c", pressSub: "#b08a3e", footer: "#5b6b8c", copy: "学ぶ、だから、どこまでも行ける。", mask: "radial-gradient(ellipse 62% 58% at 55% 47%, #000 64%, transparent 100%)" },
   },
 };
 // クラシックテーマ用の文字スタイル（これまでの部品から使う）
@@ -262,17 +264,27 @@ function TitleScreen({ loading, saveInfo, onContinue, onSettings, onLogout, them
 
   return (
     <div className="fixed inset-0 overflow-hidden" style={{ zIndex: 60, background: T.bg, color: P.text }}>
+      {T.fullArt ? (<>
+        {/* 描きおろしの絵を画面いっぱいに（PCは横長・スマホは縦長）。少女が左にいるので、文字は右側に */}
+        <picture>
+          <source media="(min-width: 768px)" srcSet={T.fullArt.wide} />
+          <img src={T.fullArt.tall} alt="" className="absolute inset-0 w-full h-full" style={{ objectFit: "cover", objectPosition: "center 40%" }} />
+        </picture>
+        <div className="absolute inset-0 md:hidden" style={{ background: "linear-gradient(180deg, rgba(250,247,238,0.88) 0%, rgba(250,247,238,0.2) 32%, rgba(250,247,238,0) 55%, rgba(250,247,238,0.75) 100%)" }} />
+        <div className="absolute inset-0 hidden md:block" style={{ background: "linear-gradient(270deg, rgba(250,247,238,0.92) 0%, rgba(250,247,238,0.7) 30%, rgba(250,247,238,0) 58%)" }} />
+      </>) : (<>
       <div style={{ position: "absolute", left: -60, top: -60, right: -60, bottom: -60, background: `${T.bg} url("${T.image}") center 20%/cover no-repeat`, filter: T.backdropFilter }} />
       <div style={{ position: "absolute", inset: 0, background: T.overlay }} />
       <img src={T.image} alt="" onError={(e) => { e.currentTarget.style.display = "none"; }}
         className="absolute left-1/2 -translate-x-1/2 md:left-auto md:translate-x-0 md:right-[5%] top-[13%] md:top-[1%] h-[62vh] md:h-[98vh]"
         style={{ aspectRatio: "2 / 3", objectFit: "cover", WebkitMaskImage: T.mask, maskImage: T.mask, filter: T.imgFilter }} />
+      </>)}
       {T.vignette !== "none" && <div style={{ position: "absolute", inset: 0, boxShadow: T.vignette, pointerEvents: "none" }} />}
       {[[12, 22, 0], [86, 28, 1.1], [70, 62, 2], [22, 66, 0.6]].map(([l, t, d], i) => (
         <span key={i} style={{ position: "absolute", left: `${l}%`, top: `${t}%`, fontSize: 11, color: T.sparkle, animation: `sqTwinkleT 3s ease-in-out ${d}s infinite` }}>✦</span>
       ))}
 
-      <div className="relative h-full flex flex-col items-center justify-between md:items-start md:justify-center md:gap-12 px-6 md:pl-[8vw] pt-10 md:pt-0 pb-14 md:pb-0">
+      <div className={`relative h-full flex flex-col items-center justify-between md:justify-center md:gap-12 px-6 pt-10 md:pt-0 pb-14 md:pb-0 ${T.fullArt ? "md:items-end md:pr-[7vw]" : "md:items-start md:pl-[8vw]"}`}>
         <div className="flex flex-col items-center md:items-start gap-1">
           <div className="flex items-center gap-3 text-[15px] md:text-[22px]" style={{ ...P.mincho, color: P.subtitleColor, fontWeight: 700, letterSpacing: "0.35em" }}>
             <span style={{ display: "block", width: 40, height: 1, background: P.divider }} />学びの冒険<span style={{ display: "block", width: 40, height: 1, background: P.divider }} />
@@ -1587,7 +1599,9 @@ function StudyRPG({ user }) {
       if (won && xp) setTimeout(() => awardXp(xp), 300);
       if (won && !already) {
         const info = regionInfo(region);
-        setTimeout(() => showEvolution({ big: "地域解放", from: null, to: region, sub: `${info.emblem.name}を手に入れた（${fxText(info.emblem.fx)}）`, stage: heroStage(stateRef.current.player.level), afterTalk: { title: `${region}　解放`, lines: (REGION_TALK[region] || []).map((t) => ["hero", t]) } }), 1500);
+        const newAlly = ALLIES.find((a) => a.need === clearedCount(normRpg(stateRef.current.rpg)) + 1);
+        setTimeout(() => showEvolution({ big: "地域解放", from: null, to: region, sub: `${info.emblem.name}を手に入れた（${fxText(info.emblem.fx)}）`, stage: heroStage(stateRef.current.player.level), afterTalk: { title: `${region}　解放`, lines: [...(REGION_TALK[region] || []).map((t) => ["hero", t]), ...(newAlly ? [["hero", "……あれ？ だれか、こちらへ駆けてきます。"], ...newAlly.intro.map((t) => [newAlly.id, t]), ["hero", `${newAlly.name}さんが、仲間になってくれました！ これからよろしくお願いしますね。`]] : [])] } }), 1500);
+        if (newAlly) setTimeout(() => showRpgToast(`${newAlly.name}（${newAlly.role}）が仲間になった！ ${fxText(newAlly.fx)}`, "#b08a3e"), 1800);
       }
     },
     // 魔王城を1階攻略する（条件を満たしたときだけ）
@@ -1737,7 +1751,7 @@ function StudyRPG({ user }) {
     if (idx > r.storySeen) {
       updateRpg((x) => ({ ...x, storySeen: idx }));
       const ch = STORY_CHAPTERS[idx];
-      setTimeout(() => showEvolution({ big: idx === 0 ? "物語の始まり" : "新しい章", from: null, to: ch.title.replace("　", " "), sub: ch.text.split("\n")[0], stage: heroStage(state.player.level), afterTalk: { title: ch.title, lines: STORY_TALKS[idx] || [] } }), 1200);
+      setTimeout(() => showEvolution({ big: idx === 0 ? "物語の始まり" : "新しい章", from: null, to: ch.title.replace("　", " "), sub: ch.text.split("\n")[0], stage: heroStage(state.player.level), afterTalk: { title: ch.title, lines: [...(STORY_TALKS[idx] || []), ...ALLIES.map((a) => [a.id, a.cheer])] } }), 1200);
     }
   }, [state.questionBanks, loaded]);
 
@@ -2544,9 +2558,9 @@ function StudyRPG({ user }) {
         <div key={rpgToast.id} className="milestone-toast fixed left-1/2 top-20 z-50 pointer-events-none jp text-sm px-3 py-2" style={{ background: "var(--paper)", border: `2px solid ${rpgToast.color || "var(--gold)"}`, color: "var(--ink)", boxShadow: "2px 2px 0 rgba(0,0,0,0.15)", whiteSpace: "nowrap" }}>{rpgToast.text}</div>
       )}
 
-      {evolution && <EvolutionScene key={evolution.id} ev={evolution} onClose={() => { const t = evolution.afterTalk; setEvolution((e) => (e && e.id === evolution.id ? null : e)); if (t) setTalk(t); }} />}
-      {loaded && !evolution && !talk && ((normRpg(state.rpg).login || {}).last !== todayStr()) && <LoginBonus state={state} onClaim={rpgActions.claimLogin} />}
-      {talk && !evolution && <StoryTalk key={talk.id} state={state} talk={talk} onClose={() => setTalkQ((q) => q.slice(1))} />}
+      {evolution && !showTitleNow && <EvolutionScene key={evolution.id} ev={evolution} onClose={() => { const t = evolution.afterTalk; setEvolution((e) => (e && e.id === evolution.id ? null : e)); if (t) setTalk(t); }} />}
+      {loaded && !showTitleNow && !evolution && !talk && ((normRpg(state.rpg).login || {}).last !== todayStr()) && <LoginBonus state={state} onClaim={rpgActions.claimLogin} />}
+      {talk && !showTitleNow && !evolution && <StoryTalk key={talk.id} state={state} talk={talk} onClose={() => setTalkQ((q) => q.slice(1))} />}
 
       {rpgEvent && (
         <div key={rpgEvent.id} className="fixed inset-0 z-50 pointer-events-none flex items-center justify-center">
@@ -6499,21 +6513,21 @@ const RARITY = {
 };
 const RPG_ITEMS = [
   // 武器
-  { id: "w-staff",     slot: "weapon",    name: "木の杖",         icon: "🪄", rarity: "N",   price: 100, fx: { bossDmgPct: 5 } },
-  { id: "w-pen",       slot: "weapon",    name: "鉄の羽ペン",     icon: "🖋️", rarity: "N",   price: 150, fx: { critPct: 2 } },
+  { id: "w-staff",     slot: "weapon",    name: "見習いの杖",     icon: "🪄", rarity: "N",   price: 100, fx: { bossDmgPct: 5 } },
+  { id: "w-pen",       slot: "weapon",    name: "白銀の羽ペン",   icon: "🖋️", rarity: "N",   price: 150, fx: { critPct: 2 } },
   { id: "w-chain",     slot: "weapon",    name: "測量の鎖剣",     icon: "⛓️", rarity: "R",   price: 600, fx: { bossDmgPct: 15, critPct: 2 } },
   { id: "w-holy",      slot: "weapon",    name: "登記の聖剣",     icon: "🗡️", rarity: "SR",  fx: { bossDmgPct: 30, critPct: 5 } },
   { id: "w-divine",    slot: "weapon",    name: "地籍の神剣",     icon: "⚔️", rarity: "SSR", fx: { bossDmgPct: 50, critPct: 8, xpPct: 10 } },
   // 防具
   { id: "a-robe",      slot: "armor",     name: "布のローブ",     icon: "🥋", rarity: "N",   price: 100, fx: { hpPlus: 10 } },
-  { id: "a-vest",      slot: "armor",     name: "調査士のベスト", icon: "🦺", rarity: "N",   price: 150, fx: { dmgCutPct: 8 } },
+  { id: "a-vest",      slot: "armor",     name: "調査士の胸当て", icon: "🦺", rarity: "N",   price: 150, fx: { dmgCutPct: 8 } },
   { id: "a-coat",      slot: "armor",     name: "製図士のコート", icon: "🧥", rarity: "R",   price: 600, fx: { hpPlus: 20, dmgCutPct: 10 } },
-  { id: "a-border",    slot: "armor",     name: "境界の鎧",       icon: "🛡️", rarity: "SR",  fx: { hpPlus: 30, dmgCutPct: 25 } },
-  { id: "a-immovable", slot: "armor",     name: "不動の甲冑",     icon: "🏯", rarity: "SSR", fx: { hpPlus: 50, dmgCutPct: 40 } },
+  { id: "a-border",    slot: "armor",     name: "境界の盾",       icon: "🛡️", rarity: "SR",  fx: { hpPlus: 30, dmgCutPct: 25 } },
+  { id: "a-immovable", slot: "armor",     name: "不動の兜",       icon: "🏯", rarity: "SSR", fx: { hpPlus: 50, dmgCutPct: 40 } },
   // アクセサリー
   { id: "x-compass",   slot: "accessory", name: "幸運のコンパス", icon: "🧭", rarity: "N",   price: 200, fx: { critPct: 3 } },
-  { id: "x-glasses",   slot: "accessory", name: "学者の眼鏡",     icon: "👓", rarity: "R",   price: 700, fx: { xpPct: 10 } },
-  { id: "x-level",     slot: "accessory", name: "黄金の水準器",   icon: "📐", rarity: "SR",  fx: { goldPct: 30, xpPct: 10 } },
+  { id: "x-glasses",   slot: "accessory", name: "学者の砂時計",   icon: "👓", rarity: "R",   price: 700, fx: { xpPct: 10 } },
+  { id: "x-level",     slot: "accessory", name: "黄金の天球儀",   icon: "📐", rarity: "SR",  fx: { goldPct: 30, xpPct: 10 } },
   { id: "x-charm",     slot: "accessory", name: "公図の護符",     icon: "🗺️", rarity: "SSR", fx: { xpPct: 20, critPct: 5, goldPct: 20 } },
 ];
 const RPG_SLOTS = [
@@ -6524,7 +6538,7 @@ const RPG_SLOTS = [
 const RPG_CONSUMABLES = [
   { id: "potion",     name: "回復薬",         icon: "🧪", price: 50,  desc: "ボス戦でHPを40回復する" },
   { id: "xpBook",     name: "経験値の書",     icon: "📕", price: 300, desc: "30分間、獲得EXPが2倍になる" },
-  { id: "restTicket", name: "お休みチケット", icon: "🎫", price: 400, desc: "学習できなかった昨日を、連続学習日数に数える" },
+  { id: "restTicket", name: "休息のランタン", icon: "🎫", price: 400, desc: "学習できなかった昨日を、連続学習日数に数える" },
 ];
 const RPG_BOSSES = [
   { id: "slime",  name: "境界のスライム", icon: "🟢", hp: 60,  atk: 12 },
@@ -6665,7 +6679,7 @@ const rpgEquippedItems = (r) => RPG_SLOTS.map((s) => rpgInvItem(r.inventory.find
 function getRpgBonuses(state) {
   const r = normRpg(state.rpg);
   const eq = rpgEquippedItems(r);
-  const gfx = [...getGrowthFx(state), ...r.skills.map((id) => (skillNodes.find((n) => n.id === id) || {}).fx || {}), ...Object.keys(r.regions || {}).filter((k) => r.regions[k].cleared).map((k) => regionInfo(k).emblem.fx), ...activeEvents(state).map((e) => e.fx)]; // クラス・相棒・覚醒・スキル・地域の紋章・季節のイベント
+  const gfx = [...getGrowthFx(state), ...r.skills.map((id) => (skillNodes.find((n) => n.id === id) || {}).fx || {}), ...Object.keys(r.regions || {}).filter((k) => r.regions[k].cleared).map((k) => regionInfo(k).emblem.fx), ...activeEvents(state).map((e) => e.fx), ...alliesJoined(r).map((a) => a.fx)]; // クラス・相棒・覚醒・スキル・地域の紋章・季節のイベント・仲間
   const sum = (k) => eq.reduce((a, it) => a + ((it.fx && it.fx[k]) || 0), 0) + gfx.reduce((a, f) => a + (f[k] || 0), 0);
   const st = calculateStatus(state);
   const boostActive = !!(r.boosts.xpUntil && Date.now() < r.boosts.xpUntil);
@@ -6822,6 +6836,9 @@ function ForgePanel({ state, actions }) {
     <>
       <style>{BATTLE_CSS}</style>
       <Box title="鍛冶場" icon={<Sword size={18} />}>
+        <div className="mb-3 relative overflow-hidden" style={{ height: 120, borderRadius: 8, border: "1px solid #b08a3e", background: `url(${ART_URL}forge.jpg) center 45%/cover no-repeat` }}>
+          <div className="absolute inset-x-0 bottom-0 px-3 py-1 jp text-xs" style={{ background: "linear-gradient(0deg, rgba(253,251,245,0.95), rgba(253,251,245,0))", color: "#22335c", fontWeight: 700 }}>素材とゴールドで、装備を鍛え上げよう</div>
+        </div>
         {!cur ? <p className="jp text-sm" style={{ color: "var(--ink-mute)" }}>強化できる装備を持っていません。ショップやボス討伐で手に入れましょう。</p> : (() => {
           const it = cur.it;
           const max = it.plus >= FORGE_MAX;
@@ -7135,11 +7152,7 @@ function DailyQuests({ state, actions, todayCount, compact = false }) {
         })}
       </div>
       <div className="jp flex items-center gap-2 mt-2 px-2 py-1.5" style={{ border: `1px dashed ${claimedAll && !daily.chest ? "var(--gold)" : "var(--rule-soft)"}`, background: "var(--paper)" }}>
-        <svg viewBox="0 0 40 32" width="34" height="28" aria-hidden="true" style={{ flexShrink: 0, filter: claimedAll && !daily.chest ? "drop-shadow(0 0 6px #f2c14e)" : undefined, animation: claimedAll && !daily.chest ? "sqbIdle 1.4s ease-in-out infinite" : undefined }}>
-          <path d="M4 14h32v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z" fill="#b98552" stroke="#5f3f1f" strokeWidth="1.4" />
-          <path d={daily.chest ? "M4 10c0-6 6-9 16-9s16 3 16 9l-2 4H6z" : "M4 14c0-6 6-10 16-10s16 4 16 10z"} fill="#a8743f" stroke="#5f3f1f" strokeWidth="1.4" transform={daily.chest ? "rotate(-14 4 14)" : undefined} />
-          <path d="M4 20h32M20 14v16" stroke="#d6b56a" strokeWidth="2.4" /><rect x="17" y="17" width="6" height="6" rx="1" fill="#f2c14e" stroke="#8f6f2c" />
-        </svg>
+        <img src={paintedUrl("a08")} alt="宝箱" width="40" height="40" style={{ flexShrink: 0, objectFit: "contain", filter: claimedAll && !daily.chest ? "drop-shadow(0 0 6px #f2c14e)" : daily.chest ? "grayscale(0.6) opacity(0.6)" : undefined, animation: claimedAll && !daily.chest ? "sqbIdle 1.4s ease-in-out infinite" : undefined }} />
         <div className="flex-1 text-[11px]" style={{ color: "var(--ink-soft)" }}>{daily.chest ? "今日の宝箱は開けました。また明日！" : `3つ全部受け取ると宝箱：${CHEST_REWARD.gold}G・星霊石・まれに装備`}</div>
         {!daily.chest && <button disabled={!claimedAll} onClick={() => { say(actions.claimChest()); SFX.play("forgeOk"); }} className="btn-primary text-[11px] px-2 py-1 jp">開ける</button>}
       </div>
@@ -7213,6 +7226,7 @@ function weeklyReport(state, weekStart) {
   if (best && best.d > 0.001) lines.push(["hero", `いちばん伸びたのは「${best.k}」（${sign(best.d)}）。積み重ねが、ちゃんと力になっていますね。`]);
   if (weak) lines.push(["hero", `いま合格力がいちばん低いのは「${weak.k}」（${pctTxt(weak.p)}）。今週はここを重点的に攻めましょう。週替わりボスも、ここに現れていますよ。`]);
   lines.push(["pet", "（相棒が、地図の上でその地域をつついている）"]);
+  alliesJoined(r).forEach((a) => lines.push([a.id, a.cheer]));
   lines.push(["hero", delta >= 0 ? "この調子です。今週も一緒に進みましょうね。" : "少し下がってしまいましたが、大丈夫です。今日の復習から、ゆっくり立て直しましょう。"]);
   return { title: "週報　先週のふり返り", lines };
 }
@@ -7555,26 +7569,81 @@ function regionStatus(g, r) {
   if (g.total > 0 && g.seen / g.total < 0.2) return "fog";
   return g.power >= GUARDIAN_LINE ? "ready" : "explore";
 }
+// ── 仲間：地域を解放するたびに1人ずつ加わる（1つ目→リーネ、2つ目→カイ、3つ目→ミラ）。会話に登場し、小さなボーナスをくれる ──
+const ALLIES = [
+  { id: "rine", name: "リーネ", role: "登記官見習い", img: "ally-registrar.jpg", face: [25, 2], need: 1, fx: { xpPct: 3 },
+    intro: ["はじめまして！ 登記官見習いのリーネです。王都の登記所で働いています。", "申請の期限や、誰が申請するのか……そういう細かいところなら任せてください！"],
+    cheer: "「誰が・いつまでに・何を」を押さえれば、登記の問題はぐっと楽になりますよ！" },
+  { id: "kai", name: "カイ", role: "測量士", img: "ally-surveyor.jpg", face: [42, 5], need: 2, fx: { critPct: 2 },
+    intro: ["……測量士のカイだ。星見台で、境界の座標を記録している。", "計算と図面のことなら、手を貸そう。"],
+    cheer: "計算は、手を動かした回数がものを言う。同じ問題でも、もう一度解いてみるといい。" },
+  { id: "mira", name: "ミラ", role: "記録探索者", img: "ally-explorer.jpg", face: [26, 9], need: 3, fx: { dropPct: 10 },
+    intro: ["やっほー！ 記録探索者のミラだよ。古い記録や判例を探して、国じゅうを旅してるの。", "民法や書式で迷ったら、具体的な場面を思い浮かべるのがコツ！ 一緒に行こう！"],
+    cheer: "覚えにくいところは、物語みたいに場面を思い浮かべてみて！ ぐっと覚えやすくなるよ。" },
+];
+const allyById = (id) => ALLIES.find((a) => a.id === id) || null;
+const clearedCount = (r) => Object.values(r.regions || {}).filter((x) => x && x.cleared).length;
+const alliesJoined = (r) => { const n = clearedCount(r); return ALLIES.filter((a) => n >= a.need); };
+function PartyCard({ state, actions }) {
+  const r = normRpg(state.rpg);
+  const joined = new Set(alliesJoined(r).map((a) => a.id));
+  return (
+    <Box title="仲間" icon={<Crown size={18} />}>
+      <div className="relative overflow-hidden mb-3" style={{ borderRadius: 8, height: 150, border: "1px solid #b08a3e" }}>
+        <img src={`${ART_URL}party.jpg`} alt="仲間たち" className="w-full h-full" style={{ objectFit: "cover", objectPosition: "center 14%", filter: joined.size ? "none" : "grayscale(0.6) brightness(1.05)" }} />
+        <div className="absolute inset-x-0 bottom-0 px-3 py-1.5 jp text-xs" style={{ background: "linear-gradient(0deg, rgba(253,251,245,0.95), rgba(253,251,245,0))", color: "#22335c", fontWeight: 700 }}>
+          {joined.size ? `いっしょに旅をする仲間 ${joined.size}人` : "地域を解放すると、仲間が加わります"}
+        </div>
+      </div>
+      <div className="grid gap-2 md:grid-cols-3">
+        {ALLIES.map((a) => {
+          const on = joined.has(a.id);
+          return (
+            <button key={a.id} disabled={!on} onClick={() => actions.openTalk({ title: `${a.name}（${a.role}）`, lines: [...a.intro.map((t) => [a.id, t]), [a.id, a.cheer]] })} className="jp flex items-center gap-2 p-2 text-left" style={{ background: "var(--paper)", border: `1px solid ${on ? "var(--gold)" : "var(--rule-soft)"}`, borderRadius: 8, cursor: on ? "pointer" : "default" }}>
+              <span style={{ width: 46, height: 46, flexShrink: 0, borderRadius: "50%", border: `2px solid ${on ? "#b08a3e" : "#d8c9a3"}`, backgroundColor: "#e9e4d6", backgroundImage: `url(${ART_URL}${a.img})`, backgroundSize: "300% auto", backgroundPosition: `${a.face[0]}% ${a.face[1]}%`, filter: on ? "none" : "brightness(0) opacity(0.3)" }} />
+              <span className="flex-1 min-w-0">
+                <span className="block text-sm" style={{ fontWeight: 800, color: on ? "var(--ink)" : "var(--ink-mute)" }}>{on ? a.name : "？？？"}<span className="text-[10px] ml-1" style={{ color: "var(--ink-soft)", fontWeight: 500 }}>{on ? a.role : ""}</span></span>
+                <span className="block text-[10px]" style={{ color: on ? "var(--sky-deep)" : "var(--ink-mute)" }}>{on ? fxText(a.fx) : `地域を${a.need}つ解放すると仲間に`}</span>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      <p className="jp text-[10px] mt-2" style={{ color: "var(--ink-mute)" }}>仲間は、物語や週報の会話に登場して、得意分野の助言をくれます。仲間を選ぶと、話を聞けます。</p>
+    </Box>
+  );
+}
+
 // 会話の画面（下からせり上がる会話窓。タップで次へ）
 function StoryTalk({ state, talk, onClose }) {
   const th = BATTLE_THEME[(state.displaySettings && state.displaySettings.theme) || "white"] || BATTLE_THEME.white;
   const pet = getPetInfo(state);
-  const lines = talk.lines.filter(([who]) => who !== "pet" || pet);
+  const joined = new Set(alliesJoined(normRpg(state.rpg)).map((a) => a.id));
+  // 相棒がいないときは相棒のせりふを、まだ仲間になっていない仲間のせりふを飛ばす
+  const lines = talk.lines.filter(([who]) => (who === "pet" ? !!pet : allyById(who) ? joined.has(who) : true));
   const [i, setI] = useState(0);
   const line = lines[Math.min(i, lines.length - 1)];
   if (!line) return null;
-  const isPet = line[0] === "pet";
+  const who = line[0];
+  const ally = allyById(who);
+  const isPet = who === "pet";
   const next = () => { if (i + 1 >= lines.length) onClose(); else setI(i + 1); };
+  const face = (url, f) => <div style={{ width: 64, height: 64, borderRadius: "50%", flexShrink: 0, border: "2px solid #b08a3e", backgroundColor: "#e9e4d6", backgroundImage: `url(${url})`, backgroundSize: "300% auto", backgroundPosition: `${f[0]}% ${f[1]}%` }} />;
   return (
-    <div className="fixed inset-0 flex items-end justify-center jp" style={{ zIndex: 65, background: "rgba(10,14,30,0.45)", animation: "sqFadeIn .3s ease-out" }} onClick={next}>
-      <div className="w-full max-w-2xl m-3 p-4 relative" style={{ background: "#fdfbf5", border: "1px solid #b08a3e", borderRadius: 10, boxShadow: "inset 0 0 0 3px #fdfbf5, inset 0 0 0 4px rgba(176,138,62,.45), 0 10px 30px rgba(0,0,0,0.3)", color: "#22335c", cursor: "pointer" }}>
+    <div className="fixed inset-0 flex items-end justify-center jp" style={{ zIndex: 65, animation: "sqFadeIn .3s ease-out" }} onClick={next}>
+      {/* 背景：描きおろしの景色をうっすらと */}
+      <div className="absolute inset-0" style={{ background: `rgba(10,14,30,0.35) url(${ART_URL}scene.jpg) center/cover no-repeat` }} />
+      <div className="absolute inset-0" style={{ background: "linear-gradient(180deg, rgba(10,14,30,0.15) 0%, rgba(10,14,30,0.55) 100%)" }} />
+      {/* 話している人の大きな姿（仲間のときだけ） */}
+      {ally && <img key={who} src={`${ART_URL}${ally.img}`} alt="" className="absolute bottom-0 right-0 md:right-[8%] h-[70vh] pointer-events-none" style={{ objectFit: "contain", animation: "sqFadeIn .35s ease-out", WebkitMaskImage: "radial-gradient(ellipse 50% 58% at 50% 42%, #000 45%, transparent 100%)", maskImage: "radial-gradient(ellipse 50% 58% at 50% 42%, #000 45%, transparent 100%)", opacity: 0.97 }} />}
+      <div className="w-full max-w-2xl m-3 p-4 relative" style={{ background: "rgba(253,251,245,0.97)", border: "1px solid #b08a3e", borderRadius: 10, boxShadow: "inset 0 0 0 3px #fdfbf5, inset 0 0 0 4px rgba(176,138,62,.45), 0 10px 30px rgba(0,0,0,0.3)", color: "#22335c", cursor: "pointer" }}>
         <div className="text-[11px] mb-2" style={{ color: "#b08a3e", fontWeight: 800, letterSpacing: "0.15em", fontFamily: "'Shippori Mincho B1', serif" }}>{talk.title}</div>
         <div className="flex items-start gap-3">
           {isPet
-            ? <div style={{ width: 60, height: 60, borderRadius: "50%", flexShrink: 0, border: "2px solid #b08a3e", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 34, background: "#f6ead0" }}>{pet.icon}</div>
-            : <div style={{ width: 60, height: 60, borderRadius: "50%", flexShrink: 0, border: "2px solid #b08a3e", backgroundColor: "#e9e4d6", backgroundImage: `url(${th.avatar})`, backgroundSize: "300% auto", backgroundPosition: `${th.face[0]}% ${th.face[1]}%` }} />}
+            ? <div style={{ width: 64, height: 64, borderRadius: "50%", flexShrink: 0, border: "2px solid #b08a3e", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 34, background: "#f6ead0" }}>{pet.icon}</div>
+            : ally ? face(`${ART_URL}${ally.img}`, ally.face) : face(th.avatar, th.face)}
           <div className="flex-1 min-w-0">
-            <div className="text-xs mb-1" style={{ fontWeight: 800, color: "#5b6b8c" }}>{isPet ? pet.name : heroStage(state.player.level).name}</div>
+            <div className="text-xs mb-1" style={{ fontWeight: 800, color: "#5b6b8c" }}>{isPet ? pet.name : ally ? `${ally.name}（${ally.role}）` : heroStage(state.player.level).name}</div>
             <div key={i} className="text-[15px] md:text-[17px] leading-relaxed" style={{ fontFamily: "'Shippori Mincho B1', serif", fontWeight: 700, animation: "sqFadeIn .25s ease-out" }}>{line[1]}</div>
           </div>
         </div>
@@ -7973,7 +8042,10 @@ function LoginBonus({ state, onClaim }) {
   return (
     <div className="fixed inset-0 flex items-center justify-center jp" style={{ zIndex: 66, background: "rgba(10,14,30,0.5)", animation: "sqFadeIn .3s ease-out" }}>
       <div className="m-4 p-5 w-full max-w-md text-center" style={{ background: "#fdfbf5", border: "1px solid #b08a3e", borderRadius: 12, boxShadow: "inset 0 0 0 3px #fdfbf5, inset 0 0 0 4px rgba(176,138,62,.45), 0 12px 32px rgba(0,0,0,0.3)", color: "#22335c" }}>
-        <div style={{ width: 64, height: 64, margin: "0 auto", borderRadius: "50%", border: "2px solid #b08a3e", backgroundColor: "#e9e4d6", backgroundImage: `url(${th.avatar})`, backgroundSize: "300% auto", backgroundPosition: `${th.face[0]}% ${th.face[1]}%` }} />
+        <div className="-mx-5 -mt-5 mb-1 relative" style={{ height: 110, borderRadius: "12px 12px 0 0", overflow: "hidden", background: `url(${ART_URL}scene.jpg) center 35%/cover no-repeat` }}>
+          <div className="absolute inset-0" style={{ background: "linear-gradient(180deg, rgba(253,251,245,0) 40%, #fdfbf5 100%)" }} />
+        </div>
+        <div style={{ width: 64, height: 64, margin: "-44px auto 0", position: "relative", borderRadius: "50%", border: "2px solid #b08a3e", backgroundColor: "#e9e4d6", backgroundImage: `url(${th.avatar})`, backgroundSize: "300% auto", backgroundPosition: `${th.face[0]}% ${th.face[1]}%` }} />
         <div className="mt-2" style={{ fontFamily: "'Shippori Mincho B1', serif", fontWeight: 800, fontSize: 20, letterSpacing: "0.1em" }}>おかえりなさい</div>
         <div className="text-xs" style={{ color: "#5b6b8c" }}>今日も来てくれてうれしいです。ログインのしるしをどうぞ。（通算{(lg.count || 0) + 1}日目）</div>
         <div className="grid grid-cols-7 gap-1.5 mt-4">
@@ -8353,9 +8425,10 @@ function WorldView({ state, actions, todayCount, onWeekly, onDungeon, onGuardian
         <TopicKarte state={state} pp={pp} onStart={onStory} />
       </>)}
       {sec === "road" && (<>
+        <PartyCard state={state} actions={actions} />
         <WorldMap pp={pp} r={normRpg(state.rpg)} onGuardian={onGuardian} />
         <JourneyCard state={state} />
-        <StoryPanel pp={pp} onTalk={(i) => actions.openTalk({ title: STORY_CHAPTERS[i].title, lines: STORY_TALKS[i] || [] })} />
+        <StoryPanel pp={pp} onTalk={(i) => actions.openTalk({ title: STORY_CHAPTERS[i].title, lines: [...(STORY_TALKS[i] || []), ...ALLIES.map((a) => [a.id, a.cheer])] })} />
       </>)}
       {sec === "quest" && (<>
         <DailyQuests state={state} actions={actions} todayCount={todayCount} />
@@ -8561,6 +8634,7 @@ function AdventureTab({ state, actions, recordAnswer, startTimer, stopTimer, tod
 
       {/* ショップ */}
       <Box title="ショップ" icon={<Crown size={18} />}>
+        <div className="mb-3" style={{ height: 90, borderRadius: 8, border: "1px solid #b08a3e", background: `url(${ART_URL}forge.jpg) center 70%/cover no-repeat` }} />
         <div className="space-y-1">
           {RPG_ITEMS.filter((it) => it.price).map((it) => (
             <div key={it.id} className="flex items-center gap-2 p-1.5" style={{ border: "1px solid var(--rule-soft)", background: "var(--paper)" }}>
