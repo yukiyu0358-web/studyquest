@@ -81,6 +81,15 @@ const WHITE_TITLE_URL = `${(import.meta.env && import.meta.env.BASE_URL) || "/"}
 // 白金テーマの描きおろしの絵（public/art/）：タイトル（横長・縦長）、会話の背景、鍛冶場、仲間
 const ART_URL = `${(import.meta.env && import.meta.env.BASE_URL) || "/"}art/`;
 const WHITE_HERO_URL = `${(import.meta.env && import.meta.env.BASE_URL) || "/"}white-hero.jpg`;
+// ホームに出すキャラクター（設定で選ぶ。displaySettings.homeChar）。face：顔アイコンの切り抜き位置、pos：立ち絵の表示位置
+const HOME_CHARS = [
+  { id: "hero", name: "主人公", img: null, avatar: WHITE_HERO_URL, face: [69, 12], pos: "center 16%" },
+  { id: "rine", name: "リーネ", img: `${ART_URL}ally-registrar.jpg`, avatar: `${ART_URL}ally-registrar.jpg`, face: [50, 8], pos: "center 6%" },
+  { id: "kai", name: "カイ", img: `${ART_URL}ally-surveyor.jpg`, avatar: `${ART_URL}ally-surveyor.jpg`, face: [50, 7], pos: "center 5%" },
+  { id: "mira", name: "ミラ", img: `${ART_URL}ally-explorer.jpg`, avatar: `${ART_URL}ally-explorer.jpg`, face: [11, 11], pos: "center 8%" },
+  { id: "boy", name: "少年", img: HERO_URL, avatar: HERO_URL, face: [52, 13], pos: "center 12%" },
+];
+const homeCharOf = (state) => HOME_CHARS.find((c) => c.id === ((state.displaySettings && state.displaySettings.homeChar) || "hero")) || HOME_CHARS[0];
 const readPref = (key, fallback) => { try { return localStorage.getItem(key) || fallback; } catch (e) { return fallback; } };
 const writePref = (key, value) => { try { localStorage.setItem(key, value); } catch (e) { /* 保存できなくても動作は続ける */ } };
 
@@ -451,6 +460,7 @@ function SignpostHome({ state, todayCount, onCommand }) {
   const tool = SIGN_TOOLS.find((t) => t.id === focus);
   const message = post ? post.desc(todayCount) : tool ? tool.desc : null;
   const stg = heroStage(player.level);
+  const hc = homeCharOf(state); // ホームに出すキャラクター（設定で変えられる）
   const subLine = [`姿：${stg.name}`, cls ? `クラス：${cls.rankName}` : null, mainAch && mainAch.job ? `称号：${mainAch.job}` : null].filter(Boolean).join("　／　");
   const mincho = { fontFamily: "'Shippori Mincho B1', serif" };
   const clickPost = (p) => {
@@ -510,8 +520,9 @@ function SignpostHome({ state, todayCount, onCommand }) {
             <button onClick={() => onCommand("status")} title="ステータス画面へ" className="flex-shrink-0 w-full sm:w-[230px] h-[280px] sm:h-[370px]" style={{ ...P.portraitFrame, position: "relative", marginTop: stg.crest ? 18 : 0, ...(stg.idx > 0 ? { background: stg.frame, boxShadow: stg.glow } : {}), cursor: "pointer" }}>
               <HeroDecor stage={stg} w={230} />
               <div className="w-full h-full overflow-hidden flex items-center justify-center" style={{ borderRadius: "145px 145px 2px 2px", background: "#e9e4d6" }}>
-                {imgOk ? (
-                  <StageHeroImg idx={stg.idx} onAllFail={() => setImgOk(false)} style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "center 16%", display: "block" }} />
+                {imgOk ? (hc.img
+                  ? <img key={hc.id} src={hc.img} alt={hc.name} onError={() => setImgOk(false)} style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: hc.pos, display: "block", animation: "sqFadeIn .35s ease-out" }} />
+                  : <StageHeroImg idx={stg.idx} onAllFail={() => setImgOk(false)} style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "center 16%", display: "block" }} />
                 ) : (
                   <HeroPortrait state={state} size={200} pixel />
                 )}
@@ -546,7 +557,7 @@ function SignpostHome({ state, todayCount, onCommand }) {
       </div>
 
       {/* 吹き出し（名言・今日の様子。メニューに合わせると説明） */}
-      <MentorBubble state={state} todayCount={todayCount} theme="white" avatar={WHITE_HERO_URL} face={[69, 12]} override={message} />
+      <MentorBubble state={state} todayCount={todayCount} theme="white" avatar={hc.avatar} face={hc.face} override={message} />
     </div>
   );
 }
@@ -714,6 +725,18 @@ function DisplaySettingsPanel({ settings, onChange, onClose }) {
         <button onClick={() => onChange({ showTitle: ds.showTitle === false })} className="jp w-full text-left text-xs px-2 py-1.5 mb-3" style={{ background: "var(--paper)", color: "var(--ink)", border: "1px solid var(--rule-soft)" }}>
           {ds.showTitle === false ? "☐" : "☑"} 起動時にタイトル画面を表示する（白金・クラシック）
         </button>
+        <div className="jp text-xs mb-1" style={{ color: "var(--ink-soft)" }}>ホームのキャラクター（白金テーマ）</div>
+        <div className="grid grid-cols-5 gap-1.5 mb-3">
+          {HOME_CHARS.map((c) => {
+            const on = (ds.homeChar || "hero") === c.id;
+            return (
+              <button key={c.id} onClick={() => onChange({ homeChar: c.id })} className="jp flex flex-col items-center gap-1 py-1.5" style={{ background: on ? "var(--cream)" : "var(--paper)", border: `1px solid ${on ? "var(--gold)" : "var(--rule-soft)"}`, borderRadius: 8, cursor: "pointer" }}>
+                <span style={{ width: 40, height: 40, borderRadius: "50%", border: `2px solid ${on ? "#b08a3e" : "#d8c9a3"}`, backgroundColor: "#e9e4d6", backgroundImage: `url(${c.avatar})`, backgroundSize: "300% auto", backgroundPosition: `${c.face[0]}% ${c.face[1]}%` }} />
+                <span className="text-[10px]" style={{ color: "var(--ink)", fontWeight: on ? 800 : 500 }}>{c.name}</span>
+              </button>
+            );
+          })}
+        </div>
         <div className="jp text-xs mb-1" style={{ color: "var(--ink-soft)" }}>バトル</div>
         <button onClick={() => onChange({ battle: ds.battle === false })} className="jp w-full text-left text-xs px-2 py-1.5 mb-1" style={{ background: "var(--paper)", color: "var(--ink)", border: "1px solid var(--rule-soft)" }}>
           {ds.battle === false ? "☐" : "☑"} 問題を解くときにバトルの演出を出す
@@ -1104,10 +1127,13 @@ function App() {
 
 // ============ Main StudyRPG ============
 const MAX_TIMER_MS = 6 * 60 * 60 * 1000; // 6時間（異常タイマー検知の閾値）
+const NOTE_TABS = ["task", "timer", "memo", "qual"]; // 下のタブ「手帳」にまとめた画面
 function StudyRPG({ user }) {
   const [state, setState] = useState(INIT);
   const [loaded, setLoaded] = useState(false);
   const [tab, setTab] = useState("home");
+  const lastNoteTab = useRef("task"); // 「手帳」タブで最後に開いていた画面（資格・タスク・時間・メモ）
+  useEffect(() => { if (NOTE_TABS.includes(tab)) lastNoteTab.current = tab; }, [tab]);
   const [showDisplaySettings, setShowDisplaySettings] = useState(false); // 「Aa 文字」パネル
   const [showLawSearch, setShowLawSearch] = useState(false);             // 「📜 条文」パネル
   const [titleOpen, setTitleOpen] = useState(() => readPref("sq-title", "on") !== "off"); // 起動時のタイトル画面
@@ -1901,6 +1927,7 @@ function StudyRPG({ user }) {
   };
   // 進化の演出（主人公の姿・覚醒・相棒）。テーマに合わせた主人公の顔を使う
   const [evolution, setEvolution] = useState(null);
+  const [lapStamp, setLapStamp] = useState(null); // 周回スタンプの演出 { id, bankName, laps }
   const [talkQ, setTalkQ] = useState([]); // 会話の画面（物語・地域の解放・週報）。重なったときは順番に出す
   const talk = talkQ[0] || null;
   const setTalk = (t) => { if (t && t.lines && t.lines.length) setTalkQ((q) => [...q, { ...t, id: uid() }]); };
@@ -2117,7 +2144,12 @@ function StudyRPG({ user }) {
     addQuestionBank(newBank);
     return questions.length;
   };
-  const incrementBankClears = (id) => setState((s) => ({ ...s, questionBanks: s.questionBanks.map((b) => b.id === id ? { ...b, clears: (b.clears || 0) + 1 } : b) }));
+  const incrementBankClears = (id) => {
+    setState((s) => ({ ...s, questionBanks: s.questionBanks.map((b) => b.id === id ? { ...b, clears: (b.clears || 0) + 1 } : b) }));
+    // 周回スタンプを押す演出（完全制覇のたび）
+    const b = stateRef.current.questionBanks.find((x) => x.id === id);
+    if (b) setTimeout(() => setLapStamp({ id: uid(), bankName: b.name, laps: (b.clears || 0) + 1 }), 600);
+  };
   const moveBank = (id, direction) => setState((s) => {
     const target = s.questionBanks.find((b) => b.id === id);
     if (!target) return s;
@@ -2584,6 +2616,13 @@ function StudyRPG({ user }) {
           {tab === "today" && <TodayTab state={state} recordSRAnswer={recordSRAnswer} updateSrSettings={updateSrSettings} startTimer={startTimer} stopTimer={stopTimer} toggleQuestionMark={toggleQuestionMark} />}
           {tab === "status" && <StatusTab state={state} setMainTitle={setMainTitle} />}
           {tab === "adventure" && <AdventureTab state={state} actions={rpgActions} recordAnswer={recordAnswer} startTimer={startTimer} stopTimer={stopTimer} todayCount={getTodayReviewItems().length} />}
+          {NOTE_TABS.includes(tab) && (
+            <div className="grid grid-cols-4 gap-1 p-1 mb-3" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)", borderRadius: 999 }}>
+              {[["task", "タスク"], ["timer", "時間"], ["memo", "メモ"], ["qual", "資格"]].map(([id, label]) => (
+                <button key={id} onClick={() => { lastNoteTab.current = id; setTab(id); }} className="jp py-1.5 text-xs" style={{ borderRadius: 999, border: "none", fontWeight: 700, cursor: "pointer", background: tab === id ? "linear-gradient(180deg, #cfae62, #a8833a)" : "transparent", color: tab === id ? "#fffdf6" : "var(--ink-soft)" }}>{label}</button>
+              ))}
+            </div>
+          )}
           {tab === "qual" && <QualTab state={state} addQual={addQual} updateQual={updateQual} deleteQual={deleteQual} acquireQual={acquireQual} />}
           {tab === "task" && <TaskTab state={state} addTask={addTask} completeTask={completeTask} deleteTask={deleteTask} addPreset={addPreset} deletePreset={deletePreset} updatePreset={updatePreset} />}
           {tab === "timer" && <TimerTab state={state} liveSeconds={liveSeconds} startTimer={startTimer} stopTimer={stopTimer} cancelTimer={cancelTimer} addManualLog={addManualLog} deleteLog={deleteLog} />}
@@ -2593,24 +2632,22 @@ function StudyRPG({ user }) {
       </div>
 
       <nav className="fixed bottom-0 left-0 right-0 z-40" style={{ background: classic ? "linear-gradient(180deg, rgba(39,63,120,0.97), rgba(23,37,72,0.98))" : isWhite ? "linear-gradient(180deg, rgba(253,251,245,0.97), rgba(246,240,226,0.98))" : "var(--paper)", borderTop: isWhite ? "1px solid #b08a3e" : "2px solid var(--rule)", boxShadow: classic ? "inset 0 2px 0 #0a1226, inset 0 3px 0 rgba(160,185,215,0.5)" : isWhite ? "inset 0 3px 0 #fdfbf5, inset 0 4px 0 rgba(176,138,62,0.45), 0 -4px 14px rgba(40,50,80,0.08)" : "none", paddingBottom: "env(safe-area-inset-bottom)" }}>
-        <div className="max-w-3xl mx-auto grid grid-cols-9">
+        <div className="max-w-3xl mx-auto grid grid-cols-6">
           {[
-            { id: "home",   label: "ホーム",     icon: <Home size={16} /> },
-            { id: "today",  label: "今日",        icon: <Calendar size={16} /> },
-            { id: "status", label: "ステータス",  icon: <StatusIcon size={16} /> },
-            { id: "adventure", label: "冒険",     icon: <Castle size={16} /> },
-            { id: "qual",   label: "資格",        icon: <Award size={16} /> },
-            { id: "task",   label: "タスク",      icon: <Sword size={16} /> },
-            { id: "timer",  label: "時間",        icon: <Clock size={16} /> },
-            { id: "memo",   label: "メモ",        icon: <Bookmark size={16} /> },
-            { id: "qbank",  label: "問題",        icon: <FileQuestion size={16} /> },
+            { id: "home",   label: "ホーム",     icon: <Home size={18} /> },
+            { id: "today",  label: "今日",        icon: <Calendar size={18} /> },
+            { id: "qbank",  label: "問題",        icon: <FileQuestion size={18} /> },
+            { id: "adventure", label: "冒険",     icon: <Castle size={18} /> },
+            { id: "status", label: "ステータス",  icon: <StatusIcon size={18} /> },
+            { id: "notebook", label: "手帳",      icon: <Bookmark size={18} /> }, // 資格・タスク・時間・メモをまとめたタブ
           ].map((t) => {
             const badge = t.id === "today" ? getTodayReviewItems().length : 0;
+            const on = t.id === "notebook" ? NOTE_TABS.includes(tab) : tab === t.id;
             return (
-              <button key={t.id} onClick={() => setTab(t.id)} className="jp flex flex-col items-center gap-0.5 py-2 transition relative"
-                style={tab === t.id ? (classic ? { ...CL.rowOn, color: "#ffffff" } : isWhite ? { ...THEME_PAL.white.rowOn, color: "#22335c" } : { background: "var(--sky-deep)", color: "var(--paper)" }) : { background: "transparent", color: "var(--ink)" }}>
+              <button key={t.id} onClick={() => setTab(t.id === "notebook" ? lastNoteTab.current : t.id)} className="jp flex flex-col items-center gap-0.5 py-2 transition relative"
+                style={on ? (classic ? { ...CL.rowOn, color: "#ffffff" } : isWhite ? { ...THEME_PAL.white.rowOn, color: "#22335c" } : { background: "var(--sky-deep)", color: "var(--paper)" }) : { background: "transparent", color: "var(--ink)" }}>
                 {t.icon}
-                <span className="text-[8px] md:text-[11px]" style={{ whiteSpace: "nowrap" }}>{t.label}</span>
+                <span className="text-[10px] md:text-[11px]" style={{ whiteSpace: "nowrap" }}>{t.label}</span>
                 {badge > 0 && (
                   <span className="absolute top-1 right-2 pixel text-[9px] px-1 min-w-[16px] text-center" style={{ background: "var(--brick)", color: "var(--paper)", borderRadius: "2px", lineHeight: "14px" }}>{badge}</span>
                 )}
@@ -2628,6 +2665,7 @@ function StudyRPG({ user }) {
         <div key={rpgToast.id} className="milestone-toast fixed left-1/2 top-20 z-50 pointer-events-none jp text-sm px-3 py-2" style={{ background: "var(--paper)", border: `2px solid ${rpgToast.color || "var(--gold)"}`, color: "var(--ink)", boxShadow: "2px 2px 0 rgba(0,0,0,0.15)", whiteSpace: "nowrap" }}>{rpgToast.text}</div>
       )}
 
+      {lapStamp && !showTitleNow && <LapStampScene key={lapStamp.id} ev={lapStamp} onClose={() => setLapStamp(null)} />}
       {evolution && !showTitleNow && <EvolutionScene key={evolution.id} ev={evolution} onClose={() => { const t = evolution.afterTalk; setEvolution((e) => (e && e.id === evolution.id ? null : e)); if (t) setTalk(t); }} />}
       {loaded && !showTitleNow && !evolution && !talk && ((normRpg(state.rpg).login || {}).last !== todayStr()) && <LoginBonus state={state} onClaim={rpgActions.claimLogin} />}
       {talk && !showTitleNow && !evolution && <StoryTalk key={talk.id} state={state} talk={talk} onClose={() => setTalkQ((q) => q.slice(1))} />}
@@ -2871,22 +2909,6 @@ function StatusTab({ state, setMainTitle }) {
           <Stat label="取得資格" value={status.acquiredQuals} accent="var(--sky-deep)" />
           <Stat label="称号数" value={player.achievements.length} accent="var(--mint)" />
         </div>
-      </Box>
-
-      <Box title="学習カレンダー" icon={<Calendar size={18} />}>
-        {(() => {
-          const logData = {};
-          (state.studyLog || []).forEach(l => {
-            if (l.date && l.minutes) logData[l.date] = (logData[l.date] || 0) + l.minutes;
-          });
-          const studyColorFn = (min) => {
-            if (min <= 15) return "#c6e48b";
-            if (min <= 45) return "#7bc96f";
-            if (min <= 90) return "#239a3b";
-            return "#196127";
-          };
-          return <StudyCalendar data={logData} title="過去4ヶ月の学習記録（色が濃いほど長時間学習）" colorFn={studyColorFn} labelFn={(v, k) => v ? `${Math.round(v)}分` : "なし"} />;
-        })()}
       </Box>
 
       <Box title="習得スキル" icon={<Sparkles size={18} />}>
@@ -7645,13 +7667,13 @@ function regionStatus(g, r) {
 }
 // ── 仲間：地域を解放するたびに1人ずつ加わる（1つ目→リーネ、2つ目→カイ、3つ目→ミラ）。会話に登場し、小さなボーナスをくれる ──
 const ALLIES = [
-  { id: "rine", name: "リーネ", role: "登記官見習い", img: "ally-registrar.jpg", face: [25, 2], need: 1, fx: { xpPct: 3 },
+  { id: "rine", name: "リーネ", role: "登記官見習い", img: "ally-registrar.jpg", face: [50, 8], need: 1, fx: { xpPct: 3 },
     intro: ["はじめまして！ 登記官見習いのリーネです。王都の登記所で働いています。", "申請の期限や、誰が申請するのか……そういう細かいところなら任せてください！"],
     cheer: "「誰が・いつまでに・何を」を押さえれば、登記の問題はぐっと楽になりますよ！" },
-  { id: "kai", name: "カイ", role: "測量士", img: "ally-surveyor.jpg", face: [42, 5], need: 2, fx: { critPct: 2 },
+  { id: "kai", name: "カイ", role: "測量士", img: "ally-surveyor.jpg", face: [50, 7], need: 2, fx: { critPct: 2 },
     intro: ["……測量士のカイだ。星見台で、境界の座標を記録している。", "計算と図面のことなら、手を貸そう。"],
     cheer: "計算は、手を動かした回数がものを言う。同じ問題でも、もう一度解いてみるといい。" },
-  { id: "mira", name: "ミラ", role: "記録探索者", img: "ally-explorer.jpg", face: [26, 9], need: 3, fx: { dropPct: 10 },
+  { id: "mira", name: "ミラ", role: "記録探索者", img: "ally-explorer.jpg", face: [11, 11], need: 3, fx: { dropPct: 10 },
     intro: ["やっほー！ 記録探索者のミラだよ。古い記録や判例を探して、国じゅうを旅してるの。", "民法や書式で迷ったら、具体的な場面を思い浮かべるのがコツ！ 一緒に行こう！"],
     cheer: "覚えにくいところは、物語みたいに場面を思い浮かべてみて！ ぐっと覚えやすくなるよ。" },
 ];
@@ -9895,6 +9917,53 @@ function BattleResult({ state, battleKey }) {
         </div>
       )}
       {lvUp > 0 && <div className="jp text-center mt-1" style={{ fontSize: 11, color: P.sub }}>スキルポイントを {lvUp} 獲得しました（冒険 → スキル）</div>}
+    </div>
+  );
+}
+
+// ── 周回スタンプの演出：完全制覇のたびに、大きな印が「ドン」と押される。5周ごとに金の印 ──
+const STAMP_CSS = `
+@keyframes sqsDrop{0%{opacity:0;transform:translate(-50%,-50%) scale(3.2) rotate(-28deg)}55%{opacity:1;transform:translate(-50%,-50%) scale(.92) rotate(-12deg)}70%{transform:translate(-50%,-50%) scale(1.06) rotate(-12deg)}100%{opacity:1;transform:translate(-50%,-50%) scale(1) rotate(-12deg)}}
+@keyframes sqsShake{0%,100%{transform:translate(0,0)}25%{transform:translate(-5px,3px)}50%{transform:translate(4px,-3px)}75%{transform:translate(-2px,2px)}}
+@keyframes sqsInk{0%{opacity:0;transform:translate(0,0) scale(.4)}30%{opacity:.85}100%{opacity:0;transform:translate(var(--dx),var(--dy)) scale(1)}}
+@keyframes sqsIn{0%{opacity:0;transform:translateY(10px)}100%{opacity:1;transform:none}}
+@keyframes sqsFade{from{opacity:0}to{opacity:1}}
+@keyframes sqsGlow{0%,100%{box-shadow:0 0 0 0 rgba(214,181,106,0.7)}50%{box-shadow:0 0 0 8px rgba(214,181,106,0)}}
+`;
+function Hanko({ laps, size = 120, gold = false, style }) {
+  const c = gold ? "#b08a3e" : "#b3302b";
+  return (
+    <div style={{ width: size, height: size, borderRadius: "50%", border: `${Math.max(3, size * 0.04)}px solid ${c}`, boxShadow: `inset 0 0 0 ${Math.max(2, size * 0.025)}px rgba(255,255,255,0.6), inset 0 0 0 ${Math.max(3, size * 0.045)}px ${c}`, color: c, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", fontFamily: "'Shippori Mincho B1', serif", fontWeight: 800, lineHeight: 1.05,
+      background: gold ? "radial-gradient(circle at 35% 30%, rgba(255,243,196,0.9), rgba(241,223,174,0.5))" : "radial-gradient(circle at 40% 35%, rgba(255,250,245,0.55), rgba(255,235,230,0.25))", ...style }}>
+      <span style={{ fontSize: size * 0.16 }}>第{laps}周</span>
+      <span style={{ fontSize: size * 0.3, letterSpacing: "0.05em" }}>制覇</span>
+    </div>
+  );
+}
+function LapStampScene({ ev, onClose }) {
+  useEffect(() => { SFX.play("stamp"); const t = setTimeout(onClose, 5200); return () => clearTimeout(t); }, []);
+  const gold = ev.laps % 5 === 0;
+  const shown = Math.min(ev.laps, 10);
+  const ink = Array.from({ length: 12 }, (_, i) => { const a = (i / 12) * Math.PI * 2; const d = 80 + (i % 3) * 22; return { dx: `${Math.round(Math.cos(a) * d)}px`, dy: `${Math.round(Math.sin(a) * d)}px`, s: 6 + (i % 4) * 3 }; });
+  return (
+    <div onClick={onClose} role="dialog" aria-label={`${ev.bankName} 第${ev.laps}周 制覇`} className="fixed inset-0 flex items-center justify-center jp" style={{ zIndex: 68, background: "rgba(10,14,30,0.5)", animation: "sqsFade .25s ease-out", cursor: "pointer" }}>
+      <style>{STAMP_CSS}</style>
+      <div className="relative m-4 w-full max-w-md text-center px-5 pt-5 pb-6" style={{ background: "#fdfbf5", border: "1px solid #b08a3e", borderRadius: 12, boxShadow: "inset 0 0 0 3px #fdfbf5, inset 0 0 0 4px rgba(176,138,62,.45), 0 12px 32px rgba(0,0,0,0.35)", color: "#22335c", animation: "sqsShake .3s ease-out .55s" }}>
+        <div className="text-[11px]" style={{ color: "#b08a3e", fontWeight: 800, letterSpacing: "0.2em" }}>完全制覇</div>
+        <div className="text-base mt-1" style={{ fontFamily: "'Shippori Mincho B1', serif", fontWeight: 800 }}>{ev.bankName}</div>
+        {/* 押される印 */}
+        <div style={{ position: "relative", height: 170 }}>
+          {ink.map((p, i) => <span key={i} style={{ position: "absolute", left: "50%", top: "50%", width: p.s, height: p.s, marginLeft: -p.s / 2, marginTop: -p.s / 2, borderRadius: "50%", background: gold ? "#d6b56a" : "#b3302b", "--dx": p.dx, "--dy": p.dy, animation: "sqsInk .6s ease-out .5s both" }} />)}
+          <div style={{ position: "absolute", left: "50%", top: "50%", animation: "sqsDrop .65s cubic-bezier(.3,1.4,.5,1) both" }}><Hanko laps={ev.laps} size={130} gold={gold} /></div>
+        </div>
+        <div className="text-sm" style={{ fontWeight: 800, color: gold ? "#b08a3e" : "#b3302b", animation: "sqsIn .4s ease-out .8s both" }}>{gold ? `節目の${ev.laps}周目！ 金の印を押しました` : "周回スタンプを押しました！"}</div>
+        {/* これまでの周回 */}
+        <div className="flex flex-wrap justify-center gap-1.5 mt-3" style={{ animation: "sqsIn .4s ease-out 1s both" }}>
+          {Array.from({ length: shown }, (_, i) => { const n = ev.laps - shown + i + 1; return <div key={n} style={{ borderRadius: "50%", animation: n === ev.laps ? "sqsGlow 1.4s ease-in-out infinite" : undefined }}><Hanko laps={n} size={34} gold={n % 5 === 0} style={{ transform: "rotate(-12deg)" }} /></div>; })}
+        </div>
+        {ev.laps > shown && <div className="text-[10px] mt-1" style={{ color: "#8a96b0" }}>（これまで {ev.laps}周）</div>}
+        <div className="text-[10px] mt-3" style={{ color: "#8a96b0", animation: "sqsIn .4s ease-out 1.3s both" }}>タップで閉じる</div>
+      </div>
     </div>
   );
 }
