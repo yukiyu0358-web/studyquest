@@ -97,6 +97,8 @@ state の主なキー：`player` / `qualifications` / `tasks` / `studyLog` / `fo
 - 論点カルテ `topicKarte` `TopicKarte`（記憶率の低い話トップ5、集中攻撃）。書式の鍛錬場 `ShoshikiDojo`（rpg.shoshiki）。逆算プラン `examPlan` `newTodayCount`（ホームの今日の目標）
 - ログインボーナス `LoginBonus` `claimLogin`（rpg.login）。季節のイベント `SEASON_EVENTS` `activeEvents`（ボーナスは getRpgBonuses に加算）
 - 仲間 `ALLIES`（リーネ・カイ・ミラ。地域を1つ・2つ・3つ解放で加入、`alliesJoined`）`PartyCard`。会話の話し手に仲間の id を使える（まだ加入していない仲間のせりふは飛ばす）。演出・会話・ログインボーナスはタイトル画面の間は出さない（`showTitleNow`）
+- 試練の塔（世界タブ「試練の塔」）：100階。1階10問（第1階は新10問、以降は新8問＋下の階から2問）、10の倍数の階は「試練の間」＝直前9階から15問の総復習。80%で突破（`TOWER_PASS`）。問題の並びは `towerSeq`（科目を比例で交互に）、出題 `towerFloorPool`、弱さ `weaknessOf`。画面 `TowerView`、戦い `TrialRun`（汎用：一定の正答率で突破）、結果 `towerFinish`（rpg.tower={floor,best}）
+- ストーリーの強化：節の守護者（問題集の全話クリアで出現、15問・80%、`secBossFinish`、rpg.secBoss）。地域の制覇＝全話＋全節の守護者＋地域の守護者（`regionConquest`、rpg.conquered、StudyRPG の効果で祝う）。不動産登記法・民法・調査士法の3つで特別章（`TRINITY_REGIONS` `TRINITY_TALK`、rpg.conquered.__trinity）。科目ごとの物語 `REGION_ARC` `regionArc`（intro・sec・finale。src/data/story.js）、地域に初めて入ると intro（rpg.arcSeen）
 - テーマ：`DISPLAY_DEFAULTS`（既定は white）`THEME_PAL`（classic/white の配色）`CLASSIC_CSS` `WHITE_CSS` `ClassicThemeStyle` `TitleScreen` `ClassicInfoBar` `MenuHome`（クラシック）`SignpostHome`（白金・道しるべ）`migrateDisplay`
 
 ## テーマの仕組み
