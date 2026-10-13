@@ -10,7 +10,7 @@ import { makeCloze, BLANK_LABELS } from "./game/cloze"; // 条文の穴埋めの
 import { parseQuickText, TEXT_IMPORT_MODES } from "./game/textimport"; // 貼り付けた文章を一問一答に分ける
 import { SHINSEI_CASES, SHINSEI_PURPOSES, SHINSEI_CAUSES, SHINSEI_DEADLINES, SHINSEI_ATTACH } from "./data/shinsei"; // 申請書の穴埋めの場面
 import { STUDY_QUOTES } from "./data/quotes"; // 名言
-import { REGION_TALK, STORY_TALKS, REGION_ARC, regionArc, TRINITY_REGIONS, TRINITY_TALK, BOND_TALKS, COUNTDOWN_TALKS } from "./data/story"; // 物語の会話
+import { REGION_TALK, STORY_TALKS, REGION_ARC, regionArc, TRINITY_REGIONS, TRINITY_TALK, BOND_TALKS, COUNTDOWN_TALKS, ACADEMY_MEET } from "./data/story"; // 物語の会話
 
 
 // ============ Constants ============
@@ -87,12 +87,19 @@ const ART_URL = `${(import.meta.env && import.meta.env.BASE_URL) || "/"}art/`;
 const WHITE_HERO_URL = `${(import.meta.env && import.meta.env.BASE_URL) || "/"}white-hero.jpg`;
 // ホームに出すキャラクター（設定で選ぶ。displaySettings.homeChar）。face：顔アイコンの切り抜き位置、pos：立ち絵の表示位置
 const HOME_CHARS = [
-  { id: "hero", name: "主人公", img: null, avatar: WHITE_HERO_URL, face: [69, 12], pos: "center 16%" },
+  { id: "hero", name: "主人公", img: null, avatar: WHITE_HERO_URL, face: [69, 12], pos: "center 16%", expr: true },
+  { id: "sky", name: "天空の主人公", img: `${ART_URL}hero-sky.jpg`, avatar: `${ART_URL}hero-sky.jpg`, face: [40, 9], pos: "center 6%", expr: true },
   { id: "rine", name: "リーネ", img: `${ART_URL}ally-registrar.jpg`, avatar: `${ART_URL}ally-registrar.jpg`, face: [50, 8], pos: "center 6%" },
   { id: "kai", name: "カイ", img: `${ART_URL}ally-surveyor.jpg`, avatar: `${ART_URL}ally-surveyor.jpg`, face: [50, 7], pos: "center 5%" },
   { id: "mira", name: "ミラ", img: `${ART_URL}ally-explorer.jpg`, avatar: `${ART_URL}ally-explorer.jpg`, face: [11, 11], pos: "center 8%" },
+  { id: "kaito", name: "カイト", img: `${ART_URL}ally-kaito.jpg`, avatar: `${ART_URL}ally-kaito.jpg`, face: [52, 4], pos: "center 4%" },
+  { id: "serena", name: "セレナ", img: `${ART_URL}ally-serena.jpg`, avatar: `${ART_URL}ally-serena.jpg`, face: [26, 17], pos: "center 8%" },
+  { id: "raven", name: "レイヴン", img: `${ART_URL}ally-raven.jpg`, avatar: `${ART_URL}ally-raven.jpg`, face: [70, 6], pos: "center 4%" },
   { id: "boy", name: "少年", img: HERO_URL, avatar: HERO_URL, face: [52, 13], pos: "center 12%" },
 ];
+// 主人公（白髪の少女）の表情：通常・笑顔・驚き・真剣。吹き出しと会話で、場面に合わせて使い分ける
+const HERO_FACES = Object.fromEntries(["normal", "smile", "surprise", "serious"].map((k) => [k, `${ART_URL}hero-face-${k}.jpg`]));
+const exprOfLine = (t) => (/えっ|まさか|！？|\?！/.test(t) ? "surprise" : /……|取り返|気をつけ|注意|大切|集中|気を抜/.test(t) ? "serious" : /！|うれし|おめでと|すごい|ふふ|ますね|ですね|よかった|おつかれ|この調子/.test(t) ? "smile" : "normal");
 const homeCharOf = (state) => HOME_CHARS.find((c) => c.id === ((state.displaySettings && state.displaySettings.homeChar) || "hero")) || HOME_CHARS[0];
 const readPref = (key, fallback) => { try { return localStorage.getItem(key) || fallback; } catch (e) { return fallback; } };
 const writePref = (key, value) => { try { localStorage.setItem(key, value); } catch (e) { /* 保存できなくても動作は続ける */ } };
@@ -410,7 +417,7 @@ const MENTOR_STYLE = {
   white: { bubble: "#fdfbf5", border: "rgba(176,138,62,0.55)", ring: "#b08a3e", text: "#22335c", sub: "#5b6b8c", by: "#b08a3e", caret: "#b08a3e", font: "'Shippori Mincho B1', serif" },
   classic: { bubble: "#223463", border: "rgba(190,205,230,0.6)", ring: "#c9d3e6", text: "#eef1f6", sub: "#c9d4e2", by: "#dcbc6e", caret: "#c4d4e8", font: null },
 };
-function MentorBubble({ state, todayCount, theme = "white", avatar, face, override }) {
+function MentorBubble({ state, todayCount, theme = "white", avatar, face, override, faces }) {
   const S = MENTOR_STYLE[theme] || MENTOR_STYLE.white;
   const [deck] = useState(() => shuffled(STUDY_QUOTES.map((_, i) => i)));
   const [n, setN] = useState(0);
@@ -421,7 +428,7 @@ function MentorBubble({ state, todayCount, theme = "white", avatar, face, overri
   return (
     <div className="rpg-box px-3 py-3 md:px-4 jp">
       <div className="flex items-start gap-3">
-        <div aria-hidden="true" className="flex-shrink-0 w-16 h-16 md:w-20 md:h-20" style={{ borderRadius: "50%", backgroundColor: S.bubble, backgroundImage: `url(${avatar})`, backgroundSize: "300% auto", backgroundPosition: `${face[0]}% ${face[1]}%`, backgroundRepeat: "no-repeat", border: `2px solid ${S.ring}`, boxShadow: "0 2px 6px rgba(0,0,0,0.18)" }} />
+        <div aria-hidden="true" key={faces ? `f${n}` : "f"} className="flex-shrink-0 w-16 h-16 md:w-20 md:h-20" style={{ borderRadius: "50%", backgroundColor: S.bubble, backgroundImage: `url(${faces ? faces[status ? (todayCount === 0 ? "smile" : todayCount >= 50 ? "serious" : "normal") : n === 0 ? "normal" : n % 3 === 1 ? "smile" : n % 5 === 2 ? "surprise" : "normal"] : avatar})`, backgroundSize: faces ? "cover" : "300% auto", backgroundPosition: faces ? "50% 22%" : `${face[0]}% ${face[1]}%`, animation: faces && n ? "sqFadeIn .3s ease-out" : undefined, backgroundRepeat: "no-repeat", border: `2px solid ${S.ring}`, boxShadow: "0 2px 6px rgba(0,0,0,0.18)" }} />
         <button onClick={() => setN(n + 1)} aria-label="次の言葉へ" className="relative flex-1 min-w-0 text-left" style={{ background: S.bubble, border: `1px solid ${S.border}`, borderRadius: 12, padding: "14px 34px 16px 18px", color: S.text, cursor: "pointer", minHeight: 80 }}>
           <span aria-hidden="true" style={{ position: "absolute", left: -7, top: 22, width: 12, height: 12, background: S.bubble, borderLeft: `1px solid ${S.border}`, borderBottom: `1px solid ${S.border}`, transform: "rotate(45deg)" }} />
           {override ? (
@@ -561,7 +568,7 @@ function SignpostHome({ state, todayCount, onCommand }) {
       </div>
 
       {/* 吹き出し（名言・今日の様子。メニューに合わせると説明） */}
-      <MentorBubble state={state} todayCount={todayCount} theme="white" avatar={hc.avatar} face={hc.face} override={message} />
+      <MentorBubble state={state} todayCount={todayCount} theme="white" avatar={hc.avatar} face={hc.face} faces={hc.expr ? HERO_FACES : null} override={message} />
     </div>
   );
 }
@@ -796,7 +803,7 @@ function DisplaySettingsPanel({ settings, onChange, onClose, uid: userId }) {
         )}
         <PushSettings uid={userId} />
         <div className="jp text-xs mb-1" style={{ color: "var(--ink-soft)" }}>ホームのキャラクター（白金テーマ）</div>
-        <div className="grid grid-cols-5 gap-1.5 mb-3">
+        <div className="grid grid-cols-4 gap-1.5 mb-3">
           {HOME_CHARS.map((c) => {
             const on = (ds.homeChar || "hero") === c.id;
             return (
@@ -1788,6 +1795,8 @@ function StudyRPG({ user }) {
         };
       });
       if (first) setTimeout(() => awardXp(15 + Math.floor(floor / 2)), 200);
+      const meet = first ? ALLIES.find((a) => a.towerNeed === floor) : null;
+      if (meet) setTimeout(() => { showRpgToast(`${meet.name}（${meet.role}）が仲間になった！ ${fxText(meet.fx)}`, "#4f6fa8"); setTalk({ title: `${meet.name}との出会い`, lines: ACADEMY_MEET[meet.id] || meet.intro.map((t) => [meet.id, t]) }); }, 1600);
       if (first && isCheckpoint(floor)) {
         const top = floor >= TOWER_MAX;
         setTimeout(() => showEvolution({ big: top ? "塔の頂" : "試練突破", from: null, to: top ? "試練の塔 100階 踏破" : `${towerLayer(floor)}の番人を倒した`, sub: top ? "すべての層の試練を乗り越えました！" : `次は ${towerLayer(floor + 1)}（第${floor + 1}階〜）`, stage: heroStage(stateRef.current.player.level),
@@ -1901,6 +1910,7 @@ function StudyRPG({ user }) {
         sakuzu: [...(x.sakuzu || []), { id: uid(), d: todayStr(), type, n, ok, sec: Math.round(sec) }].slice(-300),
         materials: { ...x.materials, "m-zahyo": (x.materials["m-zahyo"] || 0) + (perfect ? 2 : ok > 0 ? 1 : 0) },
       }, "kai", ok));
+      updateRpg((x) => addBond(x, "raven", ok));
       const xp = ok * 2 + (perfect ? 15 : 0);
       if (xp) setTimeout(() => awardXp(xp), 200);
       return [xp && `EXP${xp}`, gold && `${gold}G`, `座標の欠片×${perfect ? 2 : ok > 0 ? 1 : 0}`].filter(Boolean).join("・");
@@ -1913,6 +1923,7 @@ function StudyRPG({ user }) {
         drill: [...(x.drill || []), { id: uid(), d: todayStr(), type, n, ok, sec: Math.round(sec) }].slice(-300),
         materials: { ...x.materials, "m-zahyo": (x.materials["m-zahyo"] || 0) + frag, "m-star": (x.materials["m-star"] || 0) + star },
       }, "kai", ok));
+      updateRpg((x) => addBond(x, "raven", ok));
       if (ok > 0) setTimeout(() => awardXp(ok * 4), 200);
       return [ok > 0 && `EXP${ok * 4}`, gold && `${gold}G`, frag && `座標の欠片×${frag}`, star && "星霊石×1（全問正解！）"].filter(Boolean).join("・");
     },
@@ -3171,6 +3182,7 @@ function AdventureBook({ state, onClose }) {
       <div className="text-center">
         <div className="text-[11px]" style={{ color: "#b08a3e", letterSpacing: "0.3em", fontWeight: 800 }}>CHRONICLE</div>
         <div style={{ fontSize: 26, fontWeight: 800, color: "#22335c", fontFamily: "'Shippori Mincho B1', serif", margin: "4px 0 12px" }}>冒険の記録書</div>
+        <img src={`${ART_URL}book-tools.jpg`} alt="" style={{ width: "100%", maxWidth: 300, height: 120, objectFit: "cover", borderRadius: 8, border: "1px solid rgba(176,138,62,0.6)", margin: "0 auto 12px", display: "block" }} />
         <div style={{ width: 120, height: 120, margin: "0 auto", borderRadius: "50%", border: "3px solid #b08a3e", boxShadow: "0 0 0 4px #fdfbf5, 0 0 0 5px rgba(176,138,62,.5)", backgroundColor: "#e9e4d6", backgroundImage: `url(${hc.avatar})`, backgroundSize: "300% auto", backgroundPosition: `${hc.face[0]}% ${hc.face[1]}%` }} />
         <div className="mt-3 text-sm" style={{ color: "#22335c", fontWeight: 800 }}>Lv.{player.level}　{heroStage(player.level).name}{cls ? `（${cls.rankName}）` : ""}</div>
         <div className="text-xs mt-1" style={{ color: "#5b6b8c" }}>目指す資格：{qual ? qual.name : "—"}</div>
@@ -8415,9 +8427,18 @@ const ALLIES = [
     intro: ["やっほー！ 記録探索者のミラだよ。古い記録や判例を探して、国じゅうを旅してるの。", "民法や書式で迷ったら、具体的な場面を思い浮かべるのがコツ！ 一緒に行こう！"],
     cheer: "覚えにくいところは、物語みたいに場面を思い浮かべてみて！ ぐっと覚えやすくなるよ。" },
 ];
+// 魔法学院の三人：試練の塔を登ると出会う（towerNeed 階を突破したとき）
+ALLIES.push(
+  { id: "kaito", group: "academy", name: "カイト", role: "魔法学科の学生", img: "ally-kaito.jpg", face: [52, 4], towerNeed: 5, fx: { bossDmgPct: 5 }, likes: ["不動産登記法の王都", "調査士法の砦"], likeText: "不動産登記法・調査士法",
+    intro: ["僕はカイト。魔法学科の学生だ。まとめ役……ということになっている。", "一人で登るより、仲間と登るほうがずっと遠くまで行ける。"], cheer: "知識と仲間と。それがあれば、僕たちはもっと強くなれる。" },
+  { id: "serena", group: "academy", name: "セレナ", role: "魔法学科の学生", img: "ally-serena.jpg", face: [26, 17], towerNeed: 15, fx: { dmgCutPct: 8 }, likes: ["民法の古の森", "区分所有の双子塔"], likeText: "民法・区分所有法",
+    intro: ["セレナです。魔法学科の学生で、魔法と本が大好きです。", "たくさんの世界を見て、たくさんのことを知りたいの。"], cheer: "毎日少しずつ水をあげれば、いつか花が咲きます。今日もいっしょに、がんばりましょうね。" },
+  { id: "raven", group: "academy", name: "レイヴン", role: "魔法学科の学生", img: "ally-raven.jpg", face: [70, 6], towerNeed: 30, fx: { xpPct: 3, critPct: 1 }, likes: ["測量の星見台", "書式の迷宮"], likeText: "測量・書式・計算ドリル・作図",
+    intro: ["……レイヴンだ。魔法学科の学生。", "興味があるんだ。君たちがどこまでやれるのか。"], cheer: "才能より、続けたかどうかだよ。……今日も、置いていかれないようにね。" },
+);
 const allyById = (id) => ALLIES.find((a) => a.id === id) || null;
 const clearedCount = (r) => Object.values(r.regions || {}).filter((x) => x && x.cleared).length;
-const alliesJoined = (r) => { const n = clearedCount(r); return ALLIES.filter((a) => n >= a.need); };
+const alliesJoined = (r) => { const n = clearedCount(r); const fl = (r.tower && r.tower.floor) || 0; return ALLIES.filter((a) => (a.towerNeed ? fl >= a.towerNeed : n >= a.need)); };
 // 仲間との絆：得意分野の問題に正解するたびに1つ深まる（rpg.bonds）。Lv2〜5で物語が開き、仲間の効果が強くなる
 const BOND_LV = [0, 30, 100, 250, 500];
 const bondLevel = (pts) => BOND_LV.filter((t) => (pts || 0) >= t).length;
@@ -8434,15 +8455,23 @@ function PartyCard({ state, actions }) {
           {joined.size ? `いっしょに旅をする仲間 ${joined.size}人` : "地域を解放すると、仲間が加わります"}
         </div>
       </div>
+      {[["", null], ["academy", "魔法学院の三人"]].map(([grp, label]) => (
+      <div key={grp || "base"}>
+      {label && (
+        <div className="relative overflow-hidden mt-3 mb-2" style={{ borderRadius: 8, height: 120, border: "1px solid #4f6fa8" }}>
+          <img src={`${ART_URL}trio.jpg`} alt="魔法学院の三人" className="w-full h-full" style={{ objectFit: "cover", objectPosition: "center 30%", filter: ALLIES.some((a) => a.group === grp && joined.has(a.id)) ? "none" : "grayscale(0.7) brightness(1.08)" }} />
+          <div className="absolute inset-x-0 bottom-0 px-3 py-1 jp text-xs" style={{ background: "linear-gradient(0deg, rgba(253,251,245,0.95), rgba(253,251,245,0))", color: "#22335c", fontWeight: 800 }}>{label}<span className="ml-2 text-[10px]" style={{ fontWeight: 500 }}>試練の塔を登ると出会えます</span></div>
+        </div>
+      )}
       <div className="grid gap-2 md:grid-cols-3">
-        {ALLIES.map((a) => {
+        {ALLIES.filter((a) => (a.group || "") === grp).map((a) => {
           const on = joined.has(a.id);
           return (
             <button key={a.id} disabled={!on} onClick={() => actions.openTalk({ title: `${a.name}（${a.role}）`, lines: [...a.intro.map((t) => [a.id, t]), [a.id, a.cheer]] })} className="jp flex items-center gap-2 p-2 text-left" style={{ background: "var(--paper)", border: `1px solid ${on ? "var(--gold)" : "var(--rule-soft)"}`, borderRadius: 8, cursor: on ? "pointer" : "default" }}>
               <span style={{ width: 46, height: 46, flexShrink: 0, borderRadius: "50%", border: `2px solid ${on ? "#b08a3e" : "#d8c9a3"}`, backgroundColor: "#e9e4d6", backgroundImage: `url(${ART_URL}${a.img})`, backgroundSize: "300% auto", backgroundPosition: `${a.face[0]}% ${a.face[1]}%`, filter: on ? "none" : "brightness(0) opacity(0.3)" }} />
               <span className="flex-1 min-w-0">
                 <span className="block text-sm" style={{ fontWeight: 800, color: on ? "var(--ink)" : "var(--ink-mute)" }}>{on ? a.name : "？？？"}<span className="text-[10px] ml-1" style={{ color: "var(--ink-soft)", fontWeight: 500 }}>{on ? a.role : ""}</span></span>
-                <span className="block text-[10px]" style={{ color: on ? "var(--sky-deep)" : "var(--ink-mute)" }}>{on ? fxText(bondFx(a, r)) : `地域を${a.need}つ解放すると仲間に`}</span>
+                <span className="block text-[10px]" style={{ color: on ? "var(--sky-deep)" : "var(--ink-mute)" }}>{on ? fxText(bondFx(a, r)) : a.towerNeed ? `試練の塔 第${a.towerNeed}階で出会う` : `地域を${a.need}つ解放すると仲間に`}</span>
                 {on && (() => { const pts = r.bonds[a.id] || 0, lv = bondLevel(pts), lo = BOND_LV[lv - 1], hi = BOND_LV[lv]; return (
                   <span className="block mt-0.5">
                     <span className="flex items-center gap-1 text-[10px]" style={{ color: "#c9667e", fontWeight: 800 }}>{"♥".repeat(lv)}<span style={{ color: "var(--rule-soft)" }}>{"♥".repeat(BOND_LV.length - lv)}</span><span className="ml-auto" style={{ color: "var(--ink-mute)", fontWeight: 500 }}>{hi ? `絆 ${pts}/${hi}` : "絆 MAX"}</span></span>
@@ -8453,6 +8482,8 @@ function PartyCard({ state, actions }) {
           );
         })}
       </div>
+      </div>
+      ))}
       {ALLIES.filter((a) => joined.has(a.id)).some((a) => bondLevel(r.bonds[a.id]) >= 2) && (
         <div className="jp mt-2">
           <div className="text-[10px] mb-1" style={{ color: "var(--ink-soft)" }}>絆の物語（もう一度読む）</div>
@@ -8468,6 +8499,8 @@ function PartyCard({ state, actions }) {
   );
 }
 
+// 仲間の立ち絵のふちを、上下左右ともやわらかくぼかす（2つのぼかしの重なったところだけ見せる）
+const ALLY_MASK = "linear-gradient(to bottom, transparent 0%, #000 12%, #000 72%, transparent 100%), linear-gradient(to right, transparent 0%, #000 18%, #000 82%, transparent 100%)";
 // 会話の画面（下からせり上がる会話窓。タップで次へ）
 function StoryTalk({ state, talk, onClose }) {
   const th = BATTLE_THEME[(state.displaySettings && state.displaySettings.theme) || "white"] || BATTLE_THEME.white;
@@ -8483,20 +8516,21 @@ function StoryTalk({ state, talk, onClose }) {
   const isPet = who === "pet";
   const isShadow = who === "shadow";
   const next = () => { if (i + 1 >= lines.length) onClose(); else setI(i + 1); };
-  const face = (url, f, filter) => <div style={{ width: 64, height: 64, borderRadius: "50%", flexShrink: 0, border: `2px solid ${filter ? "#6c5a96" : "#b08a3e"}`, backgroundColor: filter ? "#2a2440" : "#e9e4d6", backgroundImage: `url(${url})`, backgroundSize: "300% auto", backgroundPosition: `${f[0]}% ${f[1]}%`, filter }} />;
+  const face = (url, f, filter, size) => <div key={size ? url : undefined} style={{ width: 64, height: 64, borderRadius: "50%", flexShrink: 0, border: `2px solid ${filter ? "#6c5a96" : "#b08a3e"}`, backgroundColor: filter ? "#2a2440" : "#e9e4d6", backgroundImage: `url(${url})`, backgroundSize: size || "300% auto", backgroundPosition: `${f[0]}% ${f[1]}%`, filter, animation: size ? "sqFadeIn .25s ease-out" : undefined }} />;
+  const heroExpr = ((state.displaySettings && state.displaySettings.theme) || "white") === "white";
   return (
     <div className="fixed inset-0 flex items-end justify-center jp" style={{ zIndex: 65, animation: "sqFadeIn .3s ease-out" }} onClick={next}>
       {/* 背景：描きおろしの景色をうっすらと */}
       <div className="absolute inset-0" style={{ background: `rgba(10,14,30,0.35) url(${ART_URL}scene.jpg) center/cover no-repeat` }} />
       <div className="absolute inset-0" style={{ background: "linear-gradient(180deg, rgba(10,14,30,0.15) 0%, rgba(10,14,30,0.55) 100%)" }} />
       {/* 話している人の大きな姿（仲間のときだけ） */}
-      {ally && <img key={who} src={`${ART_URL}${ally.img}`} alt="" className="absolute bottom-0 right-0 md:right-[8%] h-[70vh] pointer-events-none" style={{ objectFit: "contain", animation: "sqFadeIn .35s ease-out", WebkitMaskImage: "radial-gradient(ellipse 50% 58% at 50% 42%, #000 45%, transparent 100%)", maskImage: "radial-gradient(ellipse 50% 58% at 50% 42%, #000 45%, transparent 100%)", opacity: 0.97 }} />}
+      {ally && <img key={who} src={`${ART_URL}${ally.img}`} alt="" className="absolute bottom-0 right-0 md:right-[8%] h-[70vh] pointer-events-none" style={{ objectFit: "contain", animation: "sqFadeIn .35s ease-out", WebkitMaskImage: ALLY_MASK, maskImage: ALLY_MASK, WebkitMaskComposite: "source-in", maskComposite: "intersect", opacity: 0.97 }} />}
       <div className="w-full max-w-2xl m-3 p-4 relative" style={{ background: "rgba(253,251,245,0.97)", border: "1px solid #b08a3e", borderRadius: 10, boxShadow: "inset 0 0 0 3px #fdfbf5, inset 0 0 0 4px rgba(176,138,62,.45), 0 10px 30px rgba(0,0,0,0.3)", color: "#22335c", cursor: "pointer" }}>
         <div className="text-[11px] mb-2" style={{ color: "#b08a3e", fontWeight: 800, letterSpacing: "0.15em", fontFamily: "'Shippori Mincho B1', serif" }}>{talk.title}</div>
         <div className="flex items-start gap-3">
           {isPet
             ? <div style={{ width: 64, height: 64, borderRadius: "50%", flexShrink: 0, border: "2px solid #b08a3e", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 34, background: "#f6ead0" }}>{pet.icon}</div>
-            : ally ? face(`${ART_URL}${ally.img}`, ally.face) : isShadow ? face(th.avatar, th.face, SHADOW_FILTER) : face(th.avatar, th.face)}
+            : ally ? face(`${ART_URL}${ally.img}`, ally.face) : isShadow ? face(th.avatar, th.face, SHADOW_FILTER) : heroExpr ? face(HERO_FACES[exprOfLine(line[1])], [50, 22], undefined, "cover") : face(th.avatar, th.face)}
           <div className="flex-1 min-w-0">
             <div className="text-xs mb-1" style={{ fontWeight: 800, color: "#5b6b8c" }}>{isPet ? pet.name : ally ? `${ally.name}（${ally.role}）` : isShadow ? "影の受験生" : heroStage(state.player.level).name}</div>
             <div key={i} className="text-[15px] md:text-[17px] leading-relaxed" style={{ fontFamily: "'Shippori Mincho B1', serif", fontWeight: 700, animation: "sqFadeIn .25s ease-out" }}>{line[1]}</div>
@@ -10003,6 +10037,10 @@ function TowerView({ state, pp, onStart }) {
   const cp = isCheckpoint(next);
   return (
     <Box title="試練の塔" icon={<Castle size={18} />}>
+      <div className="relative overflow-hidden mb-3" style={{ borderRadius: 8, height: 130, border: "1px solid #b08a3e" }}>
+        <img src={`${ART_URL}academy.jpg`} alt="王立魔法学院都市" className="w-full h-full" style={{ objectFit: "cover", objectPosition: "center 30%" }} />
+        <div className="absolute inset-x-0 bottom-0 px-3 py-1 jp text-xs" style={{ background: "linear-gradient(0deg, rgba(253,251,245,0.95), rgba(253,251,245,0))", color: "#22335c", fontWeight: 800 }}>王立魔法学院の試練の塔</div>
+      </div>
       <div className="jp flex items-baseline justify-between mb-1">
         <span style={{ fontFamily: "'Shippori Mincho B1', serif", fontWeight: 800, fontSize: 18, color: "var(--ink)" }}>{done ? "塔の頂に到達" : `第${next}階　${towerLayer(next)}`}</span>
         <span className="text-[11px]" style={{ color: "var(--ink-soft)" }}>突破 {tw.floor || 0} / {TOWER_MAX}階</span>

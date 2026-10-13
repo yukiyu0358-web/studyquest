@@ -68,7 +68,8 @@ export const DEMO_STATE = {
     journey: { pos: 6, acc: 7, lap: 0, log: [] },
     regions: { "不動産登記法の王都": { cleared: true }, "民法の古の森": { cleared: true } },
     powerLog: Array.from({ length: 40 }, (_, k) => { const i = 40 - k; const p = Math.min(0.8, 0.42 + (40 - i) * 0.007 + Math.sin(i / 3) * 0.01); return { d: ymd(day(-i)), p: Math.round(p * 1000) / 1000, g: { "不動産登記法の王都": Math.round((p + 0.05) * 1000) / 1000, "民法の古の森": Math.round((p - 0.08 + (40 - i) * 0.002) * 1000) / 1000 } }; }),
-    bonds: { rine: 98, kai: 12 }, bondSeen: { rine: 1 }, // 仲間との絆（見た目の確認用）
+    bonds: { rine: 98, kai: 12, kaito: 40, serena: 5 }, bondSeen: { rine: 1, kaito: 2 }, // 仲間との絆（見た目の確認用）
+    tower: { floor: 16, best: {} }, // 試練の塔（魔法学院の三人のうち2人に出会っている）
     rival: { exam: "2027-10-17", t0: ymd(day(-40)), p0: 0.4, last: "ahead", lastEvent: ymd(day(-3)) }, // 影の受験生（見た目の確認用）
     dungeon: { best: { 20: 0.8 } },
   },
