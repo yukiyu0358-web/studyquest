@@ -135,3 +135,55 @@ export function checkCalc(prob, input) {
 }
 
 export const calcAnsText = (f) => (f.kind === "dms" ? dmsText(f.ans) : `${f.ans.toFixed(2)} ${f.unit || ""}`);
+
+// ── 作図ドリル：方眼（1目盛り＝1m）に、座標どおりに点を打って図を描く ──
+// 座標は1m単位の整数。X＝北（上）、Y＝東（右）。範囲は 20m 四方ほど（スマホでも打ちやすい大きさ）
+export const SAKUZU_TYPES = [
+  { id: "land", name: "土地の形を描く", desc: "筆界点の座標から、土地の形を描く" },
+  { id: "bldg", name: "建物の位置を描く", desc: "土地の中に、建物の四隅を描く" },
+];
+const ri = (a, b) => a + Math.floor(Math.random() * (b - a + 1));
+const cross2 = (o, a, b) => (a.Y - o.Y) * (b.X - o.X) - (a.X - o.X) * (b.Y - o.Y);
+function convexOk(pts) {
+  // 凸で、どの角も極端にとがっていない多角形か
+  const n = pts.length;
+  let sign = 0;
+  for (let i = 0; i < n; i++) {
+    const c = cross2(pts[i], pts[(i + 1) % n], pts[(i + 2) % n]);
+    if (c === 0) return false;
+    if (sign === 0) sign = Math.sign(c); else if (Math.sign(c) !== sign) return false;
+  }
+  return true;
+}
+export function makeSakuzuProblem(type) {
+  const base = { X: ri(10, 90) * 10, Y: ri(10, 90) * 10 }; // 方眼の左下の座標（10m単位のきりのよい数）
+  let lot;
+  for (let t = 0; t < 200; t++) {
+    const n = Math.random() < 0.6 ? 4 : 5;
+    const c = { X: 10, Y: 10 };
+    const angs = Array.from({ length: n }, (_, i) => (i / n) * 360 + (Math.random() - 0.5) * (240 / n)).sort((a, b) => a - b);
+    const p = angs.map((a) => { const r = 6 + Math.random() * 3.5; return { X: Math.round(c.X + r * Math.cos((a * Math.PI) / 180)), Y: Math.round(c.Y + r * Math.sin((a * Math.PI) / 180)) }; });
+    if (new Set(p.map((q) => `${q.X},${q.Y}`)).size !== n) continue;
+    if (!convexOk(p)) continue;
+    // 時計回り（北から見て右回り）にそろえ、いちばん北西の点を A にする
+    const area2 = p.reduce((s, q, i) => s + q.X * (p[(i + 1) % n].Y - p[(i - 1 + n) % n].Y), 0);
+    if (area2 < 0) p.reverse();
+    let k = 0; p.forEach((q, i) => { if (q.X * 2 - q.Y > p[k].X * 2 - p[k].Y) k = i; });
+    lot = [...p.slice(k), ...p.slice(0, k)];
+    break;
+  }
+  const name = (i) => String.fromCharCode(65 + i);
+  const lotPts = lot.map((q, i) => ({ name: name(i), X: base.X + q.X, Y: base.Y + q.Y }));
+  if (type !== "bldg") return { type: "land", base, size: 20, given: [], targets: lotPts, ask: `${lotPts.map((q) => q.name).join("・")}の順に、筆界点を打ってください（最後の点は自動で最初の点とつながります）。` };
+  // 建物：土地の内側に収まる長方形（四隅は整数）
+  const inside = (q) => { const n = lot.length; for (let i = 0; i < n; i++) if (cross2(lot[i], lot[(i + 1) % n], q) > 0) return false; return true; };
+  for (let t = 0; t < 400; t++) {
+    const h = ri(3, 6), w = ri(3, 7), x0 = ri(3, 15), y0 = ri(3, 15);
+    const cs = [{ X: x0 + h, Y: y0 }, { X: x0 + h, Y: y0 + w }, { X: x0, Y: y0 + w }, { X: x0, Y: y0 }];
+    if (cs.every(inside) && cs.every((q) => lot.every((l) => Math.abs(l.X - q.X) + Math.abs(l.Y - q.Y) >= 2))) {
+      const b = cs.map((q, i) => ({ name: `ア イ ウ エ`.split(" ")[i], X: base.X + q.X, Y: base.Y + q.Y }));
+      return { type: "bldg", base, size: 20, given: lotPts, targets: b, ask: "土地の中に、建物の四隅をア・イ・ウ・エの順に打ってください。" };
+    }
+  }
+  return makeSakuzuProblem("land");
+}

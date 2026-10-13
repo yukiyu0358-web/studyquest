@@ -1,0 +1,37 @@
+# 毎日のお知らせ（通知）を送る自動実行
+# ・日本時間の 7時・12時・20時・22時ごろに動く（GitHub の混み具合で数分〜数十分ずれることがある）
+# ・Firebase の管理用の鍵は、リポジトリの Settings → Secrets and variables → Actions の「FIREBASE_SERVICE_ACCOUNT」に入れておく
+# ・Actions の画面の「Run workflow」から、ためしに今すぐ送ることもできる
+name: 毎日のお知らせ（通知）
+on:
+  schedule:
+    - cron: "0 22 * * *"
+    - cron: "0 3 * * *"
+    - cron: "0 11 * * *"
+    - cron: "0 13 * * *"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "時刻に関係なく、通知を申し込んだ全端末へ今すぐ送る（1＝送る）"
+        default: "1"
+permissions:
+  contents: read
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: 部品の準備
+        working-directory: scripts/notify
+        run: npm install --no-audit --no-fund
+      - name: 通知を送る
+        working-directory: scripts/notify
+        run: node notify.mjs
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          CRON: ${{ github.event.schedule }}
+          FORCE: ${{ github.event.inputs.force }}

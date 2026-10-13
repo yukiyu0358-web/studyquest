@@ -3,3 +3,8 @@ dist
 .DS_Store
 *.local
 .vite
+
+# Firebase の管理用の鍵（サービスアカウント）を、うっかり GitHub に上げないように
+*firebase-adminsdk*.json
+*service-account*.json
+*serviceAccount*.json

@@ -44,13 +44,14 @@ RPG風の資格学習Webアプリ。利用者本人（Yuki）が、土地家屋�
 - React 18 + Vite 5（`vite.config.js` の `base: "/studyquest/"`）
 - Firebase **compat版**（Auth + Firestore、`src/firebase.js`）。オフライン永続化あり。
 - Firebase は **Spark（無料）プラン**。Cloud Storage は使えないため、画像は圧縮して Firestore に保存している。
-- Tailwind は CDN（`index.html`）。CSS変数とベースのスタイルも `index.html` の `<style>`。
+- Tailwind は **ビルドに取り込み済み**（tailwindcss 3.4 + PostCSS。`tailwind.config.js` `postcss.config.js` `src/index.css`）。CSS変数とベースのスタイルは `index.html` の `<style>`。**見た目の指定（className）は組み立てずにそのまま書く**（`grid-cols-${n}` のような組み立ては拾われず効かない）。
+- ビルドは部品ごとにファイルを分けている（`vite.config.js` の manualChunks：react・firebase・vendor・アプリ本体。通知の部品 firebase-messaging は申し込むときだけ読み込む）。
 - PapaParse（CSV取込）、ts-fsrs（Ankiと同じFSRSアルゴリズム）。
 
 ## ファイル構成
 
 - `src/App.jsx`：画面と機能の大部分（約1万行・約700KB）。500KB超のため Babel の "deoptimised the styling" という注意が出るが無害。少しずつ分割中。
-- 分割済み：`src/game/icons.jsx`（Ico・線のアイコン・GameIcon とメダル絵）、`src/game/sfx.js`（効果音 SFX）、`src/game/calc.js`（計算ドリルの問題）、`src/game/cloze.js`（条文の穴埋めの問題）、`src/data/shinsei.js`（申請書の穴埋めの場面）、`src/data/quotes.js`（名言 STUDY_QUOTES）、`src/data/story.js`（会話 STORY_TALKS・REGION_TALK）。App.jsx の先頭で import している。
+- 分割済み：`src/game/icons.jsx`（Ico・線のアイコン・GameIcon とメダル絵）、`src/game/sfx.js`（効果音 SFX）、`src/game/calc.js`（計算ドリルの問題）、`src/game/cloze.js`（条文の穴埋めの問題）、`src/data/shinsei.js`（申請書の穴埋めの場面）、`src/game/textimport.js`（貼り付けた文章を一問一答に分ける）、`src/data/quotes.js`（名言 STUDY_QUOTES）、`src/data/story.js`（会話 STORY_TALKS・REGION_TALK）。App.jsx の先頭で import している。
 - **分割したら必ず `node scripts/check-names.mjs` で点検する**（定義も import もされていない名前を探す。ビルドでは見つからず、使っている途中にエラーになるため）。
 - `src/firebase.js`：Firebase初期化。`src/main.jsx`：起動。
 - `public/hero.jpg`：クラシックテーマの立ち絵（少年）。`public/sprites/tier1〜6.png`：ドット絵の主人公（以前は App.jsx に埋め込み）。
@@ -118,6 +119,11 @@ state の主なキー：`player` / `qualifications` / `tasks` / `studyLog` / `fo
 - 条文図鑑：`LawDex`（問題によく出る条文＝`lawRefCounts` を集める。穴埋めで `LAWDEX_NEED`＝3回正解で登録、rpg.cloze.got）。全部そろうと `claimLawDex`（称号と300G、rpg.cloze.dexDone）。穴埋めの出題に「図鑑のすき間」
 - 月ごとのランク戦（クエストの欄）：`SEASON_RANKS` `seasonPoints`（ah の当月分＋学習時間。1回答1点・正解+1点・10分3点）`SeasonCard` `claimSeason`（rpg.season = {month, claimed, history}）。月が変わると合格力の記録の useEffect で先月の結果を残し、会話
 - 冒険の記録書（ステータス画面の上）：`AdventureBook`（7ページ：表紙・学び・合格力・冒険・鍛錬・仲間・結び）`longestStudyStreak`
+- ひっかけ言葉の印：`TRAP_MARK` `TRAP_RE` `markTraps` `renderQText`（問題文の表示はこれを使う）`trapMarkOn`（設定 displaySettings.trapMark：null＝自動［読み違い3回以上でオン］／true／false）
+- 作図ドリル：問題づくりは `src/game/calc.js` の `makeSakuzuProblem` `SAKUZU_TYPES`（1m方眼・整数座標・右回り。土地の形／建物の位置）。画面 `SakuzuDrill`（点は近い目盛りに吸い付く）、記録 `logSakuzu`（rpg.sakuzu）
+- 記憶の天気図（今日タブ）：`memoryWeather` `MemoryWeather` `WEATHER`（ストーリーの話ごとの記憶率の平均を天気で）
+- 文章を貼り付けて問題を作る（問題タブ「CSV・写真から追加」→ ImportPanel の「文章を貼り付け」）：分け方は `src/game/textimport.js` の `parseQuickText`（自動／交互の行／1行に問題と答え）。写真の文字は iPhone のテキスト認識表示や Windows の Snipping Tool でコピーしてもらう想定
+- 毎日のお知らせ（通知）：アプリ側は `PushSettings`（設定画面。端末ごとに userdata/{uid}/push/{端末id} = {token, enabled, hours}）、`src/firebase.js` の `getPushToken` `FCM_VAPID_KEY`（Firebase の Cloud Messaging の「ウェブプッシュ証明書」の公開鍵。空のあいだは通知の欄が「準備がまだ」）。表示は `public/sw.js` の push・notificationclick。送り手は `.github/workflows/notify.yml`（日本時間 7・12・20・22時ごろ）→ `scripts/notify/notify.mjs`（firebase-admin。鍵は GitHub の Secrets「FIREBASE_SERVICE_ACCOUNT」。鍵のファイルは .gitignore で除外）。Actions の「Run workflow」でためし送信
 - 試し表示：.claude/launch.json に demo（5174）と preview（公開版と同じビルドを 4173 で。本番の Firebase につながるのでログインはしない）
 - テーマ：`DISPLAY_DEFAULTS`（既定は white）`THEME_PAL`（classic/white の配色）`CLASSIC_CSS` `WHITE_CSS` `ClassicThemeStyle` `TitleScreen` `ClassicInfoBar` `MenuHome`（クラシック）`SignpostHome`（白金・道しるべ）`migrateDisplay`
 
@@ -140,8 +146,6 @@ state の主なキー：`player` / `qualifications` / `tasks` / `studyLog` / `fo
 ## 今後の候補
 
 - App.jsx のファイル分割（components/ などへ）
-- iPhone・iPad への通知、試験日からの逆算プラン、復習の予測グラフ
 - 科目ごとのジョブレベル、知識の城、モンスター図鑑
 - 白金テーマの主人公（少女）の進化段階の絵（冒険・ステータスの進化キャラは今は少年のドット絵）
 - 弱点リストの「論点分析（AI）」は api.anthropic.com を直接呼ぶため GitHub Pages では動かない → 代替が必要
-- Tailwind を CDN から PostCSS 構成へ

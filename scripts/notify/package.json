@@ -1,0 +1,9 @@
+{
+  "name": "studyquest-notify",
+  "private": true,
+  "type": "module",
+  "description": "毎日のお知らせ（通知）を送る。GitHub の自動実行（.github/workflows/notify.yml）で動く",
+  "dependencies": {
+    "firebase-admin": "^12.7.0"
+  }
+}

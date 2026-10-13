@@ -2,11 +2,12 @@ import { useState, useEffect, useRef, useId, createContext, useContext, Fragment
 import { createPortal } from "react-dom";
 import { fsrs as createFsrs, createEmptyCard, Rating, State } from "ts-fsrs";
 import Papa from "papaparse";
-import { fbAuth, fbDb, fbFieldValue } from "./firebase";
+import { fbAuth, fbDb, fbFieldValue, getPushToken, FCM_VAPID_KEY } from "./firebase";
 import { LINE_ICONS, Ico, Sword, Plus, Check, Trash2, Sparkles, ScrollIcon, Upload, Play, Pause, BookOpen, Calendar, Home, FileQuestion, Eye, Shuffle, XIcon, Award, Clock, TrendingUp, Crown, Pencil, Bookmark, StarIcon, FolderIcon, Up, Down, Skull, Sword2, StatusIcon, LogoutIcon, Search, Castle, GA, swordArt, crossedSwords, oniArt, GAME_ART, GAME_ART_BY_ID, GAME_RING, GameIcon, paintedUrl } from "./game/icons"; // アイコン
 import { SFX } from "./game/sfx"; // 効果音
-import { CALC_TYPES, makeCalcProblem, checkCalc, calcAnsText } from "./game/calc"; // 計算ドリルの問題づくり
+import { CALC_TYPES, makeCalcProblem, checkCalc, calcAnsText, SAKUZU_TYPES, makeSakuzuProblem } from "./game/calc"; // 計算ドリル・作図ドリルの問題づくり
 import { makeCloze, BLANK_LABELS } from "./game/cloze"; // 条文の穴埋めの問題づくり
+import { parseQuickText, TEXT_IMPORT_MODES } from "./game/textimport"; // 貼り付けた文章を一問一答に分ける
 import { SHINSEI_CASES, SHINSEI_PURPOSES, SHINSEI_CAUSES, SHINSEI_DEADLINES, SHINSEI_ATTACH } from "./data/shinsei"; // 申請書の穴埋めの場面
 import { STUDY_QUOTES } from "./data/quotes"; // 名言
 import { REGION_TALK, STORY_TALKS, REGION_ARC, regionArc, TRINITY_REGIONS, TRINITY_TALK, BOND_TALKS, COUNTDOWN_TALKS } from "./data/story"; // 物語の会話
@@ -710,7 +711,67 @@ function QTextStyle({ settings }) {
 }
 
 // 文字の設定パネル（画面上部の「Aa 文字」から開く）
-function DisplaySettingsPanel({ settings, onChange, onClose }) {
+// ── 通知（毎日のお知らせ）：この端末の宛先を userdata/{uid}/push/{端末id} に保存。送るのは GitHub の自動実行（scripts/notify） ──
+const PUSH_SLOTS = [[7, "朝7時"], [12, "昼12時"], [20, "夜20時"], [22, "夜22時"]];
+const pushDeviceId = () => { try { let id = localStorage.getItem("sq-push-device"); if (!id) { id = uid(); localStorage.setItem("sq-push-device", id); } return id; } catch (e) { return "device"; } };
+function PushSettings({ uid: userId }) {
+  const [doc, setDoc] = useState(undefined); // undefined=読み込み中 / null=未登録
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+  const dev = pushDeviceId();
+  const ref = userId ? fbDb.collection("userdata").doc(userId).collection("push").doc(dev) : null;
+  useEffect(() => { if (!ref) return; ref.get().then((sn) => setDoc(sn.exists ? sn.data() : null)).catch(() => setDoc(null)); }, [userId]);
+  const ios = /iPhone|iPad|iPod/.test(navigator.userAgent);
+  const standalone = window.navigator.standalone || (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches);
+  const supported = "Notification" in window && "serviceWorker" in navigator && "PushManager" in window;
+  const enable = async () => {
+    setBusy(true); setMsg("");
+    try {
+      const perm = await window.Notification.requestPermission();
+      if (perm !== "granted") throw new Error("通知が許可されませんでした。端末の設定で、このアプリの通知を「許可」にしてください。");
+      const token = await getPushToken();
+      const data = { token, enabled: true, hours: (doc && doc.hours) || [20], ua: navigator.userAgent.slice(0, 120), updatedAt: new Date().toISOString() };
+      await ref.set(data);
+      setDoc(data); setMsg("この端末で通知を受け取れるようになりました！");
+    } catch (e) { setMsg(String((e && e.message) || e)); }
+    setBusy(false);
+  };
+  const save = async (patch) => { const data = { ...doc, ...patch, updatedAt: new Date().toISOString() }; setDoc(data); try { await ref.set(data); } catch (e) { setMsg("保存できませんでした。通信状態を確かめてください。"); } };
+  const test = async () => { try { const reg = await navigator.serviceWorker.ready; await reg.showNotification("Study Quest（ためし）", { body: "通知はこのように表示されます。", icon: "icon-192.png", tag: "sq-test" }); } catch (e) { setMsg("ためしの通知を出せませんでした。"); } };
+  const box = { background: "var(--cream)", border: "1px solid var(--rule-soft)", borderRadius: 8, color: "var(--ink-soft)", lineHeight: 1.7 };
+  return (
+    <div className="jp mb-3">
+      <div className="text-xs mb-1" style={{ color: "var(--ink-soft)" }}>毎日のお知らせ（通知）</div>
+      <div className="text-[11px] px-3 py-2 space-y-2" style={box}>
+        {!FCM_VAPID_KEY ? <div>通知の準備（鍵の設定）がまだです。設定が終わると、ここから申し込めるようになります。</div>
+          : ios && !standalone ? <div>iPhone・iPad で通知を受け取るには、まず「ホーム画面に追加」して、ホーム画面のアイコンからこのアプリを開いてください。</div>
+          : !supported ? <div>この端末・ブラウザは通知に対応していません。</div>
+          : doc === undefined ? <div>読み込んでいます…</div>
+          : !doc || !doc.enabled ? (
+            <>
+              <div>毎日決まった時刻に「今日の復習があと○問」などをお知らせします。</div>
+              <button onClick={enable} disabled={busy} className="btn-primary w-full py-2 text-xs">{busy ? "申し込んでいます…" : "この端末で通知を受け取る"}</button>
+            </>
+          ) : (
+            <>
+              <div style={{ color: "var(--sage)", fontWeight: 800 }}>✓ この端末で通知を受け取っています</div>
+              <div className="flex flex-wrap gap-1.5">
+                {PUSH_SLOTS.map(([h, l]) => { const on = (doc.hours || []).includes(h); return <button key={h} onClick={() => save({ hours: on ? (doc.hours || []).filter((x) => x !== h) : [...(doc.hours || []), h].sort((a, b) => a - b) })} className="text-[11px] px-2.5 py-1" style={{ borderRadius: 999, border: `1px solid ${on ? "var(--gold)" : "var(--rule-soft)"}`, background: on ? "var(--paper)" : "transparent", color: "var(--ink)", fontWeight: on ? 800 : 500, cursor: "pointer" }}>{on ? "✓ " : ""}{l}</button>; })}
+              </div>
+              <div className="grid grid-cols-2 gap-1.5">
+                <button onClick={test} className="btn-ghost py-1.5 text-[11px]">ためしに表示</button>
+                <button onClick={() => save({ enabled: false })} className="btn-ghost py-1.5 text-[11px]">通知を止める</button>
+              </div>
+              <div className="text-[10px]" style={{ color: "var(--ink-mute)" }}>※ 時刻は目安です（数分〜数十分ずれることがあります）。</div>
+            </>
+          )}
+        {msg && <div style={{ color: "var(--gold)", fontWeight: 700 }}>{msg}</div>}
+      </div>
+    </div>
+  );
+}
+
+function DisplaySettingsPanel({ settings, onChange, onClose, uid: userId }) {
   const ds = { ...DISPLAY_DEFAULTS, ...(settings || {}) };
   return (
     <div className="rpg-box mb-4 p-1">
@@ -733,6 +794,7 @@ function DisplaySettingsPanel({ settings, onChange, onClose }) {
             <b style={{ color: "var(--ink)" }}>アプリのように使う：</b>iPhone・iPad は Safari でこのページを開き、共有ボタン（□に↑）→「ホーム画面に追加」。PC の Chrome・Edge は、アドレス欄の右の「インストール」から。ホーム画面のアイコンから、画面いっぱいで開けます。
           </div>
         )}
+        <PushSettings uid={userId} />
         <div className="jp text-xs mb-1" style={{ color: "var(--ink-soft)" }}>ホームのキャラクター（白金テーマ）</div>
         <div className="grid grid-cols-5 gap-1.5 mb-3">
           {HOME_CHARS.map((c) => {
@@ -749,6 +811,11 @@ function DisplaySettingsPanel({ settings, onChange, onClose }) {
         <button onClick={() => onChange({ battle: ds.battle === false })} className="jp w-full text-left text-xs px-2 py-1.5 mb-1" style={{ background: "var(--paper)", color: "var(--ink)", border: "1px solid var(--rule-soft)" }}>
           {ds.battle === false ? "☐" : "☑"} 問題を解くときにバトルの演出を出す
         </button>
+        <div className="jp text-xs mb-1" style={{ color: "var(--ink-soft)" }}>ひっかけ言葉の印（問題文の「できない」「以外」「限り」などに点線）</div>
+        <div className="grid grid-cols-3 gap-1.5 mb-3">
+          {[[null, "自動"], [true, "オン"], [false, "オフ"]].map(([v, l]) => { const cur = ds.trapMark === undefined ? null : ds.trapMark; const on = cur === v; return <button key={l} onClick={() => onChange({ trapMark: v })} className="jp text-xs py-1.5" style={{ background: on ? "var(--sky-deep)" : "var(--paper)", color: on ? "var(--paper)" : "var(--ink)", border: "1px solid var(--rule-soft)", borderRadius: 6 }}>{l}</button>; })}
+        </div>
+        <p className="jp text-[10px] -mt-2 mb-3" style={{ color: "var(--ink-mute)" }}>自動：まちがえた原因に「👓 読み違い」を3回以上選ぶと、印がつくようになります。</p>
         <button onClick={() => { const on = !ds.sfx; SFX.enabled = on; if (on) SFX.play("hit"); onChange({ sfx: on }); }} className="jp w-full text-left text-xs px-2 py-1.5 mb-3" style={{ background: "var(--paper)", color: "var(--ink)", border: "1px solid var(--rule-soft)" }}>
           {ds.sfx ? "☑" : "☐"} 効果音を鳴らす（攻撃・会心・レベルアップなど）
         </button>
@@ -1825,6 +1892,19 @@ function StudyRPG({ user }) {
     },
     // 混同ペア：違いを整理できた問題（rpg.pairsOk[問題id] = 日付）。また「混同」でまちがえると、もう一度出る
     resolvePair: (qid) => updateRpg((x) => ({ ...x, pairsOk: { ...(x.pairsOk || {}), [qid]: todayStr() } })),
+    // 作図ドリルの結果：rpg.sakuzu = [{id, d, type, n, ok, sec}]
+    logSakuzu: ({ type, n, ok, sec }) => {
+      const perfect = ok === n;
+      const gold = ok * 3 + (perfect ? 30 : 0);
+      updateRpg((x) => addBond({
+        ...x, gold: x.gold + gold, goldEarned: x.goldEarned + gold,
+        sakuzu: [...(x.sakuzu || []), { id: uid(), d: todayStr(), type, n, ok, sec: Math.round(sec) }].slice(-300),
+        materials: { ...x.materials, "m-zahyo": (x.materials["m-zahyo"] || 0) + (perfect ? 2 : ok > 0 ? 1 : 0) },
+      }, "kai", ok));
+      const xp = ok * 2 + (perfect ? 15 : 0);
+      if (xp) setTimeout(() => awardXp(xp), 200);
+      return [xp && `EXP${xp}`, gold && `${gold}G`, `座標の欠片×${perfect ? 2 : ok > 0 ? 1 : 0}`].filter(Boolean).join("・");
+    },
     // 計算ドリルの結果：rpg.drill = [{id, d, type, n, ok, sec}]。正解数に応じてEXP・ゴールド・座標の欠片、全問正解で星霊石
     logDrill: ({ type, n, ok, sec }) => {
       const gold = ok * 5, frag = ok >= Math.ceil(n * 0.8) ? 2 : ok > 0 ? 1 : 0, star = ok === n && n >= 5 ? 1 : 0;
@@ -2089,6 +2169,8 @@ function StudyRPG({ user }) {
 
   // 効果音のオン・オフ（設定）と、レベルアップの音
   useEffect(() => { SFX.enabled = !!(state.displaySettings && state.displaySettings.sfx); }, [state.displaySettings && state.displaySettings.sfx]);
+  // ひっかけ言葉の印：設定（オン／オフ）か、自動なら「読み違い」でまちがえた回数が3回以上でオン
+  TRAP_MARK.on = trapMarkOn(state);
   useEffect(() => { if (showLevelUp) SFX.play("levelup"); }, [showLevelUp]);
 
   // 覚醒・相棒の進化のお知らせ
@@ -2757,7 +2839,7 @@ function StudyRPG({ user }) {
         </div>
 
         <QTextStyle settings={state.displaySettings} />
-        {showDisplaySettings && <DisplaySettingsPanel settings={state.displaySettings} onChange={updateDisplaySettings} onClose={() => setShowDisplaySettings(false)} />}
+        {showDisplaySettings && <DisplaySettingsPanel settings={state.displaySettings} onChange={updateDisplaySettings} onClose={() => setShowDisplaySettings(false)} uid={user.uid} />}
         {showLawSearch && <LawSearchPanel banks={state.questionBanks} onClose={() => setShowLawSearch(false)} />}
 
         {fancy && <ClassicInfoBar theme={themeNow} state={state} liveSeconds={liveSeconds} onStatus={() => setTab("status")} />}
@@ -4311,7 +4393,7 @@ function QBankTab(props) {
       {/* ── ツールバー ── */}
       <Box title="問題集" icon={<BookOpen size={18} />}>
         <div className="grid grid-cols-2 gap-2 mb-2">
-          <button onClick={() => { setImportFolderId(null); setImportMode(true); }} className="jp btn-info py-2 flex items-center justify-center gap-1 text-xs"><Upload size={14} /> CSVをインポート</button>
+          <button onClick={() => { setImportFolderId(null); setImportMode(true); }} className="jp btn-info py-2 flex items-center justify-center gap-1 text-xs"><Upload size={14} /> CSV・写真から追加</button>
           <button onClick={() => setClozeCompileMode(true)} className="jp btn-primary py-2 flex items-center justify-center gap-1 text-xs"><BookOpen size={14} /> 穴埋め問題集を作成</button>
         </div>
         <button onClick={() => setFolderManagerOpen(!folderManagerOpen)} className="jp w-full py-1.5 text-xs flex items-center justify-center gap-1" style={{ background: folderManagerOpen ? "var(--sky-pale)" : "var(--paper)", border: "1px solid var(--rule-soft)", color: "var(--ink)" }}>
@@ -4938,7 +5020,7 @@ function PerQuestionStampView({ bank, state, toggleQuestionMark, toggleClozeMark
                       />
                     )}
                     <span className="pixel text-[10px] flex-shrink-0" style={{ color: "var(--ink-mute)" }}>Q{(liveBank.questions.findIndex((x) => x.id === q.id) + 1)}.</span>
-                    <span className="qtext-list jp text-sm flex-1 break-words" style={{ color: "var(--ink)" }}>{renderFormattedText(q.q, q.q_formats)}</span>
+                    <span className="qtext-list jp text-sm flex-1 break-words" style={{ color: "var(--ink)" }}>{renderQText(q.q, q.q_formats)}</span>
                     <button onClick={() => toggleQuestionMark(liveBank.id, q.id)} className="text-base flex-shrink-0" title={q.marked ? "マーク解除" : "要復習マークを付ける"} style={{ color: q.marked ? "var(--gold)" : "var(--ink-mute)" }}>{q.marked ? "⭐" : "☆"}</button>
                     <button onClick={() => onEditFormat(q.id)} className="text-xs flex-shrink-0 px-1.5 py-0.5 jp" title="書式設定" style={{ background: ((q.q_formats||[]).length > 0 || (q.a_formats||[]).length > 0) ? "var(--gold)" : "var(--paper)", color: ((q.q_formats||[]).length > 0 || (q.a_formats||[]).length > 0) ? "var(--paper)" : "var(--ink-mute)", border: "1px solid var(--rule-soft)" }}>✏ 書式</button>
                   </div>
@@ -5105,7 +5187,7 @@ function RevengeSession({ bank, state, recordRevengeAnswer, recordClozeRevengeAn
     displayA = currentCloze.blanks.map((b, i) => `(${i + 1}) ${b.answer}`).join(" / ");
     badgeText = `穴あき問題（◯${currentCloze.correct} ✕${currentCloze.wrong}${currentCloze.marked ? " ⭐" : ""}）`;
   } else {
-    displayQ = renderFormattedText(currentQ.q, currentQ.q_formats);
+    displayQ = renderQText(currentQ.q, currentQ.q_formats);
     displayA = renderFormattedText(currentQ.a, currentQ.a_formats);
     badgeText = `苦手な問題（◯${currentQ.correct} ✕${currentQ.wrong}${currentQ.marked ? " ⭐" : ""}）`;
   }
@@ -5560,7 +5642,7 @@ function QStudySession({ bank, state, recordAnswer, awardXp, startTimer, stopTim
               </div>
             </div>
           ) : (
-            <div className="qtext jp text-base md:text-lg flex-1 break-words" style={{ color: "var(--ink)" }}>{renderFormattedText(currentQ.q, currentQ.q_formats)}</div>
+            <div className="qtext jp text-base md:text-lg flex-1 break-words" style={{ color: "var(--ink)" }}>{renderQText(currentQ.q, currentQ.q_formats)}</div>
           )}
           <QuestionImages bankId={bank.id} question={currentQ} side="q" />
           {showAnswer ? (
@@ -5634,7 +5716,17 @@ function ImportPanel({ state, onCancel, onImport }) {
   const [qualId, setQualId] = useState("");
   const [parsed, setParsed] = useState(null);
   const [err, setErr] = useState("");
+  const [src, setSrc] = useState("csv"); // csv | paste（写真の文字を貼り付け）
+  const [text, setText] = useState("");
+  const [pmode, setPmode] = useState("auto");
   const fileRef = useRef(null);
+  const splitText = (t = text, m = pmode) => {
+    setErr("");
+    const qs = parseQuickText(t, m).map((x) => ({ id: uid(), q: x.q, a: x.a, correct: 0, wrong: 0 }));
+    if (!qs.length) { setErr("問題と答えに分けられませんでした。分け方を変えてみてください。"); setParsed(null); return; }
+    setParsed(qs);
+  };
+  const editQ = (id, k, v) => setParsed((ps) => ps.map((x) => (x.id === id ? { ...x, [k]: v } : x)));
   const handleFile = (file) => {
     setErr("");
     Papa.parse(file, {
@@ -5653,9 +5745,30 @@ function ImportPanel({ state, onCancel, onImport }) {
   };
   const confirmImport = () => { if (!parsed || !name.trim()) return; onImport({ id: uid(), name: name.trim(), year: year.trim() || null, qualId: qualId || null, questions: parsed }); };
   return (
-    <Box title="CSVをインポート" icon={<Upload size={18} />}>
+    <Box title={src === "csv" ? "CSVをインポート" : "文章を貼り付けて問題を作る"} icon={<Upload size={18} />}>
+      <div className="grid grid-cols-2 gap-1 p-1 mb-3" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)", borderRadius: 999 }}>
+        {[["csv", "CSVファイル"], ["paste", "文章を貼り付け（写真から）"]].map(([id, l]) => <button key={id} onClick={() => { setSrc(id); setParsed(null); setErr(""); }} className="jp py-1.5 text-[11px]" style={{ borderRadius: 999, border: "none", fontWeight: 700, cursor: "pointer", background: src === id ? "linear-gradient(180deg, #cfae62, #a8833a)" : "transparent", color: src === id ? "#fffdf6" : "var(--ink-soft)" }}>{l}</button>)}
+      </div>
+      {src === "paste" && (
+        <div className="jp mb-3 space-y-2">
+          <div className="text-[11px] leading-relaxed p-2" style={{ background: "var(--sky-pale)", border: "1px solid var(--rule-soft)", color: "var(--ink-soft)", borderRadius: 6 }}>
+            📷 <b>写真から文字をコピーする方法</b><br />
+            ・iPhone・iPad：カメラを問題集に向けるか写真を開き、右下の「テキスト認識」ボタン（四角に線のマーク）→ 文字を選んで「コピー」<br />
+            ・Windows 11：Snipping Tool で画面を切り取り →「テキストアクション」→「すべてのテキストをコピー」<br />
+            コピーした文字を下に貼り付けて「問題に分ける」を押してください。分けたあと、1問ずつ手直しできます。
+          </div>
+          <textarea className="rpg-input text-xs" rows={7} value={text} onChange={(e) => setText(e.target.value)} placeholder={"例）\n問1 地目の変更があったときは、1月以内に登記を申請しなければならない。\n答 ○\n問2 地積更正の登記には申請義務がある。\n答 ×"} />
+          <div className="flex flex-wrap gap-1.5">
+            {TEXT_IMPORT_MODES.map((m) => <button key={m.id} onClick={() => { setPmode(m.id); if (parsed) splitText(text, m.id); }} className="text-[11px] px-3 py-1" style={{ borderRadius: 999, border: `1px solid ${pmode === m.id ? "var(--gold)" : "var(--rule-soft)"}`, background: pmode === m.id ? "var(--cream)" : "var(--paper)", color: "var(--ink)", fontWeight: pmode === m.id ? 800 : 500, cursor: "pointer" }}>{m.name}</button>)}
+          </div>
+          <button onClick={() => splitText()} disabled={!text.trim()} className="btn-info w-full py-2 text-sm" style={{ opacity: text.trim() ? 1 : 0.5 }}>問題に分ける</button>
+          <p className="text-[10px]" style={{ color: "var(--ink-mute)" }}>自動では「問1・(1)・①」などの番号、「答」で始まる行、行の終わりの（○）（×）を手がかりに分けます。うまくいかないときは、分け方を変えてください。</p>
+        </div>
+      )}
+      {src === "csv" && (<>
       <div className="jp text-[11px] mb-3 leading-relaxed p-2" style={{ background: "var(--sky-pale)", border: "1px solid var(--rule-soft)", color: "var(--ink-soft)" }}>📋 対応形式（CSV）<br />1列目=問題、2列目=答え。1行目がヘッダーなら自動でスキップ。</div>
       <input ref={fileRef} type="file" accept=".csv,text/csv" onChange={(e) => e.target.files[0] && handleFile(e.target.files[0])} className="jp w-full mb-2 text-sm file:mr-2 file:py-1 file:px-3 file:bg-yellow-600 file:text-white file:border-0 file:font-bold file:cursor-pointer" style={{ color: "var(--ink)" }} />
+      </>)}
       {err && <div className="jp text-xs p-2 mb-2" style={{ background: "rgba(160,72,72,0.15)", border: "1px solid var(--brick)", color: "var(--brick)" }}>{err}</div>}
       {parsed && (
         <>
@@ -5673,10 +5786,23 @@ function ImportPanel({ state, onCancel, onImport }) {
               </select>
             </>
           )}
+          {src === "paste" ? (
+            <div className="p-2 mb-3 max-h-80 overflow-y-auto space-y-2" style={{ background: "var(--sky-pale)", border: "1px solid var(--rule-soft)" }}>
+              <div className="jp text-[10px]" style={{ color: "var(--slate)" }}>分けた結果（{parsed.length}問）：そのまま直せます</div>
+              {parsed.map((x, i) => (
+                <div key={x.id} className="jp p-1.5" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)", borderRadius: 6 }}>
+                  <div className="flex items-center text-[10px] mb-1" style={{ color: "var(--ink-mute)" }}><span className="flex-1">第{i + 1}問</span><button onClick={() => setParsed((ps) => ps.filter((y) => y.id !== x.id))} style={{ background: "none", border: "none", color: "var(--brick)", cursor: "pointer" }}>✕ 消す</button></div>
+                  <textarea className="rpg-input text-xs mb-1" rows={2} value={x.q} onChange={(e) => editQ(x.id, "q", e.target.value)} />
+                  <textarea className="rpg-input text-xs" rows={1} value={x.a} onChange={(e) => editQ(x.id, "a", e.target.value)} style={{ color: "var(--gold)" }} />
+                </div>
+              ))}
+            </div>
+          ) : (
           <div className="p-2 mb-3 max-h-32 overflow-y-auto" style={{ background: "var(--sky-pale)", border: "1px solid var(--rule-soft)" }}>
             <div className="jp text-[10px] mb-1" style={{ color: "var(--slate)" }}>プレビュー（最初の3問）:</div>
             {parsed.slice(0, 3).map((q, i) => (<div key={i} className="jp text-[11px] mb-1" style={{ color: "var(--ink)" }}>Q. {q.q}<br />A. <span style={{ color: "var(--gold)" }}>{q.a}</span></div>))}
           </div>
+          )}
         </>
       )}
       <div className="flex gap-2">
@@ -6015,7 +6141,7 @@ function MixedStudySession({ bank, state, recordAnswer, recordClozeAnswer, award
     badge = "穴あき";
     isCloze = true;
   } else {
-    displayQ = renderFormattedText(currentQ.q, currentQ.q_formats);
+    displayQ = renderQText(currentQ.q, currentQ.q_formats);
     displayA = renderFormattedText(currentQ.a, currentQ.a_formats);
     badge = "一問一答";
     isCloze = false;
@@ -7067,7 +7193,7 @@ const RPG_DEFAULTS = {
   equipped: { weapon: null, armor: null, accessory: null }, bossWins: 0, bossLosses: 0, bossLog: [],
   boosts: { xpUntil: null }, restDays: [], crits: 0,
   classId: null, pet: null, seen: { stars: 0, pet: 0 },
-  materials: {}, skills: [], forgeLog: { ok: 0, ng: 0 }, daily: null, storySeen: -1, weekly: null, dungeon: null, regions: {}, castle: { floor: 0 }, cats: {}, journey: { pos: 0, acc: 0, lap: 0, log: [] }, sq: {}, powerLog: [], reportWeek: null, shoshiki: [], login: { count: 0 }, tower: { floor: 0, best: {} }, secBoss: {}, arcSeen: {}, conquered: {}, drill: [], rehearsal: { log: [], cfg: null }, cloze: { log: [], miss: {} }, rival: null, bonds: {}, bondSeen: {}, countdown: null, shinsei: [], pairsOk: {}, season: null,
+  materials: {}, skills: [], forgeLog: { ok: 0, ng: 0 }, daily: null, storySeen: -1, weekly: null, dungeon: null, regions: {}, castle: { floor: 0 }, cats: {}, journey: { pos: 0, acc: 0, lap: 0, log: [] }, sq: {}, powerLog: [], reportWeek: null, shoshiki: [], login: { count: 0 }, tower: { floor: 0, best: {} }, secBoss: {}, arcSeen: {}, conquered: {}, drill: [], rehearsal: { log: [], cfg: null }, cloze: { log: [], miss: {} }, rival: null, bonds: {}, bondSeen: {}, countdown: null, shinsei: [], pairsOk: {}, season: null, sakuzu: [],
 };
 function normRpg(r) {
   const x = { ...RPG_DEFAULTS, ...(r || {}) };
@@ -7099,6 +7225,7 @@ function normRpg(r) {
   x.bonds = { ...(x.bonds || {}) };
   x.shinsei = Array.isArray(x.shinsei) ? x.shinsei : [];
   x.pairsOk = { ...(x.pairsOk || {}) };
+  x.sakuzu = Array.isArray(x.sakuzu) ? x.sakuzu : [];
   x.bondSeen = { ...(x.bondSeen || {}) };
   if (!Array.isArray(x.cloze.log)) x.cloze.log = [];
   x.journey = { pos: 0, acc: 0, lap: 0, log: [], ...(x.journey || {}) };
@@ -7446,7 +7573,7 @@ function MonsterDex({ state }) {
             </div>
             {s > 0 && (showQ ? (
               <div className="mt-2 text-sm" style={{ color: "var(--ink)" }}>
-                <div className="p-2" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)" }}>{renderFormattedText(pq.q, pq.q_formats)}</div>
+                <div className="p-2" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)" }}>{renderQText(pq.q, pq.q_formats)}</div>
                 <div className="p-2 mt-1" style={{ background: "var(--paper)", border: "1px solid var(--gold)" }}>{renderFormattedText(pq.a, pq.a_formats)}</div>
               </div>
             ) : <button onClick={() => setShowQ(true)} className="jp btn-ghost w-full mt-2 py-1.5 text-xs">この魔物の問題を見る</button>)}
@@ -8044,7 +8171,7 @@ function RehearsalRun({ state, run, actions, recordAnswer, startTimer, stopTimer
           <details className="jp text-xs mb-3">
             <summary style={{ cursor: "pointer", color: "var(--ink-soft)" }}>まちがえた問題（{wrongs.length}問）を見る</summary>
             <div className="space-y-1 mt-1">
-              {wrongs.map((w) => <div key={w.id} className="p-2" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)" }}><div>{renderFormattedText(w.q, w.q_formats)}</div><div className="mt-1" style={{ color: "var(--sky-deep)" }}>→ {renderFormattedText(w.a, w.a_formats)}</div></div>)}
+              {wrongs.map((w) => <div key={w.id} className="p-2" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)" }}><div>{renderQText(w.q, w.q_formats)}</div><div className="mt-1" style={{ color: "var(--sky-deep)" }}>→ {renderFormattedText(w.a, w.a_formats)}</div></div>)}
             </div>
           </details>
         )}
@@ -8093,7 +8220,7 @@ function RehearsalRun({ state, run, actions, recordAnswer, startTimer, stopTimer
       <div className="rpg-box p-1">
         <div className="rpg-inner-border min-h-[180px] flex flex-col">
           <div className="jp text-[10px] mb-2" style={{ color: "var(--ink-mute)" }}>第{idx + 1}問　{bank.name}</div>
-          <div className="qtext jp text-base md:text-lg flex-1 break-words" style={{ color: "var(--ink)" }}>{renderFormattedText(q.q, q.q_formats)}</div>
+          <div className="qtext jp text-base md:text-lg flex-1 break-words" style={{ color: "var(--ink)" }}>{renderQText(q.q, q.q_formats)}</div>
           <QuestionImages bankId={bank.id} question={q} side="q" />
           {showAnswer ? (
             <>
@@ -8211,7 +8338,7 @@ function DungeonRun({ state, pool, minutes, actions, recordAnswer, startTimer, s
           <details className="jp text-xs mb-3">
             <summary style={{ cursor: "pointer", color: "var(--ink-soft)" }}>まちがえた問題（{wrongs.length}問）を見る</summary>
             <div className="space-y-1 mt-1">
-              {wrongs.map((w) => <div key={w.id} className="p-2" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)" }}><div>{renderFormattedText(w.q, w.q_formats)}</div><div className="mt-1" style={{ color: "var(--sky-deep)" }}>→ {renderFormattedText(w.a, w.a_formats)}</div></div>)}
+              {wrongs.map((w) => <div key={w.id} className="p-2" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)" }}><div>{renderQText(w.q, w.q_formats)}</div><div className="mt-1" style={{ color: "var(--sky-deep)" }}>→ {renderFormattedText(w.a, w.a_formats)}</div></div>)}
             </div>
           </details>
         )}
@@ -8237,7 +8364,7 @@ function DungeonRun({ state, pool, minutes, actions, recordAnswer, startTimer, s
       <div className="rpg-box p-1">
         <div className="rpg-inner-border min-h-[180px] flex flex-col">
           <div className="jp text-[10px] mb-2" style={{ color: "var(--ink-mute)" }}>{bank.name}</div>
-          <div className="qtext jp text-base md:text-lg flex-1 break-words" style={{ color: "var(--ink)" }}>{renderFormattedText(q.q, q.q_formats)}</div>
+          <div className="qtext jp text-base md:text-lg flex-1 break-words" style={{ color: "var(--ink)" }}>{renderQText(q.q, q.q_formats)}</div>
           <QuestionImages bankId={bank.id} question={q} side="q" />
           {showAnswer ? (
             <>
@@ -8990,10 +9117,10 @@ function ShinseiDrill({ state, actions }) {
       }
       setRun((r) => ({ ...r, i: r.i + 1, ans: { attach: [] }, checked: null }));
     };
-    const Field = ({ label, k, opts, cols = 2 }) => (
+    const Field = ({ label, k, opts }) => (
       <div>
         <div className="text-[11px] mb-1" style={{ color: "var(--ink-soft)", fontWeight: 700 }}>{label}{ck && !ck[k] ? <span style={{ color: "#c9564e" }}>　→ 正しくは「{c[k]}」</span> : ""}</div>
-        <div className={`grid gap-1.5 grid-cols-${cols}`}>
+        <div className="grid gap-1.5 grid-cols-2">
           {opts.map((o) => <button key={o} disabled={!!ck} onClick={() => setA(k, o)} className="text-xs px-2 py-2" style={chip(a[k] === o, ck && o === c[k], ck && a[k] === o && o !== c[k])}>{o}</button>)}
         </div>
       </div>
@@ -9127,6 +9254,102 @@ function SeasonCard({ state, actions }) {
         })}
       </div>
       <p className="jp text-[10px] mt-2" style={{ color: "var(--ink-mute)" }}>点数：1問答えるごとに1点、正解でさらに1点、学習10分ごとに3点。毎月1日に新しい戦いが始まります。{last ? `　先月（${Number(last.month.slice(5, 7))}月）：${(SEASON_RANKS.find((k) => k.id === last.rank) || {}).name}・${last.pts}点` : ""}</p>
+    </Box>
+  );
+}
+
+// ── 作図ドリル：方眼（1目盛り＝1m）に座標どおり点を打ち、土地や建物の形を描く（問題づくりは src/game/calc.js） ──
+function SakuzuDrill({ state, actions }) {
+  const log = normRpg(state.rpg).sakuzu || [];
+  const [type, setType] = useState("land");
+  const [prob, setProb] = useState(null);
+  const [pts, setPts] = useState([]);
+  const [checked, setChecked] = useState(null); // [true/false…]
+  const [t0, setT0] = useState(0);
+  const [msg, setMsg] = useState("");
+  const svgRef = useRef(null);
+  const start = (t = type) => { setProb(makeSakuzuProblem(t)); setPts([]); setChecked(null); setT0(Date.now()); setMsg(""); };
+  const recent = log.slice(-10), rn = recent.reduce((a, e) => a + e.n, 0), rok = recent.reduce((a, e) => a + e.ok, 0);
+  const chip = (on) => ({ borderRadius: 999, border: `1px solid ${on ? "var(--gold)" : "var(--rule-soft)"}`, background: on ? "var(--cream)" : "var(--paper)", color: "var(--ink)", fontWeight: on ? 800 : 500, cursor: "pointer" });
+  if (!prob) return (
+    <Box title="作図ドリル（方眼に描く）" icon={<Pencil size={18} />}>
+      <p className="jp text-[11px] mb-2" style={{ color: "var(--ink-soft)" }}>座標の表を見ながら、方眼（1目盛り＝1m・上が北）に点を打って図を描きます。書式の作図の練習です。点は近くの目盛りに吸い付きます。</p>
+      <div className="jp flex flex-wrap gap-1.5 mb-2">{SAKUZU_TYPES.map((t) => <button key={t.id} onClick={() => setType(t.id)} className="text-xs px-3 py-1" style={chip(type === t.id)}>{t.name}</button>)}</div>
+      <button onClick={() => start()} className="jp btn-primary w-full py-2">作図を始める</button>
+      {rn > 0 && <p className="jp text-[10px] mt-2 text-right" style={{ color: "var(--ink-mute)" }}>直近10回の正確さ <b style={{ color: rok / rn >= 0.9 ? "var(--gold)" : "var(--ink)" }}>{Math.round((rok / rn) * 100)}%</b>（{log.length}回）</p>}
+    </Box>
+  );
+  const S = prob.size, pad = 2.6, VB = S + pad * 2;
+  // 画面の座標：横＝Y（東）、縦＝X（北が上）
+  const sx = (Y) => pad + (Y - prob.base.Y), sy = (X) => pad + (S - (X - prob.base.X));
+  const n = prob.targets.length;
+  const tap = (e) => {
+    if (checked || pts.length >= n) return;
+    const svg = svgRef.current; if (!svg) return;
+    const pt = svg.createSVGPoint(); pt.x = e.clientX; pt.y = e.clientY;
+    const p = pt.matrixTransform(svg.getScreenCTM().inverse());
+    const Y = Math.round(p.x - pad) + prob.base.Y, X = Math.round(S - (p.y - pad)) + prob.base.X;
+    if (X < prob.base.X || X > prob.base.X + S || Y < prob.base.Y || Y > prob.base.Y + S) return;
+    SFX.play("clang");
+    setPts([...pts, { X, Y }]);
+  };
+  const check = () => {
+    const res = prob.targets.map((t, i) => pts[i] && pts[i].X === t.X && pts[i].Y === t.Y);
+    const ok = res.filter(Boolean).length;
+    setChecked(res);
+    SFX.play(ok === n ? "levelup" : "miss");
+    setMsg(actions.logSakuzu({ type: prob.type, n, ok, sec: (Date.now() - t0) / 1000 }));
+  };
+  const poly = (list, close) => list.map((q) => `${sx(q.Y)},${sy(q.X)}`).join(" ") + (close && list.length > 2 ? ` ${sx(list[0].Y)},${sy(list[0].X)}` : "");
+  const ok = checked ? checked.filter(Boolean).length : 0;
+  return (
+    <Box title={`作図ドリル　${prob.type === "land" ? "土地の形" : "建物の位置"}`} icon={<Pencil size={18} />}>
+      <div className="jp space-y-2">
+        <p className="text-xs" style={{ color: "var(--ink)", fontWeight: 700 }}>{prob.ask}</p>
+        <table className="w-full text-[11px]" style={{ borderCollapse: "collapse" }}>
+          <thead><tr style={{ color: "var(--ink-mute)" }}><th className="text-left font-normal">点</th>{prob.targets.map((t) => <th key={t.name} className="font-normal" style={{ color: pts.length === prob.targets.indexOf(t) && !checked ? "var(--gold)" : undefined }}>{t.name}</th>)}</tr></thead>
+          <tbody>
+            <tr style={{ borderTop: "1px solid var(--rule-soft)" }}><td style={{ color: "var(--ink-mute)" }}>X</td>{prob.targets.map((t) => <td key={t.name} className="text-center" style={{ fontVariantNumeric: "tabular-nums", fontWeight: 700 }}>{t.X}</td>)}</tr>
+            <tr style={{ borderTop: "1px solid var(--rule-soft)" }}><td style={{ color: "var(--ink-mute)" }}>Y</td>{prob.targets.map((t) => <td key={t.name} className="text-center" style={{ fontVariantNumeric: "tabular-nums", fontWeight: 700 }}>{t.Y}</td>)}</tr>
+          </tbody>
+        </table>
+        <svg ref={svgRef} viewBox={`0 0 ${VB} ${VB}`} width="100%" onPointerDown={tap} style={{ display: "block", maxWidth: 420, margin: "0 auto", background: "#fffdf6", border: "1px solid var(--rule-soft)", borderRadius: 6, touchAction: "manipulation", cursor: checked ? "default" : "crosshair" }} aria-label="作図の方眼">
+          {Array.from({ length: S + 1 }, (_, i) => (
+            <g key={i}>
+              <line x1={sx(prob.base.Y + i)} x2={sx(prob.base.Y + i)} y1={pad} y2={pad + S} stroke={i % 5 === 0 ? "#c9b98f" : "#ece4cf"} strokeWidth={i % 5 === 0 ? 0.08 : 0.04} />
+              <line y1={sy(prob.base.X + i)} y2={sy(prob.base.X + i)} x1={pad} x2={pad + S} stroke={i % 5 === 0 ? "#c9b98f" : "#ece4cf"} strokeWidth={i % 5 === 0 ? 0.08 : 0.04} />
+              {i % 5 === 0 && <text x={sx(prob.base.Y + i)} y={pad + S + 1.4} fontSize="0.9" textAnchor="middle" fill="#8a96b0">{prob.base.Y + i}</text>}
+              {i % 5 === 0 && <text x={pad - 0.4} y={sy(prob.base.X + i) + 0.3} fontSize="0.9" textAnchor="end" fill="#8a96b0">{prob.base.X + i}</text>}
+            </g>
+          ))}
+          <text x={pad} y={1.2} fontSize="0.9" fill="#8a96b0">X（北）↑　1目盛り＝1m</text>
+          <text x={pad + S} y={pad + S + 2.4} fontSize="0.9" textAnchor="end" fill="#8a96b0">Y（東）→</text>
+          {prob.given.length > 0 && <polygon points={poly(prob.given)} fill="rgba(127,163,216,0.12)" stroke="#4f6fa8" strokeWidth="0.12" />}
+          {prob.given.map((q) => <g key={q.name}><circle cx={sx(q.Y)} cy={sy(q.X)} r="0.28" fill="#4f6fa8" /><text x={sx(q.Y) + 0.4} y={sy(q.X) - 0.4} fontSize="0.9" fill="#4f6fa8" fontWeight="700">{q.name}</text></g>)}
+          {checked && <polygon points={poly(prob.targets)} fill="rgba(109,132,84,0.12)" stroke="#6d8454" strokeWidth="0.1" strokeDasharray="0.4 0.3" />}
+          {pts.length > 1 && <polyline points={poly(pts, pts.length === n)} fill={pts.length === n ? "rgba(214,181,106,0.18)" : "none"} stroke="#b08a3e" strokeWidth="0.16" strokeLinejoin="round" />}
+          {pts.map((q, i) => { const bad = checked && !checked[i]; return <g key={i}><circle cx={sx(q.Y)} cy={sy(q.X)} r="0.38" fill={checked ? (bad ? "#c9564e" : "#6d8454") : "#22335c"} /><text x={sx(q.Y) + 0.45} y={sy(q.X) - 0.45} fontSize="1" fontWeight="800" fill={bad ? "#c9564e" : "#22335c"}>{prob.targets[i].name}</text></g>; })}
+          {checked && prob.targets.map((t, i) => (!checked[i] ? <g key={`c${i}`}><circle cx={sx(t.Y)} cy={sy(t.X)} r="0.42" fill="none" stroke="#6d8454" strokeWidth="0.14" /><text x={sx(t.Y) - 0.5} y={sy(t.X) + 1.2} fontSize="0.85" fill="#6d8454" fontWeight="700">正{t.name}</text></g> : null))}
+        </svg>
+        {!checked ? (
+          <div className="grid grid-cols-3 gap-1.5">
+            <button onClick={() => setPts(pts.slice(0, -1))} disabled={!pts.length} className="btn-ghost py-2 text-xs" style={{ opacity: pts.length ? 1 : 0.4 }}>1つ戻す</button>
+            <button onClick={() => setPts([])} disabled={!pts.length} className="btn-ghost py-2 text-xs" style={{ opacity: pts.length ? 1 : 0.4 }}>やり直す</button>
+            <button onClick={check} disabled={pts.length < n} className="btn-primary py-2 text-xs" style={{ opacity: pts.length < n ? 0.4 : 1 }}>採点する</button>
+          </div>
+        ) : (
+          <>
+            <div className="text-center text-sm" style={{ fontWeight: 800, color: ok === n ? "var(--gold)" : "#c9564e" }}>{ok === n ? "完璧です！ 図面が完成しました" : `${n}点のうち ${ok}点が正しい位置です`}</div>
+            {ok < n && <p className="text-[11px] text-center" style={{ color: "var(--ink-soft)" }}>緑の丸「正」が正しい位置です。X（北）と Y（東）を取り違えていないか確かめましょう。</p>}
+            {msg && <div className="text-xs text-center" style={{ color: "var(--gold)", fontWeight: 700 }}>報酬：{msg}</div>}
+            <div className="grid grid-cols-2 gap-1.5">
+              <button onClick={() => start(prob.type)} className="btn-primary py-2 text-sm">次の図へ</button>
+              <button onClick={() => setProb(null)} className="btn-ghost py-2 text-sm">終わる</button>
+            </div>
+          </>
+        )}
+        {!checked && <p className="text-[10px] text-center" style={{ color: "var(--ink-mute)" }}>次に打つ点：<b style={{ color: "var(--gold)" }}>{pts.length < n ? prob.targets[pts.length].name : "（全部打ちました。採点しましょう）"}</b></p>}
+      </div>
     </Box>
   );
 }
@@ -9698,7 +9921,7 @@ function QuestRun({ state, run, actions, recordAnswer, startTimer, stopTimer, on
       <BattleStage state={state} q={q} bankName={bank.name} battleKey={battleKey} boss={isBoss} />
       <div className="rpg-box p-1">
         <div className="rpg-inner-border min-h-[180px] flex flex-col">
-          <div className="qtext jp text-base md:text-lg flex-1 break-words" style={{ color: "var(--ink)" }}>{renderFormattedText(q.q, q.q_formats)}</div>
+          <div className="qtext jp text-base md:text-lg flex-1 break-words" style={{ color: "var(--ink)" }}>{renderQText(q.q, q.q_formats)}</div>
           <QuestionImages bankId={bank.id} question={q} side="q" />
           {showAnswer ? (
             <>
@@ -9888,7 +10111,7 @@ function TrialRun({ state, run, recordAnswer, startTimer, stopTimer, onExit, onF
       <div className="rpg-box p-1">
         <div className="rpg-inner-border min-h-[180px] flex flex-col">
           <div className="jp text-[10px] mb-2" style={{ color: "var(--ink-mute)" }}>{bank.name}</div>
-          <div className="qtext jp text-base md:text-lg flex-1 break-words" style={{ color: "var(--ink)" }}>{renderFormattedText(q.q, q.q_formats)}</div>
+          <div className="qtext jp text-base md:text-lg flex-1 break-words" style={{ color: "var(--ink)" }}>{renderQText(q.q, q.q_formats)}</div>
           <QuestionImages bankId={bank.id} question={q} side="q" />
           {showAnswer ? (
             <>
@@ -9929,6 +10152,7 @@ function WorldView({ state, actions, todayCount, onWeekly, onDungeon, onGuardian
         <RehearsalCard state={state} pp={pp} actions={actions} onStart={onRehearsal} />
         <ShinseiDrill state={state} actions={actions} />
         <CalcDrill state={state} actions={actions} />
+        <SakuzuDrill state={state} actions={actions} />
         <LawCloze state={state} actions={actions} />
         <ShoshikiDojo state={state} actions={actions} />
       </>)}
@@ -10354,7 +10578,7 @@ function BossBattle({ state, boss, pool, actions, recordAnswer, startTimer, stop
         <div className="rpg-box p-1">
           <div className="rpg-inner-border min-h-[160px] flex flex-col">
             <div className="jp text-[10px] mb-2" style={{ color: "var(--ink-mute)" }}>{item.bankName}</div>
-            <div className="qtext jp text-base md:text-lg flex-1 break-words" style={{ color: "var(--ink)" }}>{renderFormattedText(q.q, q.q_formats)}</div>
+            <div className="qtext jp text-base md:text-lg flex-1 break-words" style={{ color: "var(--ink)" }}>{renderQText(q.q, q.q_formats)}</div>
             <QuestionImages bankId={item.bankId} question={q} side="q" />
             {showAnswer ? (
               <>
@@ -11412,6 +11636,77 @@ function ListenMode({ state, due, toggleQuestionMark }) {
   );
 }
 
+// ── 記憶の天気図：ストーリーの話（問題集の区切り）ごとに、いま思い出せる確率の平均を天気で表す ──
+const WEATHER = [
+  { min: 0.9, icon: "☀", name: "晴れ", bg: "linear-gradient(135deg, #fff3c4, #f1d27a)", fg: "#8f6f2c" },
+  { min: 0.8, icon: "🌤", name: "薄晴れ", bg: "linear-gradient(135deg, #fdf6dc, #e6e0c8)", fg: "#7a6a3a" },
+  { min: 0.7, icon: "☁", name: "くもり", bg: "linear-gradient(135deg, #eef1f6, #cfd7e3)", fg: "#5b6b8c" },
+  { min: 0.5, icon: "🌧", name: "雨", bg: "linear-gradient(135deg, #dfe8f6, #9fb3d1)", fg: "#34508c" },
+  { min: 0, icon: "⛈", name: "雷雨", bg: "linear-gradient(135deg, #e4dcf6, #a593d8)", fg: "#5e4d93" },
+];
+const weatherOf = (r) => WEATHER.find((w) => r >= w.min) || WEATHER[WEATHER.length - 1];
+const weatherCache = new WeakMap();
+function memoryWeather(state) {
+  const c = weatherCache.get(state.questionBanks);
+  if (c && c.day === todayStr() && c.folders === state.folders) return c.res;
+  const qual = mainQual(state);
+  const linked = qual && state.questionBanks.some((b) => b.qualId === qual.id);
+  const pp = passPower(state, linked ? qual.id : null);
+  const sch = getFsrsScheduler(state.srSettings);
+  const now = new Date();
+  const res = pp.regions.filter((g) => g.total > 0).map((g) => ({
+    g,
+    tiles: regionQuests(g).map((q) => {
+      const qs = q.qs.filter((x) => !x.excluded);
+      let sum = 0, seen = 0;
+      qs.forEach((x) => { if (!(x.fs || x.sr_nextReview)) return; seen++; let r = 0; try { r = sch.get_retrievability(toFsrsCard(x, now), now, false); } catch (e) { r = 0; } sum += r >= 0 && r <= 1 ? r : 0; });
+      return { q, n: qs.length, seen, avg: seen ? sum / seen : null };
+    }),
+  }));
+  weatherCache.set(state.questionBanks, { day: todayStr(), folders: state.folders, res });
+  return res;
+}
+function MemoryWeather({ state }) {
+  const data = memoryWeather(state);
+  const [sel, setSel] = useState(null);
+  if (!data.length) return null;
+  const all = data.flatMap((d) => d.tiles);
+  const count = (fn) => all.filter(fn).length;
+  const rainy = count((t) => t.avg !== null && t.avg < 0.7);
+  const fog = count((t) => t.avg === null);
+  return (
+    <Box title="記憶の天気図" icon={<Sparkles size={18} />}>
+      <div className="jp space-y-3">
+        <div className="flex flex-wrap gap-x-3 gap-y-1 text-[10px]" style={{ color: "var(--ink-soft)" }}>
+          {WEATHER.map((w) => <span key={w.name}>{w.icon} {w.name}{w.min ? `（${Math.round(w.min * 100)}%〜）` : ""} {count((t) => t.avg !== null && weatherOf(t.avg) === w)}</span>)}
+          <span>🌫 霧（まだ） {fog}</span>
+        </div>
+        {data.map(({ g, tiles }) => (
+          <div key={g.name}>
+            <div className="text-[11px] mb-1" style={{ color: "var(--ink)", fontWeight: 800 }}>{g.name}<span className="ml-2" style={{ color: "var(--ink-mute)", fontWeight: 500 }}>{tiles.length}話</span></div>
+            <div className="flex flex-wrap gap-1">
+              {tiles.map((t) => {
+                const w = t.avg === null ? null : weatherOf(t.avg);
+                const on = sel && sel.q.key === t.q.key;
+                return (
+                  <button key={t.q.key} onClick={() => setSel(on ? null : t)} title={`${t.q.bank.name} 第${t.q.idx + 1}話`} style={{ width: 34, height: 34, borderRadius: 8, border: `1.5px solid ${on ? "#b08a3e" : "rgba(34,51,92,0.15)"}`, background: w ? w.bg : "repeating-linear-gradient(45deg, #efeadb, #efeadb 4px, #e6e0cc 4px, #e6e0cc 8px)", fontSize: 16, lineHeight: 1, cursor: "pointer", boxShadow: on ? "0 0 0 2px rgba(214,181,106,0.5)" : "none" }}>{w ? w.icon : "🌫"}</button>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+        {sel && (
+          <div className="text-xs px-3 py-2" style={{ background: "var(--cream)", border: "1px solid var(--gold)", borderRadius: 8, color: "var(--ink)" }}>
+            <b>{sel.q.bank.name}　第{sel.q.idx + 1}話</b>（{sel.n}問）<br />
+            {sel.avg === null ? "まだ解いていない話です。ストーリーで挑んでみましょう。" : `${weatherOf(sel.avg).icon} ${weatherOf(sel.avg).name}　記憶率 ${pctTxt(sel.avg)}（解いた ${sel.seen}/${sel.n}問）。${sel.avg < 0.7 ? "雨が降っています。冒険のストーリーで、この話をもう一度解きましょう。" : sel.avg < 0.9 ? "もう少しで晴れます。" : "よく覚えています！"}`}
+          </div>
+        )}
+        <p className="text-[11px]" style={{ color: "var(--ink-soft)" }}>{rainy > 0 ? `雨・雷雨の話が ${rainy}話あります。マスを押すと、どの話かわかります。` : "大きな雨雲はありません。この調子です。"}</p>
+      </div>
+    </Box>
+  );
+}
+
 // ── 混同ペアの対比カード：「混同」でまちがえた問題と、いちばん似ている問題を並べて、違いを見比べる ──
 const bigrams = (t) => { const s = String(t || "").replace(/\s/g, ""); const out = new Set(); for (let i = 0; i < s.length - 1; i++) out.add(s.slice(i, i + 2)); return out; };
 const jaccard = (a, b) => { if (!a.size || !b.size) return 0; let n = 0; a.forEach((x) => { if (b.has(x)) n++; }); return n / (a.size + b.size - n); };
@@ -11603,6 +11898,7 @@ function TodayTab({ state, recordSRAnswer, updateSrSettings, startTimer, stopTim
         </Box>
         <ListenMode state={state} due={due} toggleQuestionMark={toggleQuestionMark} />
         <ReviewForecast state={state} />
+        <MemoryWeather state={state} />
         <ConfusionPairs state={state} actions={rpgActionsForPairs} />
       </div>
     );
@@ -11654,7 +11950,7 @@ function TodayTab({ state, recordSRAnswer, updateSrSettings, startTimer, stopTim
             </div>
             <button onClick={() => toggleQuestionMark(item.bankId, q.id)} className="jp text-[11px] px-1.5 py-0.5 flex-shrink-0" style={{ border: "1px solid var(--rule)", background: q.marked ? "var(--gold)" : "var(--paper)", color: q.marked ? "var(--paper)" : "var(--ink-soft)" }}>⭐ {q.marked ? "マーク中" : "マーク"}</button>
           </div>
-          <div className="qtext jp text-base md:text-lg flex-1 break-words" style={{ color: "var(--ink)" }}>{renderFormattedText(q.q, q.q_formats)}</div>
+          <div className="qtext jp text-base md:text-lg flex-1 break-words" style={{ color: "var(--ink)" }}>{renderQText(q.q, q.q_formats)}</div>
           <QuestionImages bankId={item.bankId} question={q} side="q" />
           {showAnswer ? (
             <>
@@ -11963,9 +12259,30 @@ function CharacterDisplay({ level, job, icon, size = 120, showAura = true }) {
 }
 
 // ============ Format helpers ============
-function renderFormattedText(text, formats) {
+// ── ひっかけ言葉の印：問題文の「できない」「以外」「限り」などに印をつける（読み違い対策）。TRAP_MARK.on は StudyRPG が設定から決める ──
+const TRAP_MARK = { on: false };
+const misreadCount = (state) => { let n = 0; state.questionBanks.forEach((b) => (b.questions || []).forEach((q) => { n += (q.errTypes && q.errTypes.misread) || 0; })); return n; };
+const trapMarkOn = (state) => { const v = state.displaySettings && state.displaySettings.trapMark; return v === undefined || v === null ? misreadCount(state) >= 3 : !!v; };
+const TRAP_RE = /(することができない|できない|してはならない|ならない|要しない|妨げない|ではない|しない|以外|に限り|に限る|を除き|を除く|のみ|だけ|必ず|常に|すべて|いずれも|誤っている|誤りである|未満|を超え|以上|以下|以内|ただし)/g;
+function markTraps(t, keyBase) {
+  const out = [];
+  let last = 0, m, k = 0;
+  TRAP_RE.lastIndex = 0;
+  while ((m = TRAP_RE.exec(t))) {
+    if (m.index > last) out.push(t.slice(last, m.index));
+    out.push(<span key={`${keyBase}t${k++}`} style={{ borderBottom: "2px dotted #c9564e", fontWeight: 700 }}>{m[0]}</span>);
+    last = m.index + m[0].length;
+  }
+  if (last < t.length) out.push(t.slice(last));
+  return out;
+}
+function renderQText(text, formats) {
+  if (!TRAP_MARK.on || !text) return renderFormattedText(text, formats);
+  return renderFormattedText(text, formats, true);
+}
+function renderFormattedText(text, formats, trap = false) {
   if (!text) return null;
-  if (!formats || formats.length === 0) return text;
+  if (!formats || formats.length === 0) return trap ? <>{markTraps(text, "x")}</> : text;
   const sorted = [...formats].sort((a, b) => a.from - b.from);
   const parts = [];
   let cursor = 0;
@@ -11978,7 +12295,7 @@ function renderFormattedText(text, formats) {
   return (
     <>
       {parts.map(({ text: t, type, color, key }) => {
-        if (!type) return <span key={key}>{t}</span>;
+        if (!type) return <span key={key}>{trap ? markTraps(t, key) : t}</span>;
         if (type === 'highlight') return <mark key={key} style={{ background: color || '#FFE082', color: 'inherit', borderRadius: '2px', padding: '0 2px' }}>{t}</mark>;
         if (type === 'bold') return <strong key={key} style={{ fontWeight: 'bold' }}>{t}</strong>;
         if (type === 'underline') return <span key={key} style={{ textDecoration: 'underline', textUnderlineOffset: '3px' }}>{t}</span>;

@@ -51,3 +51,7 @@ export const fbFieldValue = {
   delete: () => undefined,
 };
 export default { auth: () => fbAuth, firestore: () => fbDb };
+
+// 通知：デモでは使えない（本物のクラウドにつながないため）
+export const FCM_VAPID_KEY = "";
+export async function getPushToken() { throw new Error("デモでは通知は使えません"); }
