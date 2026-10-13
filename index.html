@@ -12,8 +12,11 @@
 <title>Study Quest 〜 学びの冒険 〜</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%93%9C%3C/text%3E%3C/svg%3E" />
 
-<!-- Tailwind は フェーズA では CDN のまま。フェーズCで PostCSS 構成へ移行する -->
-<script src="https://cdn.tailwindcss.com"></script>
+<!-- Tailwind はビルドに取り込み済み（src/index.css・tailwind.config.js） -->
+<!-- 学習記録のサーバー（Firebase）へのつなぎを早めに始めて、起動を少し速くする -->
+<link rel="preconnect" href="https://firestore.googleapis.com" crossorigin />
+<link rel="preconnect" href="https://identitytoolkit.googleapis.com" crossorigin />
+<link rel="preconnect" href="https://securetoken.googleapis.com" crossorigin />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=DotGothic16&family=Press+Start+2P&display=swap" rel="stylesheet" />
@@ -39,6 +42,7 @@
   .rpg-box { background: var(--paper); border: 2px solid var(--rule); box-shadow: 0 0 0 1px var(--paper), 0 0 0 3px var(--rule), 4px 4px 0 3px rgba(107, 93, 68, 0.14); }
   .rpg-inner-border { border: 1px solid var(--rule-soft); padding: 12px; }
   .rpg-input { width: 100%; background: var(--paper); border: 1px solid var(--rule); color: var(--ink); padding: 8px 10px; font-family: 'DotGothic16', monospace; }
+  .rpg-input::-moz-placeholder { color: var(--ink-mute); }
   .rpg-input::placeholder { color: var(--ink-mute); }
   .rpg-input:focus { outline: 2px solid var(--sky-deep); outline-offset: 1px; }
   .btn-primary { background: var(--gold); color: var(--paper); border: 1px solid var(--rule); font-weight: bold; transition: filter .15s; }
@@ -106,8 +110,11 @@
   .sync-dot.error { background: var(--brick); }
 </style>
 
-  <script type="module" crossorigin src="/studyquest/assets/index-D7HEgKYq.js"></script>
-  <link rel="stylesheet" crossorigin href="/studyquest/assets/index-tn0RQdqM.css">
+  <script type="module" crossorigin src="/studyquest/assets/index-Dg5kj6gB.js"></script>
+  <link rel="modulepreload" crossorigin href="/studyquest/assets/vendor-j8TMLQOG.js">
+  <link rel="modulepreload" crossorigin href="/studyquest/assets/react-DKTHdwOd.js">
+  <link rel="modulepreload" crossorigin href="/studyquest/assets/firebase-DT2gYIxA.js">
+  <link rel="stylesheet" crossorigin href="/studyquest/assets/index-J6ffVTj5.css">
 </head>
 <body>
 <div id="root"><div class="boot">LOADING...</div></div>
