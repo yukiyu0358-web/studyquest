@@ -50,7 +50,7 @@ RPG風の資格学習Webアプリ。利用者本人（Yuki）が、土地家屋�
 ## ファイル構成
 
 - `src/App.jsx`：画面と機能の大部分（約1万行・約700KB）。500KB超のため Babel の "deoptimised the styling" という注意が出るが無害。少しずつ分割中。
-- 分割済み：`src/game/icons.jsx`（Ico・線のアイコン・GameIcon とメダル絵）、`src/game/sfx.js`（効果音 SFX）、`src/data/quotes.js`（名言 STUDY_QUOTES）、`src/data/story.js`（会話 STORY_TALKS・REGION_TALK）。App.jsx の先頭で import している。
+- 分割済み：`src/game/icons.jsx`（Ico・線のアイコン・GameIcon とメダル絵）、`src/game/sfx.js`（効果音 SFX）、`src/game/calc.js`（計算ドリルの問題）、`src/game/cloze.js`（条文の穴埋めの問題）、`src/data/quotes.js`（名言 STUDY_QUOTES）、`src/data/story.js`（会話 STORY_TALKS・REGION_TALK）。App.jsx の先頭で import している。
 - **分割したら必ず `node scripts/check-names.mjs` で点検する**（定義も import もされていない名前を探す。ビルドでは見つからず、使っている途中にエラーになるため）。
 - `src/firebase.js`：Firebase初期化。`src/main.jsx`：起動。
 - `public/hero.jpg`：クラシックテーマの立ち絵（少年）。`public/sprites/tier1〜6.png`：ドット絵の主人公（以前は App.jsx に埋め込み）。
@@ -103,6 +103,14 @@ state の主なキー：`player` / `qualifications` / `tasks` / `studyLog` / `fo
 - ホームのキャラクター：`HOME_CHARS`（主人公・リーネ・カイ・ミラ・少年）`homeCharOf`、設定 `displaySettings.homeChar`。face は顔アイコンの切り抜き位置（背景サイズ300%のときの%）
 - 周回スタンプの演出：問題集を最後まで解く（`incrementBankClears`）と `LapStampScene`（印が押される演出。5周ごとに金の印、効果音 `stamp`）
 - iPhone での見切れ対策：index.html の `.grid > * { min-width: 0; }`（横並びの枠が中の長い文字で広がらないように）
+- 世界タブは「ストーリー・試練の塔・鍛錬・地図と仲間・クエスト・魔王城」の6つ。「鍛錬」に本番リハーサル・計算ドリル・条文の穴埋め・書式の鍛錬場を置く
+- 計算ドリル：問題づくりは `src/game/calc.js`（`CALC_TYPES` `makeCalcProblem` `checkCalc`。距離・方向角・放射・座標法の面積・交点。X＝北、方向角は北から右回り）。画面 `CalcDrill` `CalcFigure`、記録 `logDrill`（rpg.drill）
+- 本番リハーサル：`RehearsalCard` `RehearsalRun`（択一20問＋記述の自己採点、2時間30分）、`rehearsalFinish`（rpg.rehearsal.log）。判定の線 `REHEARSAL_DEFAULT`（令和6年度の目安：択一37.5・記述31.5・合格78）は設定で変更可（rpg.rehearsal.cfg）
+- 条文の穴埋め：問題づくりは `src/game/cloze.js`（`makeCloze`。期間・数・結びの言い回し・用語 `TERM_GROUPS` を空欄にし、同じ仲間の言葉から選択肢）。画面 `LawCloze`、出題 `pickClozeSet`（問題によく出る条文 `lawRefCounts`／まちがえた条文／すべて）、記録 `logCloze`（rpg.cloze = {log, miss}）
+- 復習の予報：今日タブの `ReviewForecast` `reviewForecast`（14日分の sr_nextReview を数える）
+- 影の受験生：`rivalStatus` `rivalPowerAt` `RivalCard` `RivalTrack`（試験日にちょうど合格力85%に届く速さのライバル。rpg.rival = {exam, t0, p0, last}）。合格力の記録と同じ useEffect で、追い抜き・抜かれで会話 `RIVAL_TALK`。会話の話し手 "shadow"（`SHADOW_FILTER`）
+- 仲間との絆：`BOND_LV` `bondLevel` `bondFx` `addBond`（rpg.bonds・bondSeen）。仲間の得意分野 `ALLIES[].likes`（戦いの正解は emitReward の stat.region で数える）＋計算ドリル（カイ）・条文の穴埋め（リーネ／ミラ）・書式（ミラ）。物語は src/data/story.js の `BOND_TALKS`（学習中＝タイマー作動中は待つ）
+- 試験日までのカウントダウン：src/data/story.js の `COUNTDOWN_TALKS`（100・50・30・14・7・3・1・0日、試験後）、rpg.countdown。演出が重なったら `evoQ` で順番待ち（前の演出と会話が終わってから出す）
 - テーマ：`DISPLAY_DEFAULTS`（既定は white）`THEME_PAL`（classic/white の配色）`CLASSIC_CSS` `WHITE_CSS` `ClassicThemeStyle` `TitleScreen` `ClassicInfoBar` `MenuHome`（クラシック）`SignpostHome`（白金・道しるべ）`migrateDisplay`
 
 ## テーマの仕組み

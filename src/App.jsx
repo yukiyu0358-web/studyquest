@@ -5,8 +5,10 @@ import Papa from "papaparse";
 import { fbAuth, fbDb, fbFieldValue } from "./firebase";
 import { LINE_ICONS, Ico, Sword, Plus, Check, Trash2, Sparkles, ScrollIcon, Upload, Play, Pause, BookOpen, Calendar, Home, FileQuestion, Eye, Shuffle, XIcon, Award, Clock, TrendingUp, Crown, Pencil, Bookmark, StarIcon, FolderIcon, Up, Down, Skull, Sword2, StatusIcon, LogoutIcon, Search, Castle, GA, swordArt, crossedSwords, oniArt, GAME_ART, GAME_ART_BY_ID, GAME_RING, GameIcon, paintedUrl } from "./game/icons"; // アイコン
 import { SFX } from "./game/sfx"; // 効果音
+import { CALC_TYPES, makeCalcProblem, checkCalc, calcAnsText } from "./game/calc"; // 計算ドリルの問題づくり
+import { makeCloze, BLANK_LABELS } from "./game/cloze"; // 条文の穴埋めの問題づくり
 import { STUDY_QUOTES } from "./data/quotes"; // 名言
-import { REGION_TALK, STORY_TALKS, REGION_ARC, regionArc, TRINITY_REGIONS, TRINITY_TALK } from "./data/story"; // 物語の会話
+import { REGION_TALK, STORY_TALKS, REGION_ARC, regionArc, TRINITY_REGIONS, TRINITY_TALK, BOND_TALKS, COUNTDOWN_TALKS } from "./data/story"; // 物語の会話
 
 
 // ============ Constants ============
@@ -1725,12 +1727,63 @@ function StudyRPG({ user }) {
     // 書式（記述式）の練習の記録：EXP・書式の欠片、8割以上なら星霊石
     logShoshiki: (e) => {
       const good = e.score / (e.max || 25) >= 0.8;
-      updateRpg((x) => ({
+      updateRpg((x) => addBond({
         ...x, shoshiki: [...(x.shoshiki || []), { ...e, id: uid(), d: todayStr() }].slice(-300),
         materials: { ...x.materials, "m-shoshiki": (x.materials["m-shoshiki"] || 0) + 2, "m-star": (x.materials["m-star"] || 0) + (good ? 1 : 0) },
-      }));
+      }, "mira", 3));
       setTimeout(() => awardXp(20), 200);
       return `記録しました！ EXP20・書式の欠片×2${good ? "・星霊石×1（8割以上！）" : ""}`;
+    },
+    // 本番リハーサルの結果：rpg.rehearsal.log = [{id, d, full, mcOk, mcN, mc, desc, total, min, pass}]
+    rehearsalFinish: ({ full, mcOk, mcN, land, bldg, min }) => {
+      const cfg = rehearsalCfg(stateRef.current);
+      const mc = Math.round((mcOk / Math.max(1, mcN)) * 50 * 10) / 10;
+      const desc = full ? Math.round(((Number(land) || 0) + (Number(bldg) || 0)) * 10) / 10 : null;
+      const total = full ? Math.round((mc + desc) * 10) / 10 : null;
+      const mcOkLine = mc >= cfg.mcBase, descOkLine = full ? desc >= cfg.descBase : null;
+      const pass = full ? mcOkLine && descOkLine && total >= cfg.pass : mcOkLine;
+      const gold = 60 + (full ? 60 : 0) + (pass ? 200 : 0), star = pass ? 1 : 0;
+      updateRpg((x) => {
+        const rh = { log: [], cfg: null, ...(x.rehearsal || {}) };
+        return {
+          ...x, gold: x.gold + gold, goldEarned: x.goldEarned + gold,
+          materials: { ...x.materials, "m-star": (x.materials["m-star"] || 0) + star },
+          rehearsal: { ...rh, log: [...(rh.log || []), { id: uid(), d: todayStr(), full, mcOk, mcN, mc, desc, total, min: Math.round(min), pass }].slice(-100) },
+        };
+      });
+      setTimeout(() => awardXp(full ? 80 : 40), 300);
+      if (pass && full) setTimeout(() => grantItem(rollRpgItem(2), "本番リハーサルで合格ライン突破"), 900);
+      return { mc, desc, total, mcOkLine, descOkLine, pass, cfg, reward: `報酬：EXP${full ? 80 : 40}・${gold}G${star ? "・星霊石×1" : ""}${pass && full ? "・合格ライン突破の装備" : ""}` };
+    },
+    setRehearsalCfg: (cfg) => updateRpg((x) => ({ ...x, rehearsal: { log: [], ...(x.rehearsal || {}), cfg } })),
+    // 条文の穴埋めの結果：rpg.cloze = { log:[{id,d,law,n,ok}], miss:{"法:条": まちがえた回数} }
+    logCloze: ({ law, n, ok, items }) => {
+      const gold = ok * 3;
+      const fid = { "fudosan-ho": "m-chiban", "fudosan-rei": "m-chiban", "fudosan-kisoku": "m-chiban", minpo: "m-keiyaku", kubun: "m-kyoyo", chosashi: "m-chokai" }[law] || "m-chiban";
+      const frag = ok >= Math.ceil(n * 0.8) ? 2 : ok > 0 ? 1 : 0;
+      updateRpg((x) => {
+        const c = { log: [], miss: {}, ...(x.cloze || {}) };
+        const miss = { ...(c.miss || {}) };
+        (items || []).forEach(({ key, good }) => { const v = (miss[key] || 0) + (good ? -1 : 1); if (v > 0) miss[key] = v; else delete miss[key]; });
+        return addBond({
+          ...x, gold: x.gold + gold, goldEarned: x.goldEarned + gold,
+          materials: { ...x.materials, [fid]: (x.materials[fid] || 0) + frag },
+          cloze: { ...c, miss, log: [...(c.log || []), { id: uid(), d: todayStr(), law, n, ok }].slice(-300) },
+        }, law === "minpo" || law === "chosashi" ? "mira" : "rine", ok);
+      });
+      if (ok > 0) setTimeout(() => awardXp(ok * 3), 200);
+      return [ok > 0 && `EXP${ok * 3}`, gold && `${gold}G`, frag && `${(matById(fid) || {}).name}×${frag}`].filter(Boolean).join("・");
+    },
+    // 計算ドリルの結果：rpg.drill = [{id, d, type, n, ok, sec}]。正解数に応じてEXP・ゴールド・座標の欠片、全問正解で星霊石
+    logDrill: ({ type, n, ok, sec }) => {
+      const gold = ok * 5, frag = ok >= Math.ceil(n * 0.8) ? 2 : ok > 0 ? 1 : 0, star = ok === n && n >= 5 ? 1 : 0;
+      updateRpg((x) => addBond({
+        ...x, gold: x.gold + gold, goldEarned: x.goldEarned + gold,
+        drill: [...(x.drill || []), { id: uid(), d: todayStr(), type, n, ok, sec: Math.round(sec) }].slice(-300),
+        materials: { ...x.materials, "m-zahyo": (x.materials["m-zahyo"] || 0) + frag, "m-star": (x.materials["m-star"] || 0) + star },
+      }, "kai", ok));
+      if (ok > 0) setTimeout(() => awardXp(ok * 4), 200);
+      return [ok > 0 && `EXP${ok * 4}`, gold && `${gold}G`, frag && `座標の欠片×${frag}`, star && "星霊石×1（全問正解！）"].filter(Boolean).join("・");
     },
     // ログインボーナスを受け取る（その日1回）
     claimLogin: () => {
@@ -1804,6 +1857,23 @@ function StudyRPG({ user }) {
       const g = Object.fromEntries(pp.regions.filter((x) => x.total > 0).map((x) => [x.name, Math.round(x.power * 1000) / 1000]));
       updateRpg((x) => { const lg = [...(x.powerLog || [])]; const e = { d, p, g }; if (lg.length && lg[lg.length - 1].d === d) lg[lg.length - 1] = e; else lg.push(e); return { ...x, powerLog: lg.slice(-400) }; });
     }
+    // 影の受験生：試験日が決まったら現れる。追い抜いた・抜かれたときに会話
+    if (qual && qual.examDate && daysUntil(qual.examDate) > 0) {
+      const rv = r.rival;
+      if (!rv || rv.exam !== qual.examDate) {
+        updateRpg((x) => ({ ...x, rival: { exam: qual.examDate, t0: d, p0: p, last: "tie", lastEvent: d } }));
+        if (!rv) setTimeout(() => setTalk({ title: "影の受験生", lines: RIVAL_TALK.appear }), 4000);
+      } else {
+        const st = rivalStatus(state, pp, qual);
+        if (st && st.status !== "tie" && st.status !== rv.last) {
+          const over = st.status === "ahead" && rv.last === "behind";
+          const under = st.status === "behind" && rv.last === "ahead";
+          updateRpg((x) => ({ ...x, rival: { ...x.rival, last: st.status, lastEvent: d }, ...(over ? { gold: x.gold + 50, goldEarned: x.goldEarned + 50 } : {}) }));
+          if (over) setTimeout(() => { setTalk({ title: "影の受験生", lines: RIVAL_TALK.overtake }); showRpgToast("影の受験生を追い抜いた！ 50G", "#6c5a96"); }, 3000);
+          else if (under) setTimeout(() => setTalk({ title: "影の受験生", lines: RIVAL_TALK.overtaken }), 3000);
+        }
+      }
+    }
     const wk = weekKey();
     if (r.reportWeek !== wk) {
       const rep = weeklyReport(state, wk);
@@ -1811,6 +1881,47 @@ function StudyRPG({ user }) {
       if (rep) setTimeout(() => setTalk(rep), 2500);
     }
   }, [state.questionBanks, loaded]);
+
+  // 試験日までのカウントダウン：100・50・30・14・7・3日前、前日、当日、試験のあと（1週間以内）に演出と会話。rpg.countdown = { exam, seen:[d] }
+  const examDateOfMain = (mainQual(state) || {}).examDate || "";
+  useEffect(() => {
+    if (!loaded || !examDateOfMain) return;
+    const qual = mainQual(state);
+    const days = daysUntil(examDateOfMain);
+    const r = normRpg(state.rpg);
+    const cd = r.countdown && r.countdown.exam === examDateOfMain ? r.countdown : { exam: examDateOfMain, seen: [] };
+    const seen = new Set(cd.seen || []);
+    const m = days < 0 ? (days >= -7 ? COUNTDOWN_TALKS.find((x) => x.d === -1) : null)
+      : COUNTDOWN_TALKS.filter((x) => x.d >= days && x.d >= 0).sort((a, b) => a.d - b.d)[0];
+    const ok = m && !seen.has(m.d) && (m.d <= 1 ? m.d === Math.max(-1, Math.min(days, 1)) || (m.d === -1 && days < 0) : m.d - days <= (m.d >= 30 ? 3 : m.d >= 7 ? 1 : 0));
+    // 過ぎてしまった節目は、まとめて「見た」ことにする
+    const passed = COUNTDOWN_TALKS.filter((x) => (days < 0 ? true : x.d >= days)).map((x) => x.d);
+    if (passed.some((d) => !seen.has(d)) || !r.countdown || r.countdown.exam !== examDateOfMain) {
+      const gold = ok ? (m.d === -1 ? 300 : 100) : 0;
+      updateRpg((x) => ({ ...x, gold: x.gold + gold, goldEarned: x.goldEarned + gold, countdown: { exam: examDateOfMain, seen: [...new Set([...seen, ...passed])] } }));
+      if (ok) {
+        const big = m.d >= 2 ? `あと${days}日` : m.big;
+        setTimeout(() => {
+          showEvolution({ big, from: null, to: `${qual.name}の試験${m.d >= 0 ? "まで" : ""}`, sub: `${m.sub}（記念に${gold}G）`, stage: heroStage(stateRef.current.player.level), afterTalk: { title: m.d >= 0 ? `決戦まで ${m.d === 0 ? "今日" : big.replace("あと", "あと ")}` : "試験のあとで", lines: m.lines.map(([w, t]) => [w, m.d >= 30 ? t.replace(`あと${m.d}日`, `あと${days}日`) : t]) } });
+        }, 2200);
+      }
+    }
+  }, [loaded, examDateOfMain]);
+
+  // 仲間との絆が深まったら、その仲間の物語を1話ひらく（学習の途中＝時間を計っている間は待ち、終わってから出す）
+  useEffect(() => {
+    if (!loaded || state.timer.startMs) return;
+    const r = normRpg(state.rpg);
+    alliesJoined(r).forEach((a, i) => {
+      const lv = bondLevel(r.bonds[a.id]);
+      const seen = r.bondSeen[a.id] || 1;
+      if (lv > seen) {
+        updateRpg((x) => ({ ...x, bondSeen: { ...(x.bondSeen || {}), [a.id]: lv } }));
+        const ep = (BOND_TALKS[a.id] || [])[lv - 2];
+        setTimeout(() => { showRpgToast(`${a.name}との絆が Lv${lv} になった！ 仲間の効果が強くなった`, "#c9667e"); if (ep) setTalk({ title: `${a.name}との絆 Lv${lv}「${ep.title}」`, lines: ep.lines }); }, 1500 + i * 400);
+      }
+    });
+  }, [state.rpg && state.rpg.bonds, loaded, !!state.timer.startMs]);
 
   // 地域の制覇（全話・節の守護者・地域の守護者）と、三つの柱（不動産登記法・民法・調査士法）の制覇を祝う
   useEffect(() => {
@@ -1890,7 +2001,9 @@ function StudyRPG({ user }) {
           }
           jn.log = jn.log.slice(-10);
         }
-        return { ...x, gold: x.gold + gold, goldEarned: x.goldEarned + gold, materials: m, daily: { ...d, k }, journey: jn };
+        let out = { ...x, gold: x.gold + gold, goldEarned: x.goldEarned + gold, materials: m, daily: { ...d, k }, journey: jn };
+        ALLIES.filter((a) => stat.region && a.likes.includes(stat.region)).forEach((a) => { out = addBond(out, a.id, 1); });
+        return out;
       });
       // 旅路のできごとを知らせる（宝箱・旅人・祠・町のマスに着いたとき）
       if (stat) {
@@ -1927,13 +2040,21 @@ function StudyRPG({ user }) {
   };
   // 進化の演出（主人公の姿・覚醒・相棒）。テーマに合わせた主人公の顔を使う
   const [evolution, setEvolution] = useState(null);
+  const evoQ = useRef([]); // 演出が重なったときの順番待ち（前の演出と会話が終わってから出す）
   const [lapStamp, setLapStamp] = useState(null); // 周回スタンプの演出 { id, bankName, laps }
   const [talkQ, setTalkQ] = useState([]); // 会話の画面（物語・地域の解放・週報）。重なったときは順番に出す
   const talk = talkQ[0] || null;
   const setTalk = (t) => { if (t && t.lines && t.lines.length) setTalkQ((q) => [...q, { ...t, id: uid() }]); };
+  // 順番待ちの演出：いまの演出と会話が終わったら、次を出す
+  useEffect(() => {
+    if (evolution || talk || !evoQ.current.length) return undefined;
+    const t = setTimeout(() => setEvolution((cur) => cur || evoQ.current.shift() || null), 500);
+    return () => clearTimeout(t);
+  }, [evolution, talk]);
   const showEvolution = (ev) => {
     const th = BATTLE_THEME[(stateRef.current.displaySettings && stateRef.current.displaySettings.theme) || "white"] || BATTLE_THEME.white;
-    setEvolution({ avatar: th.avatar, face: th.face, ...ev, id: uid() });
+    const e = { avatar: th.avatar, face: th.face, ...ev, id: uid() };
+    setEvolution((cur) => { if (cur) { evoQ.current.push(e); return cur; } return e; });
   };
   useEffect(() => {
     if (!loaded) return;
@@ -6740,7 +6861,7 @@ const RPG_DEFAULTS = {
   equipped: { weapon: null, armor: null, accessory: null }, bossWins: 0, bossLosses: 0, bossLog: [],
   boosts: { xpUntil: null }, restDays: [], crits: 0,
   classId: null, pet: null, seen: { stars: 0, pet: 0 },
-  materials: {}, skills: [], forgeLog: { ok: 0, ng: 0 }, daily: null, storySeen: -1, weekly: null, dungeon: null, regions: {}, castle: { floor: 0 }, cats: {}, journey: { pos: 0, acc: 0, lap: 0, log: [] }, sq: {}, powerLog: [], reportWeek: null, shoshiki: [], login: { count: 0 }, tower: { floor: 0, best: {} }, secBoss: {}, arcSeen: {}, conquered: {},
+  materials: {}, skills: [], forgeLog: { ok: 0, ng: 0 }, daily: null, storySeen: -1, weekly: null, dungeon: null, regions: {}, castle: { floor: 0 }, cats: {}, journey: { pos: 0, acc: 0, lap: 0, log: [] }, sq: {}, powerLog: [], reportWeek: null, shoshiki: [], login: { count: 0 }, tower: { floor: 0, best: {} }, secBoss: {}, arcSeen: {}, conquered: {}, drill: [], rehearsal: { log: [], cfg: null }, cloze: { log: [], miss: {} }, rival: null, bonds: {}, bondSeen: {}, countdown: null,
 };
 function normRpg(r) {
   const x = { ...RPG_DEFAULTS, ...(r || {}) };
@@ -6765,6 +6886,13 @@ function normRpg(r) {
   x.conquered = { ...(x.conquered || {}) };
   x.powerLog = Array.isArray(x.powerLog) ? x.powerLog : [];
   x.shoshiki = Array.isArray(x.shoshiki) ? x.shoshiki : [];
+  x.drill = Array.isArray(x.drill) ? x.drill : [];
+  x.rehearsal = { log: [], cfg: null, ...(x.rehearsal || {}) };
+  if (!Array.isArray(x.rehearsal.log)) x.rehearsal.log = [];
+  x.cloze = { log: [], miss: {}, ...(x.cloze || {}) };
+  x.bonds = { ...(x.bonds || {}) };
+  x.bondSeen = { ...(x.bondSeen || {}) };
+  if (!Array.isArray(x.cloze.log)) x.cloze.log = [];
   x.journey = { pos: 0, acc: 0, lap: 0, log: [], ...(x.journey || {}) };
   return x;
 }
@@ -6775,7 +6903,7 @@ const rpgEquippedItems = (r) => RPG_SLOTS.map((s) => rpgInvItem(r.inventory.find
 function getRpgBonuses(state) {
   const r = normRpg(state.rpg);
   const eq = rpgEquippedItems(r);
-  const gfx = [...getGrowthFx(state), ...r.skills.map((id) => (skillNodes.find((n) => n.id === id) || {}).fx || {}), ...Object.keys(r.regions || {}).filter((k) => r.regions[k].cleared).map((k) => regionInfo(k).emblem.fx), ...activeEvents(state).map((e) => e.fx), ...alliesJoined(r).map((a) => a.fx)]; // クラス・相棒・覚醒・スキル・地域の紋章・季節のイベント・仲間
+  const gfx = [...getGrowthFx(state), ...r.skills.map((id) => (skillNodes.find((n) => n.id === id) || {}).fx || {}), ...Object.keys(r.regions || {}).filter((k) => r.regions[k].cleared).map((k) => regionInfo(k).emblem.fx), ...activeEvents(state).map((e) => e.fx), ...alliesJoined(r).map((a) => bondFx(a, r))]; // クラス・相棒・覚醒・スキル・地域の紋章・季節のイベント・仲間
   const sum = (k) => eq.reduce((a, it) => a + ((it.fx && it.fx[k]) || 0), 0) + gfx.reduce((a, f) => a + (f[k] || 0), 0);
   const st = calculateStatus(state);
   const boostActive = !!(r.boosts.xpUntil && Date.now() < r.boosts.xpUntil);
@@ -7258,6 +7386,72 @@ function DailyQuests({ state, actions, todayCount, compact = false }) {
   );
 }
 
+// ── 影の受験生：試験日にちょうど合格ライン（85%）に届く速さで進むライバル。rpg.rival = { exam, t0, p0, last, lastEvent } ──
+const SHADOW_FILTER = "brightness(0.35) sepia(1) hue-rotate(215deg) saturate(2.2) contrast(1.2)";
+const RIVAL_TALK = {
+  appear: [["shadow", "……我は影の受験生。試験日にちょうど合格する速さで、お前と同じ道を歩く者だ。"], ["shadow", "我より先を行けば、お前は合格する。遅れれば……わかるな？"], ["hero", "負けません！ 毎日少しずつ、影の先を歩いていきましょう。"]],
+  overtake: [["shadow", "……追い抜かれたか。だが、試験日まで気を抜くなよ。"], ["hero", "影の受験生を追い抜きました！ このまま進めば、合格ラインに届きます。"]],
+  overtaken: [["shadow", "ふっ……。合格する速さは、今はこちらが上のようだな。"], ["hero", "影に先を越されました。今日の復習と新しい問題で、取り返しましょう！"]],
+};
+function rivalPowerAt(rv, date) {
+  if (!rv) return null;
+  const goal = Math.max(PASS_LINE, rv.p0);
+  const t0 = parseLocalDate(rv.t0).getTime(), t1 = parseLocalDate(rv.exam).getTime(), t = parseLocalDate(date).getTime();
+  const f = t1 > t0 ? Math.min(1, Math.max(0, (t - t0) / (t1 - t0))) : 1;
+  return rv.p0 + (goal - rv.p0) * f;
+}
+function rivalStatus(state, pp, qual) {
+  const rv = normRpg(state.rpg).rival;
+  if (!rv || !qual || !qual.examDate || rv.exam !== qual.examDate || pp.total === 0) return null;
+  const rp = rivalPowerAt(rv, todayStr());
+  const diff = pp.power - rp;
+  const days = daysUntil(qual.examDate);
+  const perDay = days > 0 ? (Math.max(PASS_LINE, rv.p0) - rp) / days : 0;
+  return { rp, diff, diffQ: Math.round(Math.abs(diff) * pp.total), status: diff >= 0.002 ? "ahead" : diff <= -0.002 ? "behind" : "tie", perDay, perDayQ: Math.max(1, Math.round(perDay * pp.total)), days };
+}
+function RivalTrack({ state, me, rp, avatar, face }) {
+  const pos = (v) => `${Math.min(100, Math.max(0, (v / PASS_LINE) * 100))}%`;
+  const dot = (v, filter, label, top) => (
+    <div style={{ position: "absolute", left: pos(v), top, transform: "translateX(-50%)", textAlign: "center", transition: "left .6s ease" }}>
+      <div style={{ width: 30, height: 30, margin: "0 auto", borderRadius: "50%", border: `2px solid ${filter ? "#6c5a96" : "#b08a3e"}`, backgroundColor: filter ? "#2a2440" : "#e9e4d6", backgroundImage: `url(${avatar})`, backgroundSize: "300% auto", backgroundPosition: `${face[0]}% ${face[1]}%`, filter }} />
+      <div className="jp text-[9px] whitespace-nowrap" style={{ color: filter ? "#6c5a96" : "var(--gold)", fontWeight: 800 }}>{label}</div>
+    </div>
+  );
+  return (
+    <div style={{ position: "relative", height: 92, margin: "0 18px" }}>
+      <div style={{ position: "absolute", left: 0, right: 0, top: 44, height: 6, borderRadius: 3, background: "var(--beige)" }} />
+      <div style={{ position: "absolute", left: 0, width: pos(me), top: 44, height: 6, borderRadius: 3, background: "linear-gradient(90deg, #6fb8b4, #d6b56a)" }} />
+      <div style={{ position: "absolute", right: -14, top: 30, fontSize: 18 }} aria-hidden="true">🏁</div>
+      <div className="jp text-[9px]" style={{ position: "absolute", right: -16, top: 54, color: "var(--gold)", fontWeight: 800 }}>合格{Math.round(PASS_LINE * 100)}%</div>
+      {dot(rp, SHADOW_FILTER, `影 ${pctTxt(rp)}`, 50)}
+      {dot(me, null, `あなた ${pctTxt(me)}`, 0)}
+    </div>
+  );
+}
+function RivalCard({ state, pp, qual, compact = false }) {
+  const st = rivalStatus(state, pp, qual);
+  const hc = homeCharOf(state);
+  if (!st) {
+    if (compact) return null;
+    return (
+      <Box title="影の受験生" icon={<Skull size={18} />}>
+        <p className="jp text-xs" style={{ color: "var(--ink-soft)" }}>目標の資格に試験日を入れると、「試験日にちょうど合格する速さ」で進むライバル、影の受験生が現れます。影より先を歩けていれば、合格ペースです。</p>
+      </Box>
+    );
+  }
+  const msg = st.status === "ahead" ? `影より ${(st.diff * 100).toFixed(1)}% リード（約${st.diffQ}問分）` : st.status === "behind" ? `影に ${(Math.abs(st.diff) * 100).toFixed(1)}% 先を越されています（あと約${st.diffQ}問分）` : "影と横並びの接戦です";
+  const color = st.status === "ahead" ? "var(--gold)" : st.status === "behind" ? "#6c5a96" : "var(--ink)";
+  const body = (
+    <>
+      <RivalTrack state={state} me={pp.power} rp={st.rp} avatar={hc.avatar} face={hc.face} />
+      <div className="jp text-center text-sm" style={{ color, fontWeight: 800 }}>{msg}</div>
+      {!compact && <p className="jp text-[11px] mt-1 text-center" style={{ color: "var(--ink-soft)" }}>影は毎日、合格力を約{(st.perDay * 100).toFixed(2)}%（{st.perDayQ}問分）ずつ上げていきます。試験日まであと{st.days}日。</p>}
+    </>
+  );
+  if (compact) return <div className="mt-2 pt-2" style={{ borderTop: "1px dashed var(--rule-soft)" }}><div className="jp text-[10px] mb-1" style={{ color: "var(--ink-mute)" }}>影の受験生との競争</div>{body}</div>;
+  return <Box title="影の受験生" icon={<Skull size={18} />}>{body}</Box>;
+}
+
 // ── 合格力の推移：毎日の合格力を rpg.powerLog に記録し（{d:日付, p:合格力, g:{地域:合格力}}）、折れ線グラフで見せる ──
 const addDays = (str, n) => { const d = parseLocalDate(str); d.setDate(d.getDate() + n); return localDateStr(d); };
 function PowerChart({ state }) {
@@ -7289,6 +7483,7 @@ function PowerChart({ state }) {
           {[0, 0.25, 0.5, 0.75, 1].map((v) => <g key={v}><line x1={L} x2={W - Rr} y1={Y(v)} y2={Y(v)} stroke="var(--rule-soft)" strokeWidth=".6" /><text x={L - 5} y={Y(v) + 3} textAnchor="end" fontSize="9" fill="var(--ink-mute)">{Math.round(v * 100)}%</text></g>)}
           {[[PASS_LINE, "合格85%", "#b08a3e"], [BASE_LINE, "基準点75%", "#8c79c8"]].map(([v, l, c]) => <g key={l}><line x1={L} x2={W - Rr} y1={Y(v)} y2={Y(v)} stroke={c} strokeWidth="1.2" strokeDasharray="5 4" /><text x={L + 4} y={Y(v) - 4} textAnchor="start" fontSize="9" fill={c} fontWeight="700">{l}</text></g>)}
           {pts.length > 1 && <polygon points={`${X(first.d)},${Y(0)} ${line} ${X(last.d)},${Y(0)}`} fill="url(#sqPowArea)" />}
+          {(() => { const rv = normRpg(state.rpg).rival; if (!rv || rv.t0 > today) return null; const a = rv.t0 > from ? rv.t0 : from; return <g><line x1={X(a)} y1={Y(rivalPowerAt(rv, a))} x2={X(today)} y2={Y(rivalPowerAt(rv, today))} stroke="#6c5a96" strokeWidth="1.6" strokeDasharray="3 3" /><text x={X(today) - 4} y={Y(rivalPowerAt(rv, today)) + 12} textAnchor="end" fontSize="9" fill="#6c5a96" fontWeight="700">影</text></g>; })()}
           {pts.length > 1 && <polyline points={line} fill="none" stroke="#b08a3e" strokeWidth="2.2" strokeLinejoin="round" strokeLinecap="round" />}
           <circle cx={X(last.d)} cy={Y(last.p)} r="4.5" fill="#fdfbf5" stroke="#b08a3e" strokeWidth="2.2" />
           <text x={Math.min(X(last.d), W - Rr - 30)} y={Y(last.p) - 9} textAnchor="middle" fontSize="11" fontWeight="800" fill="var(--ink)">{pctTxt(last.p)}</text>
@@ -7500,6 +7695,214 @@ function WeeklyBossCard({ state, pp, onStart }) {
 }
 
 // ── ダンジョン（模試の塔）：本番のように時間を計って一気に解く。1問正解ごとに1階層もぐる ──
+// ── 本番リハーサル：土地家屋調査士の午後の部と同じ形（択一20問＋記述2問・2時間30分）で解き、基準点と合格点で判定する ──
+// 判定の線は年によって変わる。初期値は令和6年度の目安（択一の基準点37.5・記述の基準点31.5・合格点78.0）。設定で変えられる
+const REHEARSAL_DEFAULT = { mcBase: 37.5, descBase: 31.5, pass: 78 };
+const rehearsalCfg = (state) => ({ ...REHEARSAL_DEFAULT, ...((normRpg(state.rpg).rehearsal || {}).cfg || {}) });
+function RehearsalCard({ state, pp, actions, onStart }) {
+  const rh = normRpg(state.rpg).rehearsal;
+  const cfg = rehearsalCfg(state);
+  const [edit, setEdit] = useState(null);
+  const banks = pp.regions.flatMap((g) => g.banks);
+  const all = banks.flatMap((b) => (b.questions || []).filter((q) => !q.excluded).map((q) => ({ bankId: b.id, bankName: b.name, qId: q.id })));
+  const ok = all.length >= 20;
+  const go = (full) => onStart({ full, minutes: full ? 150 : 50, pool: shuffleArr(all).slice(0, 20) });
+  const fulls = rh.log.filter((e) => e.full).slice(-10);
+  const W = 300, H = 110, top = 100;
+  const yOf = (v) => H - 14 - (v / top) * (H - 24);
+  return (
+    <Box title="本番リハーサル" icon={<Clock size={18} />}>
+      <p className="jp text-[11px] mb-2" style={{ color: "var(--ink-soft)" }}>本番（午後の部）と同じ形で、時間を計って解きます。択一20問のあと、書式（記述2問）は手元の問題を紙で解いて自己採点を入れてください。択一の基準点・記述の基準点・合格点の3つで判定します。</p>
+      <div className="grid grid-cols-2 gap-2">
+        <button disabled={!ok} onClick={() => go(true)} className="jp btn-primary py-2 px-1" style={{ opacity: ok ? 1 : 0.45 }}>
+          <div className="text-sm" style={{ fontWeight: 800 }}>本番と同じ</div>
+          <div className="text-[10px]" style={{ opacity: 0.9 }}>択一20問＋記述・2時間30分</div>
+        </button>
+        <button disabled={!ok} onClick={() => go(false)} className="jp btn-ghost py-2 px-1" style={{ opacity: ok ? 1 : 0.45 }}>
+          <div className="text-sm" style={{ fontWeight: 800 }}>択一だけ</div>
+          <div className="text-[10px]" style={{ color: "var(--ink-mute)" }}>20問・50分</div>
+        </button>
+      </div>
+      {!ok && <p className="jp text-[10px] mt-1" style={{ color: "var(--brick)" }}>目標の資格の問題が20問以上必要です。</p>}
+      <div className="jp text-[10px] mt-2 flex items-center gap-2" style={{ color: "var(--ink-mute)" }}>
+        <span className="flex-1">判定の線：択一 {cfg.mcBase}点・記述 {cfg.descBase}点・合格点 {cfg.pass}点（各50点・合計100点）</span>
+        <button onClick={() => setEdit(edit ? null : { ...cfg })} className="btn-ghost text-[10px] px-2 py-0.5">{edit ? "閉じる" : "変える"}</button>
+      </div>
+      {edit && (
+        <div className="jp mt-2 p-2 space-y-2" style={{ background: "var(--cream)", border: "1px solid var(--rule-soft)", borderRadius: 8 }}>
+          <div className="grid grid-cols-3 gap-2">
+            {[["mcBase", "択一の基準点"], ["descBase", "記述の基準点"], ["pass", "合格点"]].map(([k, l]) => (
+              <label key={k} className="text-[10px]" style={{ color: "var(--ink-soft)" }}>{l}<input type="number" inputMode="decimal" step="0.5" className="rpg-input mt-0.5" value={edit[k]} onChange={(e) => setEdit({ ...edit, [k]: e.target.value })} /></label>
+            ))}
+          </div>
+          <p className="text-[10px]" style={{ color: "var(--ink-mute)" }}>毎年、法務省が発表する「基準点等について」の数字に合わせると、本番に近い判定になります。</p>
+          <div className="flex gap-2">
+            <button onClick={() => { actions.setRehearsalCfg({ mcBase: Number(edit.mcBase) || REHEARSAL_DEFAULT.mcBase, descBase: Number(edit.descBase) || REHEARSAL_DEFAULT.descBase, pass: Number(edit.pass) || REHEARSAL_DEFAULT.pass }); setEdit(null); }} className="btn-primary flex-1 py-1.5 text-xs">保存</button>
+            <button onClick={() => setEdit({ ...REHEARSAL_DEFAULT })} className="btn-ghost px-3 py-1.5 text-xs">初期値に戻す</button>
+          </div>
+        </div>
+      )}
+      {rh.log.length > 0 && (
+        <div className="jp mt-3 pt-3" style={{ borderTop: "1px dashed var(--rule-soft)" }}>
+          {fulls.length > 0 && (<>
+            <div className="text-[10px] mb-1" style={{ color: "var(--ink-soft)" }}>合計点の推移（本番と同じ形・直近10回）</div>
+            <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ display: "block" }} aria-label="合計点の推移">
+              <line x1="24" x2={W - 4} y1={yOf(cfg.pass)} y2={yOf(cfg.pass)} stroke="#b08a3e" strokeDasharray="4 3" />
+              <text x={W - 4} y={yOf(cfg.pass) - 3} fontSize="9" textAnchor="end" fill="#b08a3e">合格点 {cfg.pass}</text>
+              {[0, 50, 100].map((v) => <text key={v} x="20" y={yOf(v) + 3} fontSize="8" textAnchor="end" fill="var(--ink-mute)">{v}</text>)}
+              {fulls.map((e, i) => { const bw = (W - 40) / 10, x = 28 + i * bw; const y = yOf(e.total); return (
+                <g key={e.id}><rect x={x} y={y} width={bw - 6} height={H - 14 - y} rx="2" fill={e.pass ? "#d6b56a" : "#9fb3d1"} /><text x={x + (bw - 6) / 2} y={y - 2} fontSize="8" textAnchor="middle" fill="var(--ink)">{e.total}</text><text x={x + (bw - 6) / 2} y={H - 3} fontSize="7" textAnchor="middle" fill="var(--ink-mute)">{Number(e.d.slice(5, 7))}/{Number(e.d.slice(8, 10))}</text></g>); })}
+            </svg>
+          </>)}
+          <div className="text-[10px] mt-1 mb-1" style={{ color: "var(--ink-soft)" }}>最近の記録</div>
+          {[...rh.log].reverse().slice(0, 5).map((e) => (
+            <div key={e.id} className="flex items-center gap-2 text-[11px] py-0.5">
+              <span style={{ color: "var(--ink-mute)", minWidth: 36 }}>{Number(e.d.slice(5, 7))}/{Number(e.d.slice(8, 10))}</span>
+              <span style={{ fontWeight: 700 }}>{e.full ? "本番形式" : "択一のみ"}</span>
+              <span className="flex-1" style={{ color: "var(--ink-soft)" }}>択一{e.mc}{e.full ? `・記述${e.desc}・計${e.total}` : ""}（{e.min}分）</span>
+              <span style={{ color: e.pass ? "var(--gold)" : "var(--ink-mute)", fontWeight: 800 }}>{e.pass ? "合格ライン" : "あと一歩"}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </Box>
+  );
+}
+function RehearsalRun({ state, run, actions, recordAnswer, startTimer, stopTimer, onExit }) {
+  const { pool, full, minutes } = run;
+  const [phase, setPhase] = useState("mc"); // mc（択一）| desc（記述の自己採点）| done
+  const [idx, setIdx] = useState(0);
+  const [showAnswer, setShowAnswer] = useState(false);
+  const [res, setRes] = useState([]); // {bankId, qId, correct}
+  const [land, setLand] = useState("");
+  const [bldg, setBldg] = useState("");
+  const [out, setOut] = useState(null);
+  const [startMs] = useState(() => Date.now());
+  const [mcMs, setMcMs] = useState(0);
+  const [now, setNow] = useState(Date.now());
+  const timerStartedByMe = useRef(false);
+  const limitMs = minutes * 60000;
+  useEffect(() => {
+    if (!state.timer.startMs) { startTimer(null, "qa"); timerStartedByMe.current = true; }
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => { clearInterval(t); if (timerStartedByMe.current) { stopTimer(); timerStartedByMe.current = false; } };
+  }, []);
+  const left = Math.max(0, limitMs - (now - startMs));
+  const mmss = (ms) => { const m = Math.floor(ms / 60000); return `${m >= 60 ? `${Math.floor(m / 60)}:${String(m % 60).padStart(2, "0")}` : m}:${String(Math.floor((ms % 60000) / 1000)).padStart(2, "0")}`; };
+  const endMc = (list) => { setMcMs(Date.now() - startMs); setShowAnswer(false); if (full) setPhase("desc"); else finish(list, "", ""); };
+  const finish = (list, l, b) => {
+    if (timerStartedByMe.current) { stopTimer(); timerStartedByMe.current = false; }
+    const mcOk = list.filter((x) => x.correct).length;
+    const o = actions.rehearsalFinish({ full, mcOk, mcN: pool.length, land: Math.min(25, Number(l) || 0), bldg: Math.min(25, Number(b) || 0), min: (Date.now() - startMs) / 60000 });
+    SFX.play(o.pass ? "levelup" : "result");
+    setOut({ ...o, mcOk, used: Date.now() - startMs });
+    setPhase("done");
+  };
+  // 択一の途中で時間切れ → 残りは不正解として記述へ
+  useEffect(() => { if (left <= 0 && phase === "mc") endMc(res); }, [left]);
+  const head = (label) => (
+    <div className="flex items-center justify-between jp text-xs">
+      <button onClick={() => { if (confirm("リハーサルをやめますか？（記録は残りません）")) onExit(); }} className="flex items-center gap-1" style={{ color: "var(--ink-soft)" }}><XIcon size={14} /> やめる</button>
+      <span style={{ color: "var(--ink-soft)" }}>{label}</span>
+      <span style={{ fontWeight: 800, color: left < 10 * 60000 ? "var(--brick)" : "var(--sky-deep)", fontVariantNumeric: "tabular-nums" }}>残り {mmss(left)}</span>
+    </div>
+  );
+
+  if (phase === "done" && out) {
+    const row = (label, v, line, okv) => (
+      <div className="flex items-center gap-2 px-3 py-2" style={{ background: okv ? "var(--cream)" : "var(--paper)", border: `1px solid ${okv ? "var(--gold)" : "var(--rule-soft)"}`, borderRadius: 8 }}>
+        <span className="text-xs flex-1" style={{ fontWeight: 700 }}>{label}</span>
+        <span className="text-sm" style={{ fontWeight: 800 }}>{v}点</span>
+        <span className="text-[10px] w-20 text-right" style={{ color: "var(--ink-mute)" }}>{line}</span>
+        <span className="text-base w-5 text-center" style={{ color: okv ? "var(--gold)" : "var(--brick)", fontWeight: 800 }}>{okv ? "○" : "×"}</span>
+      </div>
+    );
+    const wrongs = res.filter((x) => !x.correct).map((x) => { const b = state.questionBanks.find((bb) => bb.id === x.bankId); return b && (b.questions || []).find((qq) => qq.id === x.qId); }).filter(Boolean);
+    return (
+      <Box title="本番リハーサル：結果" icon={<Award size={18} />}>
+        <div className="jp text-center py-2">
+          <div className="text-[11px]" style={{ color: "var(--ink-mute)" }}>{full ? "本番と同じ形" : "択一だけ"} ・ {mmss(out.used)}（択一 {mmss(mcMs)}）</div>
+          <div style={{ fontSize: 40, fontWeight: 800, color: out.pass ? "var(--gold)" : "var(--ink)", fontFamily: "'Cinzel', 'Shippori Mincho B1', serif" }}>{full ? out.total : out.mc}<span className="text-base">点</span></div>
+          <div className="text-sm" style={{ fontWeight: 800, color: out.pass ? "var(--gold)" : "var(--brick)" }}>{out.pass ? (full ? "合格ラインを突破しました！" : "択一の基準点クリア！") : full ? "合格ラインまで、あと一歩" : "択一の基準点まで、あと一歩"}</div>
+        </div>
+        <div className="jp space-y-1.5 mb-3">
+          {row(`択一（${out.mcOk}/${pool.length}問）`, out.mc, `基準点 ${out.cfg.mcBase}`, out.mcOkLine)}
+          {full && row("記述（土地・建物）", out.desc, `基準点 ${out.cfg.descBase}`, out.descOkLine)}
+          {full && row("合計", out.total, `合格点 ${out.cfg.pass}`, out.total >= out.cfg.pass)}
+        </div>
+        {!out.pass && <p className="jp text-[11px] mb-2 text-center" style={{ color: "var(--ink-soft)" }}>{!out.mcOkLine ? `択一はあと${Math.max(1, Math.ceil((out.cfg.mcBase - out.mc) / 2.5))}問の正解で基準点です。` : full && !out.descOkLine ? `記述はあと${Math.round((out.cfg.descBase - out.desc) * 10) / 10}点で基準点です。` : full ? `合計はあと${Math.round((out.cfg.pass - out.total) * 10) / 10}点で合格点です。` : ""}</p>}
+        <div className="jp text-xs text-center mb-3" style={{ color: "var(--gold)", fontWeight: 700 }}>{out.reward}</div>
+        {wrongs.length > 0 && (
+          <details className="jp text-xs mb-3">
+            <summary style={{ cursor: "pointer", color: "var(--ink-soft)" }}>まちがえた問題（{wrongs.length}問）を見る</summary>
+            <div className="space-y-1 mt-1">
+              {wrongs.map((w) => <div key={w.id} className="p-2" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)" }}><div>{renderFormattedText(w.q, w.q_formats)}</div><div className="mt-1" style={{ color: "var(--sky-deep)" }}>→ {renderFormattedText(w.a, w.a_formats)}</div></div>)}
+            </div>
+          </details>
+        )}
+        <button onClick={onExit} className="jp btn-primary w-full py-2">鍛錬にもどる</button>
+      </Box>
+    );
+  }
+
+  if (phase === "desc") {
+    const inp = (v, set, l) => (
+      <label className="text-xs flex items-center gap-2" style={{ color: "var(--ink)" }}><span className="w-24" style={{ fontWeight: 700 }}>{l}</span><input type="number" inputMode="decimal" step="0.5" className="rpg-input" value={v} onChange={(e) => set(e.target.value)} placeholder="例：16" /><span className="whitespace-nowrap">/ 25点</span></label>
+    );
+    return (
+      <div className="space-y-3">
+        {head("記述式（書式）")}
+        <Box title="記述式（書式）の時間です" icon={<Pencil size={18} />}>
+          <div className="jp space-y-2">
+            <p className="text-xs" style={{ color: "var(--ink-soft)" }}>択一 {res.filter((x) => x.correct).length}/{pool.length}問 正解（{mmss(mcMs)}）。残りの時間で、手元の書式の問題（土地・建物の2問）を紙で解いてください。解き終えたら、模範解答で自己採点して点数を入れます。</p>
+            {inp(land, setLand, "土地（第21問）")}
+            {inp(bldg, setBldg, "建物（第22問）")}
+            <button onClick={() => finish(res, land, bldg)} className="btn-primary w-full py-2">採点を終えて結果を見る</button>
+            {left <= 0 && <p className="text-[11px] text-center" style={{ color: "var(--brick)", fontWeight: 700 }}>時間になりました。解けたところまでで採点しましょう。</p>}
+          </div>
+        </Box>
+      </div>
+    );
+  }
+
+  const item = pool[idx];
+  const bank = item ? state.questionBanks.find((b) => b.id === item.bankId) : null;
+  const q = bank ? (bank.questions || []).find((x) => x.id === item.qId) : null;
+  const answer = (correct, meta) => {
+    if (!q) return;
+    recordAnswer(item.bankId, q.id, correct, meta);
+    const list = [...res, { bankId: item.bankId, qId: q.id, correct }];
+    setRes(list);
+    setShowAnswer(false);
+    if (idx + 1 >= pool.length) endMc(list);
+    else setIdx(idx + 1);
+  };
+  if (!q) { if (idx + 1 < pool.length) setTimeout(() => setIdx(idx + 1), 0); else setTimeout(() => endMc(res), 0); return null; }
+  return (
+    <div className="space-y-3">
+      {head(`択一 ${idx + 1}/${pool.length}問`)}
+      <div className="flex gap-0.5">{pool.map((_, i) => <span key={i} className="flex-1" style={{ height: 5, borderRadius: 2, background: i < res.length ? (res[i].correct ? "#d6b56a" : "#c9564e") : i === idx ? "var(--sky-deep)" : "var(--beige)" }} />)}</div>
+      <div className="rpg-box p-1">
+        <div className="rpg-inner-border min-h-[180px] flex flex-col">
+          <div className="jp text-[10px] mb-2" style={{ color: "var(--ink-mute)" }}>第{idx + 1}問　{bank.name}</div>
+          <div className="qtext jp text-base md:text-lg flex-1 break-words" style={{ color: "var(--ink)" }}>{renderFormattedText(q.q, q.q_formats)}</div>
+          <QuestionImages bankId={bank.id} question={q} side="q" />
+          {showAnswer ? (
+            <>
+              <div className="jp text-[10px] mt-3 mb-1" style={{ color: "var(--gold)" }}>答え</div>
+              <div className="qtext jp text-base md:text-lg break-words p-2" style={{ background: "var(--sky-pale)", border: "1px solid var(--gold)", color: "var(--ink)" }}>{renderFormattedText(q.a, q.a_formats)}</div>
+              <QuestionImages bankId={bank.id} question={q} side="a" />
+              <AnswerPanel onAnswer={answer} question={q} srSettings={state.srSettings} />
+            </>
+          ) : (
+            <button onClick={() => setShowAnswer(true)} className="jp btn-info mt-3 py-2 flex items-center justify-center gap-1"><Eye size={16} /> 答えを見る</button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const DUNGEON_SIZES = [20, 40, 60]; // 1問1分
 function DungeonCard({ state, pp, onStart }) {
   const r = normRpg(state.rpg);
@@ -7667,19 +8070,24 @@ function regionStatus(g, r) {
 }
 // ── 仲間：地域を解放するたびに1人ずつ加わる（1つ目→リーネ、2つ目→カイ、3つ目→ミラ）。会話に登場し、小さなボーナスをくれる ──
 const ALLIES = [
-  { id: "rine", name: "リーネ", role: "登記官見習い", img: "ally-registrar.jpg", face: [50, 8], need: 1, fx: { xpPct: 3 },
+  { id: "rine", name: "リーネ", role: "登記官見習い", img: "ally-registrar.jpg", face: [50, 8], need: 1, fx: { xpPct: 3 }, likes: ["不動産登記法の王都", "区分所有の双子塔"], likeText: "不動産登記法・区分所有法・条文の穴埋め（登記）",
     intro: ["はじめまして！ 登記官見習いのリーネです。王都の登記所で働いています。", "申請の期限や、誰が申請するのか……そういう細かいところなら任せてください！"],
     cheer: "「誰が・いつまでに・何を」を押さえれば、登記の問題はぐっと楽になりますよ！" },
-  { id: "kai", name: "カイ", role: "測量士", img: "ally-surveyor.jpg", face: [50, 7], need: 2, fx: { critPct: 2 },
+  { id: "kai", name: "カイ", role: "測量士", img: "ally-surveyor.jpg", face: [50, 7], need: 2, fx: { critPct: 2 }, likes: ["測量の星見台"], likeText: "測量・計算ドリル",
     intro: ["……測量士のカイだ。星見台で、境界の座標を記録している。", "計算と図面のことなら、手を貸そう。"],
     cheer: "計算は、手を動かした回数がものを言う。同じ問題でも、もう一度解いてみるといい。" },
-  { id: "mira", name: "ミラ", role: "記録探索者", img: "ally-explorer.jpg", face: [11, 11], need: 3, fx: { dropPct: 10 },
+  { id: "mira", name: "ミラ", role: "記録探索者", img: "ally-explorer.jpg", face: [11, 11], need: 3, fx: { dropPct: 10 }, likes: ["民法の古の森", "調査士法の砦", "書式の迷宮"], likeText: "民法・調査士法・書式",
     intro: ["やっほー！ 記録探索者のミラだよ。古い記録や判例を探して、国じゅうを旅してるの。", "民法や書式で迷ったら、具体的な場面を思い浮かべるのがコツ！ 一緒に行こう！"],
     cheer: "覚えにくいところは、物語みたいに場面を思い浮かべてみて！ ぐっと覚えやすくなるよ。" },
 ];
 const allyById = (id) => ALLIES.find((a) => a.id === id) || null;
 const clearedCount = (r) => Object.values(r.regions || {}).filter((x) => x && x.cleared).length;
 const alliesJoined = (r) => { const n = clearedCount(r); return ALLIES.filter((a) => n >= a.need); };
+// 仲間との絆：得意分野の問題に正解するたびに1つ深まる（rpg.bonds）。Lv2〜5で物語が開き、仲間の効果が強くなる
+const BOND_LV = [0, 30, 100, 250, 500];
+const bondLevel = (pts) => BOND_LV.filter((t) => (pts || 0) >= t).length;
+const bondFx = (a, r) => { const lv = bondLevel((r.bonds || {})[a.id]); const k = 1 + (lv - 1) * 0.5; return Object.fromEntries(Object.entries(a.fx).map(([key, v]) => [key, Math.round(v * k * 10) / 10])); };
+const addBond = (x, id, n) => (n > 0 && alliesJoined(x).some((a) => a.id === id) ? { ...x, bonds: { ...(x.bonds || {}), [id]: ((x.bonds || {})[id] || 0) + n } } : x);
 function PartyCard({ state, actions }) {
   const r = normRpg(state.rpg);
   const joined = new Set(alliesJoined(r).map((a) => a.id));
@@ -7699,13 +8107,28 @@ function PartyCard({ state, actions }) {
               <span style={{ width: 46, height: 46, flexShrink: 0, borderRadius: "50%", border: `2px solid ${on ? "#b08a3e" : "#d8c9a3"}`, backgroundColor: "#e9e4d6", backgroundImage: `url(${ART_URL}${a.img})`, backgroundSize: "300% auto", backgroundPosition: `${a.face[0]}% ${a.face[1]}%`, filter: on ? "none" : "brightness(0) opacity(0.3)" }} />
               <span className="flex-1 min-w-0">
                 <span className="block text-sm" style={{ fontWeight: 800, color: on ? "var(--ink)" : "var(--ink-mute)" }}>{on ? a.name : "？？？"}<span className="text-[10px] ml-1" style={{ color: "var(--ink-soft)", fontWeight: 500 }}>{on ? a.role : ""}</span></span>
-                <span className="block text-[10px]" style={{ color: on ? "var(--sky-deep)" : "var(--ink-mute)" }}>{on ? fxText(a.fx) : `地域を${a.need}つ解放すると仲間に`}</span>
+                <span className="block text-[10px]" style={{ color: on ? "var(--sky-deep)" : "var(--ink-mute)" }}>{on ? fxText(bondFx(a, r)) : `地域を${a.need}つ解放すると仲間に`}</span>
+                {on && (() => { const pts = r.bonds[a.id] || 0, lv = bondLevel(pts), lo = BOND_LV[lv - 1], hi = BOND_LV[lv]; return (
+                  <span className="block mt-0.5">
+                    <span className="flex items-center gap-1 text-[10px]" style={{ color: "#c9667e", fontWeight: 800 }}>{"♥".repeat(lv)}<span style={{ color: "var(--rule-soft)" }}>{"♥".repeat(BOND_LV.length - lv)}</span><span className="ml-auto" style={{ color: "var(--ink-mute)", fontWeight: 500 }}>{hi ? `絆 ${pts}/${hi}` : "絆 MAX"}</span></span>
+                    <span className="block" style={{ height: 4, borderRadius: 2, background: "var(--beige)", overflow: "hidden" }}><span className="block" style={{ width: `${hi ? ((pts - lo) / (hi - lo)) * 100 : 100}%`, height: "100%", background: "linear-gradient(90deg, #e9a3b4, #c9667e)" }} /></span>
+                  </span>); })()}
               </span>
             </button>
           );
         })}
       </div>
-      <p className="jp text-[10px] mt-2" style={{ color: "var(--ink-mute)" }}>仲間は、物語や週報の会話に登場して、得意分野の助言をくれます。仲間を選ぶと、話を聞けます。</p>
+      {ALLIES.filter((a) => joined.has(a.id)).some((a) => bondLevel(r.bonds[a.id]) >= 2) && (
+        <div className="jp mt-2">
+          <div className="text-[10px] mb-1" style={{ color: "var(--ink-soft)" }}>絆の物語（もう一度読む）</div>
+          <div className="flex flex-wrap gap-1.5">
+            {ALLIES.filter((a) => joined.has(a.id)).flatMap((a) => (BOND_TALKS[a.id] || []).slice(0, bondLevel(r.bonds[a.id]) - 1).map((ep, k) => (
+              <button key={`${a.id}${k}`} onClick={() => actions.openTalk({ title: `${a.name}との絆 Lv${k + 2}「${ep.title}」`, lines: ep.lines })} className="text-[11px] px-2.5 py-1" style={{ borderRadius: 999, border: "1px solid #e9a3b4", background: "var(--paper)", color: "var(--ink)", cursor: "pointer" }}>♥ {a.name}「{ep.title}」</button>
+            )))}
+          </div>
+        </div>
+      )}
+      <p className="jp text-[10px] mt-2" style={{ color: "var(--ink-mute)" }}>仲間は、物語や週報の会話に登場して、得意分野の助言をくれます。仲間を選ぶと、話を聞けます。得意分野の問題に正解すると絆が深まり、物語が開いて効果も強くなります（{ALLIES.map((a) => `${a.name}：${a.likeText}`).join("／")}）。</p>
     </Box>
   );
 }
@@ -7723,8 +8146,9 @@ function StoryTalk({ state, talk, onClose }) {
   const who = line[0];
   const ally = allyById(who);
   const isPet = who === "pet";
+  const isShadow = who === "shadow";
   const next = () => { if (i + 1 >= lines.length) onClose(); else setI(i + 1); };
-  const face = (url, f) => <div style={{ width: 64, height: 64, borderRadius: "50%", flexShrink: 0, border: "2px solid #b08a3e", backgroundColor: "#e9e4d6", backgroundImage: `url(${url})`, backgroundSize: "300% auto", backgroundPosition: `${f[0]}% ${f[1]}%` }} />;
+  const face = (url, f, filter) => <div style={{ width: 64, height: 64, borderRadius: "50%", flexShrink: 0, border: `2px solid ${filter ? "#6c5a96" : "#b08a3e"}`, backgroundColor: filter ? "#2a2440" : "#e9e4d6", backgroundImage: `url(${url})`, backgroundSize: "300% auto", backgroundPosition: `${f[0]}% ${f[1]}%`, filter }} />;
   return (
     <div className="fixed inset-0 flex items-end justify-center jp" style={{ zIndex: 65, animation: "sqFadeIn .3s ease-out" }} onClick={next}>
       {/* 背景：描きおろしの景色をうっすらと */}
@@ -7737,9 +8161,9 @@ function StoryTalk({ state, talk, onClose }) {
         <div className="flex items-start gap-3">
           {isPet
             ? <div style={{ width: 64, height: 64, borderRadius: "50%", flexShrink: 0, border: "2px solid #b08a3e", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 34, background: "#f6ead0" }}>{pet.icon}</div>
-            : ally ? face(`${ART_URL}${ally.img}`, ally.face) : face(th.avatar, th.face)}
+            : ally ? face(`${ART_URL}${ally.img}`, ally.face) : isShadow ? face(th.avatar, th.face, SHADOW_FILTER) : face(th.avatar, th.face)}
           <div className="flex-1 min-w-0">
-            <div className="text-xs mb-1" style={{ fontWeight: 800, color: "#5b6b8c" }}>{isPet ? pet.name : ally ? `${ally.name}（${ally.role}）` : heroStage(state.player.level).name}</div>
+            <div className="text-xs mb-1" style={{ fontWeight: 800, color: "#5b6b8c" }}>{isPet ? pet.name : ally ? `${ally.name}（${ally.role}）` : isShadow ? "影の受験生" : heroStage(state.player.level).name}</div>
             <div key={i} className="text-[15px] md:text-[17px] leading-relaxed" style={{ fontFamily: "'Shippori Mincho B1', serif", fontWeight: 700, animation: "sqFadeIn .25s ease-out" }}>{line[1]}</div>
           </div>
         </div>
@@ -8314,6 +8738,320 @@ function ShoshikiDojo({ state, actions }) {
   );
 }
 
+// ── 計算ドリル：座標の計算を、数字を変えて何問でも（問題づくりは src/game/calc.js） ──
+function CalcFigure({ prob }) {
+  const W = 220, H = 170, pad = 22;
+  const xs = prob.pts.map((p) => p.X), ys = prob.pts.map((p) => p.Y);
+  const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys);
+  const span = Math.max(maxX - minX, maxY - minY, 1);
+  const k = Math.min((W - pad * 2) / Math.max(maxY - minY, span * 0.3), (H - pad * 2) / Math.max(maxX - minX, span * 0.3));
+  const ox = (W - (maxY - minY) * k) / 2, oy = (H - (maxX - minX) * k) / 2;
+  const at = (p) => [ox + (p.Y - minY) * k, H - oy - (p.X - minX) * k]; // X＝北（上）、Y＝東（右）
+  const byName = Object.fromEntries(prob.pts.map((p) => [p.name, p]));
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ maxWidth: 280, display: "block", margin: "0 auto", background: "var(--cream)", border: "1px solid var(--rule-soft)", borderRadius: 8 }} aria-label="図">
+      <defs><marker id="cdArrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#4f6fa8" /></marker></defs>
+      <g fontSize="9" fill="var(--ink-mute)"><text x="8" y="14">X（北）↑</text><text x={W - 52} y={H - 6}>Y（東）→</text></g>
+      {prob.poly && <polygon points={prob.pts.map((p) => at(p).join(",")).join(" ")} fill="rgba(214,181,106,0.25)" stroke="#b08a3e" strokeWidth="1.5" />}
+      {(prob.lines || []).map(([a, b], i) => { const [x1, y1] = at(byName[a]), [x2, y2] = at(byName[b]); return <line key={i} x1={x1} y1={y1} x2={x2} y2={y2} stroke="#4f6fa8" strokeWidth="1.5" strokeDasharray={byName[b].unknown ? "4 3" : undefined} markerEnd={prob.arrow ? "url(#cdArrow)" : undefined} />; })}
+      {prob.pts.map((p) => { const [x, y] = at(p); return (
+        <g key={p.name}>
+          <circle cx={x} cy={y} r={p.unknown ? 4.5 : 3.5} fill={p.unknown ? "var(--paper)" : "#22335c"} stroke={p.unknown ? "#c9564e" : "none"} strokeWidth="1.5" />
+          <text x={x + 6} y={y - 5} fontSize="11" fontWeight="800" fill={p.unknown ? "#c9564e" : "var(--ink)"}>{p.name}{p.unknown ? "?" : ""}</text>
+        </g>); })}
+    </svg>
+  );
+}
+function CalcDrill({ state, actions }) {
+  const log = normRpg(state.rpg).drill || [];
+  const [type, setType] = useState("mix");
+  const [count, setCount] = useState(5);
+  const [run, setRun] = useState(null); // { type, n, i, prob, input, res, ok, sec, t0, results:[] }
+  const [done, setDone] = useState(null); // { type, n, ok, sec, msg }
+  const tName = (id) => (id === "mix" ? "おまかせ" : (CALC_TYPES.find((t) => t.id === id) || {}).name || id);
+  const newProb = (t) => makeCalcProblem(t === "mix" ? null : t);
+  const start = () => { setDone(null); setRun({ type, n: count, i: 0, prob: newProb(type), input: {}, res: null, ok: 0, sec: 0, t0: Date.now() }); };
+  const check = () => {
+    const res = checkCalc(run.prob, run.input);
+    SFX.play(res.ok ? "defeat" : "miss");
+    setRun({ ...run, res, ok: run.ok + (res.ok ? 1 : 0), sec: run.sec + (Date.now() - run.t0) / 1000 });
+  };
+  const next = () => {
+    if (run.i + 1 >= run.n) {
+      const msg = actions.logDrill({ type: run.type, n: run.n, ok: run.ok, sec: run.sec });
+      SFX.play("result");
+      setDone({ type: run.type, n: run.n, ok: run.ok, sec: run.sec, msg }); setRun(null); return;
+    }
+    setRun({ ...run, i: run.i + 1, prob: newProb(run.type), input: {}, res: null, t0: Date.now() });
+  };
+  const setIn = (k, v) => setRun((r) => ({ ...r, input: { ...r.input, [k]: v } }));
+  const chip = (on) => ({ borderRadius: 999, border: `1px solid ${on ? "var(--gold)" : "var(--rule-soft)"}`, background: on ? "var(--cream)" : "var(--paper)", color: "var(--ink)", fontWeight: on ? 800 : 500, cursor: "pointer" });
+  const fmtSec = (x) => (x >= 60 ? `${Math.floor(x / 60)}分${String(Math.round(x % 60)).padStart(2, "0")}秒` : `${Math.round(x)}秒`);
+
+  if (run) {
+    const p = run.prob, res = run.res;
+    const known = p.pts.filter((x) => !x.unknown);
+    return (
+      <Box title={`計算ドリル　${run.i + 1} / ${run.n}問`} icon={<Pencil size={18} />}>
+        <div className="jp space-y-2">
+          <div className="flex items-center gap-2 text-[11px]" style={{ color: "var(--ink-soft)" }}>
+            <span className="px-2 py-0.5" style={{ borderRadius: 999, background: "var(--cream)", border: "1px solid var(--gold)", color: "var(--ink)", fontWeight: 700 }}>{tName(p.type)}</span>
+            <span className="flex-1" />
+            <span>正解 {run.ok}</span>
+            <button onClick={() => { if (confirm("ドリルを中断しますか？（記録は残りません）")) setRun(null); }} className="btn-ghost text-[10px] px-2 py-0.5">中断</button>
+          </div>
+          <CalcFigure prob={p} />
+          <table className="w-full text-xs" style={{ borderCollapse: "collapse" }}>
+            <thead><tr style={{ color: "var(--ink-mute)" }}><th className="text-left font-normal py-0.5">点</th><th className="text-right font-normal">X（m）</th><th className="text-right font-normal">Y（m）</th></tr></thead>
+            <tbody>{known.map((x) => <tr key={x.name} style={{ borderTop: "1px solid var(--rule-soft)" }}><td className="py-0.5" style={{ fontWeight: 800 }}>{x.name}</td><td className="text-right" style={{ fontVariantNumeric: "tabular-nums" }}>{x.X.toFixed(2)}</td><td className="text-right" style={{ fontVariantNumeric: "tabular-nums" }}>{x.Y.toFixed(2)}</td></tr>)}</tbody>
+          </table>
+          {p.given && <div className="text-xs space-y-0.5">{p.given.map((g) => <div key={g} style={{ color: "var(--ink)" }}>・{g}</div>)}</div>}
+          <p className="text-sm" style={{ color: "var(--ink)", fontWeight: 700 }}>{p.ask}</p>
+          <div className="space-y-1.5">
+            {p.fields.map((f) => {
+              const mark = res ? (res.each[f.key] ? { c: "var(--sage)", t: "○" } : { c: "#c9564e", t: "×" }) : null;
+              const box = { borderColor: mark ? mark.c : undefined };
+              return (
+                <div key={f.key} className="flex items-center gap-2">
+                  <span className="text-xs w-16 flex-shrink-0" style={{ fontWeight: 800 }}>{f.label}</span>
+                  {f.kind === "dms" ? (
+                    <div className="flex items-center gap-1 flex-1">
+                      {[["d", "°"], ["m", "′"], ["s", "″"]].map(([k, u]) => (
+                        <Fragment key={k}><input type="number" inputMode="numeric" disabled={!!res} className="rpg-input text-center" style={{ ...box, padding: "6px 4px" }} value={(run.input[f.key] || {})[k] || ""} onChange={(e) => setIn(f.key, { ...(run.input[f.key] || {}), [k]: e.target.value })} /><span className="text-xs">{u}</span></Fragment>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-1 flex-1"><input type="text" inputMode="decimal" disabled={!!res} className="rpg-input" style={box} value={run.input[f.key] || ""} onChange={(e) => setIn(f.key, e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !res) check(); }} /><span className="text-xs">{f.unit}</span></div>
+                  )}
+                  {mark && <span className="text-base" style={{ color: mark.c, fontWeight: 800, width: 16 }}>{mark.t}</span>}
+                </div>
+              );
+            })}
+          </div>
+          {!res ? (
+            <button onClick={check} className="btn-primary w-full py-2">答え合わせ</button>
+          ) : (
+            <>
+              <div className="px-3 py-2" style={{ background: res.ok ? "rgba(109,132,84,0.1)" : "rgba(201,86,78,0.08)", border: `1px solid ${res.ok ? "var(--sage)" : "#c9564e"}`, borderRadius: 8 }}>
+                <div className="text-sm mb-1" style={{ fontWeight: 800, color: res.ok ? "var(--sage)" : "#c9564e" }}>{res.ok ? "正解！" : "おしい！"}　答え：{p.fields.map((f) => `${f.label} ${calcAnsText(f)}`).join("　")}</div>
+                <div className="text-[11px] mb-0.5" style={{ color: "var(--ink-mute)" }}>解き方</div>
+                {p.steps.map((st, i) => <div key={i} className="text-[11px]" style={{ color: "var(--ink)", fontVariantNumeric: "tabular-nums", wordBreak: "break-all" }}>{st}</div>)}
+              </div>
+              <button onClick={next} className="btn-primary w-full py-2">{run.i + 1 >= run.n ? "結果を見る" : "次の問題へ"}</button>
+            </>
+          )}
+        </div>
+      </Box>
+    );
+  }
+
+  // 種類ごとの記録
+  const stats = CALC_TYPES.map((t) => {
+    const l = log.filter((e) => e.type === t.id);
+    const recent = l.slice(-5);
+    const n = recent.reduce((a, e) => a + e.n, 0), ok = recent.reduce((a, e) => a + e.ok, 0), sec = recent.reduce((a, e) => a + e.sec, 0);
+    return { t, times: l.length, acc: n ? ok / n : null, per: n ? sec / n : null };
+  });
+  const today = log.filter((e) => e.d === todayStr());
+  return (
+    <Box title="計算ドリル（座標・面積）" icon={<Pencil size={18} />}>
+      <p className="jp text-[11px] mb-2" style={{ color: "var(--ink-soft)" }}>記述式で必ず使う座標の計算を、数字を変えて何問でも練習できます。電卓を用意して、速さと正確さをきたえましょう。正解するたびにEXPとゴールド、座標の欠片が手に入ります。</p>
+      {done && (
+        <div className="jp text-center mb-3 px-3 py-3" style={{ background: "var(--cream)", border: "1px solid var(--gold)", borderRadius: 10, animation: "sqFadeIn .3s ease-out" }}>
+          <div className="text-[11px]" style={{ color: "var(--ink-mute)" }}>{tName(done.type)}　{done.n}問の結果</div>
+          <div className="text-2xl my-1" style={{ fontWeight: 800, color: done.ok === done.n ? "var(--gold)" : "var(--ink)" }}>{done.ok} / {done.n}問 正解</div>
+          <div className="text-xs" style={{ color: "var(--ink-soft)" }}>かかった時間 {fmtSec(done.sec)}（1問あたり {fmtSec(done.sec / done.n)}）</div>
+          {done.msg && <div className="text-xs mt-1" style={{ color: "var(--gold)", fontWeight: 700 }}>報酬：{done.msg}</div>}
+        </div>
+      )}
+      <div className="jp space-y-2">
+        <div className="text-[10px]" style={{ color: "var(--ink-soft)" }}>問題の種類</div>
+        <div className="flex flex-wrap gap-1.5">
+          {[["mix", "おまかせ"], ...CALC_TYPES.map((t) => [t.id, t.name])].map(([id, nm]) => <button key={id} onClick={() => setType(id)} className="text-xs px-3 py-1" style={chip(type === id)}>{nm}</button>)}
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="text-[10px] mr-1" style={{ color: "var(--ink-soft)" }}>問題数</span>
+          {[5, 10].map((n) => <button key={n} onClick={() => setCount(n)} className="text-xs px-3 py-1" style={chip(count === n)}>{n}問</button>)}
+        </div>
+        <button onClick={start} className="btn-primary w-full py-2">ドリルを始める</button>
+      </div>
+      <div className="jp mt-3 pt-3" style={{ borderTop: "1px dashed var(--rule-soft)" }}>
+        <div className="flex items-center text-[10px] mb-1" style={{ color: "var(--ink-soft)" }}><span className="flex-1">種類ごとの記録（直近5回）</span><span>今日 {today.reduce((a, e) => a + e.n, 0)}問</span></div>
+        {stats.map(({ t, times, acc, per }) => (
+          <div key={t.id} className="flex items-center gap-2 text-[11px] py-0.5">
+            <span className="w-24 truncate" style={{ color: "var(--ink)", fontWeight: 700 }}>{t.name}</span>
+            <span className="flex-1" style={{ height: 6, borderRadius: 3, background: "var(--beige)", overflow: "hidden" }}><span className="block" style={{ width: `${(acc || 0) * 100}%`, height: "100%", background: "linear-gradient(90deg, #d6b56a, #b08a3e)" }} /></span>
+            <span className="w-10 text-right" style={{ color: acc !== null && acc >= 0.8 ? "var(--gold)" : "var(--ink-soft)", fontWeight: 700 }}>{acc === null ? "－" : `${Math.round(acc * 100)}%`}</span>
+            <span className="w-14 text-right" style={{ color: "var(--ink-mute)" }}>{per === null ? "" : `${Math.round(per)}秒/問`}</span>
+          </div>
+        ))}
+      </div>
+    </Box>
+  );
+}
+
+// ── 条文の穴埋め：条文の大事な言葉を空欄にして、4つから選ぶ（問題づくりは src/game/cloze.js） ──
+// 問題集の問題（問・答え）に出てくる条文を数える。よく出る条文ほど出やすくする
+const lawRefCache = new WeakMap();
+function lawRefCounts(state) {
+  const c = lawRefCache.get(state.questionBanks);
+  if (c) return c;
+  const out = {};
+  state.questionBanks.forEach((b) => (b.questions || []).forEach((q) => extractLawRefs([q.q, q.a]).forEach((r) => { const m = out[r.law] || (out[r.law] = {}); m[r.art] = (m[r.art] || 0) + 1; })));
+  lawRefCache.set(state.questionBanks, out);
+  return out;
+}
+// 1つの条文から問題を作る（項・号の中から空欄を作れるものを探す）
+function clozeFromArticle(lawKey, a) {
+  const units = [];
+  const many = (a.p || []).length > 1;
+  (a.p || []).forEach((p) => {
+    units.push({ label: many ? `第${p.n}項` : "", text: p.s });
+    (p.i || []).forEach((it) => units.push({ label: `${many ? `第${p.n}項` : ""}第${it.t}号`.replace(/第(第)/, "$1"), text: it.s }));
+  });
+  for (const u of shuffleArr(units)) {
+    const c = makeCloze(u.text);
+    if (c) return { ...c, law: lawKey, art: a.n, head: `${LAW_BY_KEY[lawKey].name} ${a.t}${a.c || ""}`, label: u.label, key: `${lawKey}:${a.n}` };
+  }
+  return null;
+}
+function pickClozeSet(data, lawKey, mode, counts, miss, n) {
+  const arts = (data.articles || []).filter((a) => (a.p || []).length && !/削除/.test((a.p[0] || {}).s || "") );
+  const weightOf = (a) => {
+    if (mode === "miss") return miss[`${lawKey}:${a.n}`] ? 1 + miss[`${lawKey}:${a.n}`] : 0;
+    if (mode === "often") return (counts[a.n] || 0) * 3 + (miss[`${lawKey}:${a.n}`] || 0) * 2;
+    return 1;
+  };
+  let pool = arts.map((a) => ({ a, w: weightOf(a) })).filter((x) => x.w > 0);
+  if (!pool.length) pool = arts.map((a) => ({ a, w: 1 }));
+  const out = [], used = new Set();
+  for (let tries = 0; out.length < n && tries < n * 30; tries++) {
+    const total = pool.reduce((t, x) => t + (used.has(x.a.n) ? 0 : x.w), 0);
+    if (total <= 0) break;
+    let r = Math.random() * total, pick = null;
+    for (const x of pool) { if (used.has(x.a.n)) continue; r -= x.w; if (r <= 0) { pick = x.a; break; } }
+    if (!pick) continue;
+    used.add(pick.n);
+    const c = clozeFromArticle(lawKey, pick);
+    if (c) out.push(c);
+  }
+  return out;
+}
+function LawCloze({ state, actions }) {
+  const cz = normRpg(state.rpg).cloze;
+  const [law, setLaw] = useState("fudosan-ho");
+  const [mode, setMode] = useState("often");
+  const [run, setRun] = useState(null); // { law, list, i, pick:{}, checked, ok, blanks, items:[] }
+  const [done, setDone] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const missN = Object.keys(cz.miss || {}).filter((k) => k.startsWith(`${law}:`)).length;
+  const counts = lawRefCounts(state)[law] || {};
+  const oftenN = Object.keys(counts).length;
+  const start = () => {
+    setLoading(true); setDone(null);
+    loadLaw(law).then((d) => {
+      setLoading(false);
+      if (!d) { alert("条文データを読み込めませんでした。通信状態を確かめてください。"); return; }
+      const list = pickClozeSet(d, law, mode, counts, cz.miss || {}, 10);
+      if (!list.length) { alert("問題を作れませんでした。"); return; }
+      setRun({ law, list, i: 0, pick: {}, checked: false, ok: 0, blanks: 0, items: [] });
+    });
+  };
+  const chip = (on) => ({ borderRadius: 999, border: `1px solid ${on ? "var(--gold)" : "var(--rule-soft)"}`, background: on ? "var(--cream)" : "var(--paper)", color: "var(--ink)", fontWeight: on ? 800 : 500, cursor: "pointer" });
+
+  if (run) {
+    const c = run.list[run.i];
+    const allPicked = c.blanks.every((_, k) => run.pick[k] != null);
+    const check = () => {
+      const good = c.blanks.map((b, k) => run.pick[k] === b.word);
+      const all = good.every(Boolean);
+      SFX.play(all ? "defeat" : "miss");
+      setRun({ ...run, checked: good, ok: run.ok + good.filter(Boolean).length, blanks: run.blanks + c.blanks.length, items: [...run.items, { key: c.key, good: all }] });
+    };
+    const next = () => {
+      if (run.i + 1 >= run.list.length) {
+        const msg = actions.logCloze({ law: run.law, n: run.blanks, ok: run.ok, items: run.items });
+        SFX.play("result");
+        setDone({ law: run.law, n: run.blanks, ok: run.ok, q: run.list.length, qOk: run.items.filter((x) => x.good).length, msg, wrong: run.list.filter((_, k) => !run.items[k].good) });
+        setRun(null); return;
+      }
+      setRun({ ...run, i: run.i + 1, pick: {}, checked: false });
+    };
+    return (
+      <Box title={`条文の穴埋め　${run.i + 1} / ${run.list.length}問`} icon={<ScrollIcon size={18} />}>
+        <div className="jp space-y-2">
+          <div className="flex items-center gap-2 text-[11px]">
+            <span className="flex-1 min-w-0" style={{ color: "var(--ink)", fontWeight: 800 }}>{c.head}{c.label ? `　${c.label}` : ""}</span>
+            <button onClick={() => { if (confirm("やめますか？（記録は残りません）")) setRun(null); }} className="btn-ghost text-[10px] px-2 py-0.5">やめる</button>
+          </div>
+          <div className="text-sm px-3 py-2" style={{ background: "var(--cream)", border: "1px solid var(--rule-soft)", borderRadius: 8, lineHeight: 1.9, color: "var(--ink)", fontFamily: "'Shippori Mincho B1', serif" }}>
+            {c.parts.map((x, k) => {
+              if (typeof x === "string") return <span key={k}>{x}</span>;
+              const b = c.blanks[x.blank], ok = run.checked && run.checked[x.blank];
+              if (run.checked) return <span key={k} style={{ fontWeight: 800, color: ok ? "var(--sage)" : "#c9564e", borderBottom: `2px solid ${ok ? "var(--sage)" : "#c9564e"}`, padding: "0 2px" }}>{b.word}</span>;
+              const sel = run.pick[x.blank];
+              return <span key={k} style={{ display: "inline-block", minWidth: 48, padding: "0 6px", margin: "0 2px", border: "1.5px solid var(--gold)", borderRadius: 4, background: "var(--paper)", color: sel ? "var(--ink)" : "var(--gold)", fontWeight: 800, textAlign: "center", lineHeight: 1.5 }}>{sel || `（${BLANK_LABELS[x.blank]}）`}</span>;
+            })}
+          </div>
+          {c.blanks.map((b, k) => (
+            <div key={k}>
+              <div className="text-[11px] mb-1" style={{ color: "var(--ink-soft)", fontWeight: 700 }}>（{BLANK_LABELS[k]}）に入る言葉{run.checked && !run.checked[k] ? `　→ 正しくは「${b.word}」` : ""}</div>
+              <div className="grid grid-cols-2 gap-1.5">
+                {b.options.map((o) => {
+                  const on = run.pick[k] === o;
+                  const right = run.checked && o === b.word, wrongPick = run.checked && on && o !== b.word;
+                  return <button key={o} disabled={!!run.checked} onClick={() => setRun((r) => ({ ...r, pick: { ...r.pick, [k]: o } }))} className="text-xs px-2 py-2" style={{ borderRadius: 8, border: `1.5px solid ${right ? "var(--sage)" : wrongPick ? "#c9564e" : on ? "var(--gold)" : "var(--rule-soft)"}`, background: right ? "rgba(109,132,84,0.12)" : wrongPick ? "rgba(201,86,78,0.08)" : on ? "var(--cream)" : "var(--paper)", color: "var(--ink)", fontWeight: on || right ? 800 : 500, cursor: run.checked ? "default" : "pointer" }}>{o}</button>;
+                })}
+              </div>
+            </div>
+          ))}
+          {!run.checked ? (
+            <button onClick={check} disabled={!allPicked} className="btn-primary w-full py-2" style={{ opacity: allPicked ? 1 : 0.5 }}>答え合わせ</button>
+          ) : (
+            <button onClick={next} className="btn-primary w-full py-2">{run.i + 1 >= run.list.length ? "結果を見る" : "次の問題へ"}</button>
+          )}
+        </div>
+      </Box>
+    );
+  }
+
+  const stats = LAWS.map((l) => { const lg = cz.log.filter((e) => e.law === l.key).slice(-5); const n = lg.reduce((a, e) => a + e.n, 0), ok = lg.reduce((a, e) => a + e.ok, 0); return { l, acc: n ? ok / n : null, times: cz.log.filter((e) => e.law === l.key).length, miss: Object.keys(cz.miss || {}).filter((k) => k.startsWith(`${l.key}:`)).length }; }).filter((x) => x.times > 0);
+  return (
+    <Box title="条文の穴埋め" icon={<ScrollIcon size={18} />}>
+      <p className="jp text-[11px] mb-2" style={{ color: "var(--ink-soft)" }}>条文の大事な言葉（期間・数・「しなければならない／できる」・用語）が空欄になります。4つの中から選んでください。まちがえた条文は覚えておき、あとで集中して復習できます。</p>
+      {done && (
+        <div className="jp text-center mb-3 px-3 py-3" style={{ background: "var(--cream)", border: "1px solid var(--gold)", borderRadius: 10, animation: "sqFadeIn .3s ease-out" }}>
+          <div className="text-[11px]" style={{ color: "var(--ink-mute)" }}>{LAW_BY_KEY[done.law].name}　{done.q}問の結果</div>
+          <div className="text-2xl my-1" style={{ fontWeight: 800, color: done.qOk === done.q ? "var(--gold)" : "var(--ink)" }}>{done.qOk} / {done.q}問 正解</div>
+          <div className="text-xs" style={{ color: "var(--ink-soft)" }}>空欄 {done.ok}/{done.n}個 正解</div>
+          {done.msg && <div className="text-xs mt-1" style={{ color: "var(--gold)", fontWeight: 700 }}>報酬：{done.msg}</div>}
+          {done.wrong.length > 0 && <div className="text-[11px] mt-1" style={{ color: "var(--ink-soft)" }}>まちがえた条文：{done.wrong.map((w) => `${LAW_BY_KEY[w.law].short}${w.art.replace("_", "条の")}${w.art.includes("_") ? "" : "条"}`).join("・")}</div>}
+        </div>
+      )}
+      <div className="jp space-y-2">
+        <div className="flex flex-wrap gap-1.5">{LAWS.map((l) => <button key={l.key} onClick={() => setLaw(l.key)} className="text-xs px-3 py-1" style={chip(law === l.key)}>{l.name}</button>)}</div>
+        <div className="flex flex-wrap gap-1.5">
+          {[["often", `問題によく出る条文${oftenN ? `（${oftenN}条）` : ""}`], ["miss", `まちがえた条文（${missN}条）`], ["all", "すべての条文"]].map(([id, nm]) => <button key={id} disabled={id === "miss" && !missN} onClick={() => setMode(id)} className="text-[11px] px-3 py-1" style={{ ...chip(mode === id), opacity: id === "miss" && !missN ? 0.45 : 1 }}>{nm}</button>)}
+        </div>
+        <button onClick={start} disabled={loading} className="btn-primary w-full py-2">{loading ? "条文を読み込んでいます…" : "10問に挑戦する"}</button>
+      </div>
+      {stats.length > 0 && (
+        <div className="jp mt-3 pt-3" style={{ borderTop: "1px dashed var(--rule-soft)" }}>
+          <div className="text-[10px] mb-1" style={{ color: "var(--ink-soft)" }}>法令ごとの記録（直近5回の空欄の正解率）</div>
+          {stats.map(({ l, acc, times, miss }) => (
+            <div key={l.key} className="flex items-center gap-2 text-[11px] py-0.5">
+              <span className="w-24 truncate" style={{ color: "var(--ink)", fontWeight: 700 }}>{l.name}</span>
+              <span className="flex-1" style={{ height: 6, borderRadius: 3, background: "var(--beige)", overflow: "hidden" }}><span className="block" style={{ width: `${(acc || 0) * 100}%`, height: "100%", background: "linear-gradient(90deg, #d6b56a, #b08a3e)" }} /></span>
+              <span className="w-10 text-right" style={{ color: acc >= 0.8 ? "var(--gold)" : "var(--ink-soft)", fontWeight: 700 }}>{acc === null ? "－" : `${Math.round(acc * 100)}%`}</span>
+              <span className="w-20 text-right" style={{ color: "var(--ink-mute)" }}>{times}回・苦手{miss}条</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </Box>
+  );
+}
+
 // ── 論点カルテ：解いたことのある話（論点）のうち、記憶率（いま思い出せる確率）の低い順に5つ ──
 const karteCache = new WeakMap();
 function topicKarte(state, pp) {
@@ -8436,6 +9174,7 @@ function HomeDashboard({ state, actions, todayCount, liveSeconds, onGo }) {
           {plan && plan.perDay > 0 && <Row no="三" icon={<TrendingUp size={18} />} label="今日の目標（試験日から逆算）" title={`新しい問題 ${plan.perDay}問`} sub={plan.done >= plan.perDay ? `今日 ${plan.done}問 ― 達成しました！` : `今日 ${plan.done}問 ・ あと${plan.perDay - plan.done}問（未学習 ${plan.unseen}問を試験日までに）`} gauge={Math.min(1, plan.done / plan.perDay)} mark={false} action="解く" onClick={() => onGo("today")} />}
           {pp.total > 0 && <Row no={plan && plan.perDay > 0 ? "四" : "三"} icon={<Skull size={18} />} label="最終決戦" title={days !== null && days >= 0 ? `決戦まで あと${days}日` : "試験の魔王"} sub={`合格力 ${pctTxt(pp.power)}（合格ライン${Math.round(PASS_LINE * 100)}%）`} gauge={pp.power} action="見る" onClick={() => onGo("adventure")} />}
         </div>
+        <RivalCard state={state} pp={pp} qual={qual} compact />
         <div className="grid grid-cols-3 gap-2 mt-3">
           {chip("今日の学習", fmtMin(todayMin))}
           {chip("連続学習", `${status.currentStreak}日`)}
@@ -8741,17 +9480,17 @@ function TrialRun({ state, run, recordAnswer, startTimer, stopTimer, onExit, onF
   );
 }
 
-function WorldView({ state, actions, todayCount, onWeekly, onDungeon, onGuardian, onStory, onTower, onSecBoss }) {
+function WorldView({ state, actions, todayCount, onWeekly, onDungeon, onGuardian, onStory, onTower, onSecBoss, onRehearsal }) {
   const qual = mainQual(state);
   const linked = qual && state.questionBanks.some((b) => b.qualId === qual.id);
   const pp = passPower(state, linked ? qual.id : null);
-  const [sec, setSec] = useState("story"); // story（ストーリー）| road（魔王城への道）| quest（クエスト）| castle（魔王城）
-  const tabs = [["story", "ストーリー"], ["tower", "試練の塔"], ["road", "地図と仲間"], ["quest", "クエスト"], ["castle", "魔王城"]];
+  const [sec, setSec] = useState("story"); // story（ストーリー）| tower（試練の塔）| train（鍛錬）| road（地図と仲間）| quest（クエスト）| castle（魔王城）
+  const tabs = [["story", "ストーリー"], ["tower", "試練の塔"], ["train", "鍛錬"], ["road", "地図と仲間"], ["quest", "クエスト"], ["castle", "魔王城"]];
   return (
     <>
-      <div className="flex gap-1 p-1" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)", borderRadius: 999 }}>
+      <div className="grid grid-cols-3 sm:grid-cols-6 gap-1 p-1" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)", borderRadius: 16 }}>
         {tabs.map(([id, label]) => (
-          <button key={id} onClick={() => setSec(id)} className="jp flex-1 py-1.5 text-xs" style={{ borderRadius: 999, border: "none", fontWeight: 700, cursor: "pointer", background: sec === id ? "linear-gradient(180deg, #cfae62, #a8833a)" : "transparent", color: sec === id ? "#fffdf6" : "var(--ink-soft)" }}>{label}</button>
+          <button key={id} onClick={() => setSec(id)} className="jp py-1.5 text-xs" style={{ borderRadius: 999, border: "none", fontWeight: 700, cursor: "pointer", background: sec === id ? "linear-gradient(180deg, #cfae62, #a8833a)" : "transparent", color: sec === id ? "#fffdf6" : "var(--ink-soft)" }}>{label}</button>
         ))}
       </div>
       {sec === "story" && (<>
@@ -8759,6 +9498,12 @@ function WorldView({ state, actions, todayCount, onWeekly, onDungeon, onGuardian
         <TopicKarte state={state} pp={pp} onStart={onStory} />
       </>)}
       {sec === "tower" && <TowerView state={state} pp={pp} onStart={onTower} />}
+      {sec === "train" && (<>
+        <RehearsalCard state={state} pp={pp} actions={actions} onStart={onRehearsal} />
+        <CalcDrill state={state} actions={actions} />
+        <LawCloze state={state} actions={actions} />
+        <ShoshikiDojo state={state} actions={actions} />
+      </>)}
       {sec === "road" && (<>
         <PartyCard state={state} actions={actions} />
         <WorldMap pp={pp} r={normRpg(state.rpg)} onGuardian={onGuardian} />
@@ -8768,11 +9513,11 @@ function WorldView({ state, actions, todayCount, onWeekly, onDungeon, onGuardian
       {sec === "quest" && (<>
         <DailyQuests state={state} actions={actions} todayCount={todayCount} />
         <CategoryQuests state={state} pp={pp} actions={actions} />
-        <ShoshikiDojo state={state} actions={actions} />
         <WeeklyBossCard state={state} pp={pp} onStart={onWeekly} />
       </>)}
       {sec === "castle" && (<>
         <FinalBoss state={state} qual={qual} pp={pp} />
+        <RivalCard state={state} pp={pp} qual={qual} />
         <PowerChart state={state} />
         <button onClick={() => actions.openTalk(weeklyReport(state, weekKey()) || { title: "週報", lines: [["hero", "週報は、合格力の記録が1週間分たまると読めるようになります。"], ["hero", "毎日の積み重ねを、来週いっしょにふり返りましょうね。"]] })} className="jp btn-ghost w-full py-2 text-sm">先週の週報を見る</button>
         <CastleCard state={state} pp={pp} actions={actions} />
@@ -8789,6 +9534,7 @@ function AdventureTab({ state, actions, recordAnswer, startTimer, stopTimer, tod
   const boss = getNextBoss(r);
   const [battle, setBattle] = useState(null);       // { boss, pool }
   const [dungeon, setDungeon] = useState(null);     // { pool, minutes }（模試の塔）
+  const [rehearsal, setRehearsal] = useState(null); // { pool, full, minutes }（本番リハーサル）
   const [storyRun, setStoryRun] = useState(null);   // { quest, title, region, mat, regionKeys }（ストーリークエスト）
   const [towerRun, setTowerRun] = useState(null);   // { floor, pool, n }（試練の塔）
   const [secRun, setSecRun] = useState(null);       // { bank, region, pool, n }（節の守護者）
@@ -8835,6 +9581,9 @@ function AdventureTab({ state, actions, recordAnswer, startTimer, stopTimer, tod
     };
     return <QuestRun key={storyRun.quest.key + (storyRun.n || 0)} state={state} run={storyRun} actions={actions} recordAnswer={recordAnswer} startTimer={startTimer} stopTimer={stopTimer} onExit={() => setStoryRun(null)} onNext={(retryKey) => { goNext(typeof retryKey === "string" ? retryKey : null); setStoryRun((s) => (s ? { ...s, n: (s.n || 0) + 1 } : s)); }} />;
   }
+  if (rehearsal) {
+    return <RehearsalRun state={state} run={rehearsal} actions={actions} recordAnswer={recordAnswer} startTimer={startTimer} stopTimer={stopTimer} onExit={() => setRehearsal(null)} />;
+  }
   if (dungeon) {
     return <DungeonRun state={state} pool={dungeon.pool} minutes={dungeon.minutes} actions={actions} recordAnswer={recordAnswer} startTimer={startTimer} stopTimer={stopTimer} onExit={() => setDungeon(null)} />;
   }
@@ -8872,7 +9621,7 @@ function AdventureTab({ state, actions, recordAnswer, startTimer, stopTimer, tod
   if (view === "skill") return <div className="space-y-4">{nav}{msgBox}<SkillPanel state={state} actions={actions} flash={flash} /></div>;
   if (view === "forge") return <div className="space-y-4">{nav}{msgBox}<ForgePanel state={state} actions={actions} /></div>;
   if (view === "dex") return <div className="space-y-4">{nav}<EvolutionRoad state={state} /><MonsterDex state={state} /></div>;
-  if (view === "world") return <div className="space-y-4">{nav}<WorldView state={state} actions={actions} todayCount={todayCount} onWeekly={(boss, pool) => { if (pool.length === 0) { flash("出題できる問題がありません"); return; } setBattle({ boss, pool }); }} onDungeon={(n, pool) => setDungeon({ pool, minutes: n })} onStory={(run) => setStoryRun(run)} onTower={(run) => setTowerRun(run)} onSecBoss={({ bank, region }) => { const pool = buildPoolFromBanks([bank], 15); if (pool.length) setSecRun({ bank, region, pool }); }} onGuardian={(g) => { const info = regionInfo(g.name); const pool = buildPoolFromBanks(g.banks, 15); if (pool.length === 0) { flash("出題できる問題がありません"); return; } setBattle({ boss: { id: info.boss, guardian: true, region: g.name, idx: 3, loop: 0, icon: info.icon, name: info.guardian, label: `${g.name}の守護者 ${info.guardian}`, hp: 200, atk: 20 }, pool }); }} /></div>;
+  if (view === "world") return <div className="space-y-4">{nav}<WorldView state={state} actions={actions} todayCount={todayCount} onWeekly={(boss, pool) => { if (pool.length === 0) { flash("出題できる問題がありません"); return; } setBattle({ boss, pool }); }} onDungeon={(n, pool) => setDungeon({ pool, minutes: n })} onRehearsal={(run) => setRehearsal(run)} onStory={(run) => setStoryRun(run)} onTower={(run) => setTowerRun(run)} onSecBoss={({ bank, region }) => { const pool = buildPoolFromBanks([bank], 15); if (pool.length) setSecRun({ bank, region, pool }); }} onGuardian={(g) => { const info = regionInfo(g.name); const pool = buildPoolFromBanks(g.banks, 15); if (pool.length === 0) { flash("出題できる問題がありません"); return; } setBattle({ boss: { id: info.boss, guardian: true, region: g.name, idx: 3, loop: 0, icon: info.icon, name: info.guardian, label: `${g.name}の守護者 ${info.guardian}`, hp: 200, atk: 20 }, pool }); }} /></div>;
 
   return (
     <div className="space-y-4">
@@ -9778,7 +10527,7 @@ function BattleStage({ state, q, bankName, battleKey, boss = false }) {
         const xpBonus = cut && b.comboXp ? b.comboXp : 0;
         Object.entries(mats).forEach(([k, v]) => { BATTLE.mats[k] = (BATTLE.mats[k] || 0) + v; });
         // 戦利品と、デイリークエスト用の記録（倒した魔物の種類・会心・コンボ）
-        emitReward({ mats, xp: xpBonus, stat: { elite: m.rank === "elite", fresh: m.rank === "unknown", crit, combo: BATTLE.combo } });
+        emitReward({ mats, xp: xpBonus, stat: { elite: m.rank === "elite", fresh: m.rank === "unknown", crit, combo: BATTLE.combo, region: m.th && m.th.region } });
         setFx({ n, ok: true, crit, dmg, cut, mon: m, drops: Object.keys(mats) });
         SFX.play(crit ? "crit" : "hit");
         if (Object.keys(mats).length) setTimeout(() => SFX.play("drop"), 320);
@@ -10078,6 +10827,61 @@ function AnswerPanel({ onAnswer: onAnswerRaw, wrongLabel = "不正解", correctL
 // ============ 今日の復習（間隔反復） ============
 // 復習期限が来た問題を優先し、足りない分を未学習の問題から出題する。
 // 1セットの問題数を選べるので、未学習が大量にあっても無理なく進められる。
+// ── 復習の予報：これから14日間、毎日いくつ復習が来るか（sr_nextReview の日付で数える）。今日の分には期限切れも含む ──
+const FORECAST_DAYS = 14;
+function reviewForecast(state) {
+  const today = todayStr();
+  const days = Array.from({ length: FORECAST_DAYS }, (_, i) => ({ date: addDays(today, i), n: 0 }));
+  const idx = Object.fromEntries(days.map((d, i) => [d.date, i]));
+  let overdue = 0;
+  state.questionBanks.forEach((b) => (b.questions || []).forEach((q) => {
+    if (q.excluded || !q.sr_nextReview) return;
+    if (q.sr_nextReview < today) { overdue++; days[0].n++; }
+    else if (idx[q.sr_nextReview] !== undefined) days[idx[q.sr_nextReview]].n++;
+  }));
+  return { days, overdue };
+}
+function ReviewForecast({ state }) {
+  const { days, overdue } = reviewForecast(state);
+  const max = Math.max(10, ...days.map((d) => d.n));
+  const week = days.slice(1, 8);
+  const avg = Math.round(week.reduce((a, d) => a + d.n, 0) / week.length);
+  const peak = days.slice(1).reduce((a, d) => (d.n > a.n ? d : a), { n: -1 });
+  const qual = mainQual(state);
+  const linked = qual && state.questionBanks.some((b) => b.qualId === qual.id);
+  const plan = examPlan(state, passPower(state, linked ? qual.id : null), qual);
+  const wd = (d) => "日月火水木金土"[parseLocalDate(d).getDay()];
+  const advice = avg >= 120 ? "復習がたまり気味です。しばらくは新しい問題をひかえめにして、復習を優先しましょう。"
+    : peak.n >= Math.max(30, avg * 2) ? `${Number(peak.date.slice(5, 7))}/${Number(peak.date.slice(8, 10))}（${wd(peak.date)}）に復習が集中します。前の日に少し先取りしておくと楽になります。`
+    : plan && plan.perDay > 0 ? `余裕があります。試験日から逆算すると、新しい問題は1日${plan.perDay}問ずつ進めるのがおすすめです。`
+    : "ちょうどよいペースです。この調子で続けましょう。";
+  return (
+    <Box title="復習の予報（これから2週間）" icon={<TrendingUp size={18} />}>
+      <div className="jp grid grid-cols-3 gap-2 mb-2">
+        {[["今日", `${days[0].n}問`, overdue ? `うち期限切れ${overdue}` : ""], ["来週の1日平均", `${avg}問`, ""], ["いちばん多い日", peak.n > 0 ? `${peak.n}問` : "－", peak.n > 0 ? `${Number(peak.date.slice(5, 7))}/${Number(peak.date.slice(8, 10))}（${wd(peak.date)}）` : ""]].map(([k, v, sub]) => (
+          <div key={k} className="text-center" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)", borderRadius: 8, padding: "6px 2px" }}>
+            <div className="text-[10px]" style={{ color: "var(--ink-mute)" }}>{k}</div>
+            <div className="text-sm" style={{ fontWeight: 800, color: "var(--ink)" }}>{v}</div>
+            {sub && <div className="text-[9px]" style={{ color: "var(--ink-mute)" }}>{sub}</div>}
+          </div>
+        ))}
+      </div>
+      <div className="flex items-end gap-0.5" style={{ height: 96 }} aria-label="14日間の復習の数">
+        {days.map((d, i) => (
+          <div key={d.date} className="flex-1 flex flex-col items-center justify-end" style={{ height: "100%" }}>
+            <span className="text-[8px] jp" style={{ color: "var(--ink-mute)", lineHeight: 1.2 }}>{d.n || ""}</span>
+            <div style={{ width: "100%", height: `${Math.max(2, (d.n / max) * 70)}px`, borderRadius: "3px 3px 0 0", background: i === 0 ? "linear-gradient(180deg, #d6b56a, #b08a3e)" : d === peak && d.n >= Math.max(30, avg * 2) ? "#c9564e" : "var(--sky)" }} />
+          </div>
+        ))}
+      </div>
+      <div className="flex gap-0.5 mt-0.5">
+        {days.map((d, i) => { const w = wd(d.date); return <div key={d.date} className="flex-1 text-center jp" style={{ fontSize: 8, lineHeight: 1.3, color: w === "日" ? "#c9564e" : w === "土" ? "var(--sky-deep)" : "var(--ink-mute)" }}>{i === 0 ? "今日" : Number(d.date.slice(8, 10))}<br />{i === 0 ? "" : w}</div>; })}
+      </div>
+      <p className="jp text-[11px] mt-2" style={{ color: "var(--ink-soft)" }}>{advice}</p>
+    </Box>
+  );
+}
+
 function TodayTab({ state, recordSRAnswer, updateSrSettings, startTimer, stopTimer, toggleQuestionMark }) {
   const today = todayStr();
   const due = [];
@@ -10182,6 +10986,7 @@ function TodayTab({ state, recordSRAnswer, updateSrSettings, startTimer, stopTim
             </>
           )}
         </Box>
+        <ReviewForecast state={state} />
       </div>
     );
   }
