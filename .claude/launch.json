@@ -4,8 +4,24 @@
     {
       "name": "demo",
       "runtimeExecutable": "npm.cmd",
-      "runtimeArgs": ["run", "demo"],
+      "runtimeArgs": [
+        "run",
+        "demo"
+      ],
       "port": 5174
+    },
+    {
+      "name": "preview",
+      "runtimeExecutable": "npm.cmd",
+      "runtimeArgs": [
+        "run",
+        "preview",
+        "--",
+        "--port",
+        "4173",
+        "--strictPort"
+      ],
+      "port": 4173
     }
   ]
 }

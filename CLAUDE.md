@@ -50,7 +50,7 @@ RPG風の資格学習Webアプリ。利用者本人（Yuki）が、土地家屋�
 ## ファイル構成
 
 - `src/App.jsx`：画面と機能の大部分（約1万行・約700KB）。500KB超のため Babel の "deoptimised the styling" という注意が出るが無害。少しずつ分割中。
-- 分割済み：`src/game/icons.jsx`（Ico・線のアイコン・GameIcon とメダル絵）、`src/game/sfx.js`（効果音 SFX）、`src/game/calc.js`（計算ドリルの問題）、`src/game/cloze.js`（条文の穴埋めの問題）、`src/data/quotes.js`（名言 STUDY_QUOTES）、`src/data/story.js`（会話 STORY_TALKS・REGION_TALK）。App.jsx の先頭で import している。
+- 分割済み：`src/game/icons.jsx`（Ico・線のアイコン・GameIcon とメダル絵）、`src/game/sfx.js`（効果音 SFX）、`src/game/calc.js`（計算ドリルの問題）、`src/game/cloze.js`（条文の穴埋めの問題）、`src/data/shinsei.js`（申請書の穴埋めの場面）、`src/data/quotes.js`（名言 STUDY_QUOTES）、`src/data/story.js`（会話 STORY_TALKS・REGION_TALK）。App.jsx の先頭で import している。
 - **分割したら必ず `node scripts/check-names.mjs` で点検する**（定義も import もされていない名前を探す。ビルドでは見つからず、使っている途中にエラーになるため）。
 - `src/firebase.js`：Firebase初期化。`src/main.jsx`：起動。
 - `public/hero.jpg`：クラシックテーマの立ち絵（少年）。`public/sprites/tier1〜6.png`：ドット絵の主人公（以前は App.jsx に埋め込み）。
@@ -111,6 +111,14 @@ state の主なキー：`player` / `qualifications` / `tasks` / `studyLog` / `fo
 - 影の受験生：`rivalStatus` `rivalPowerAt` `RivalCard` `RivalTrack`（試験日にちょうど合格力85%に届く速さのライバル。rpg.rival = {exam, t0, p0, last}）。合格力の記録と同じ useEffect で、追い抜き・抜かれで会話 `RIVAL_TALK`。会話の話し手 "shadow"（`SHADOW_FILTER`）
 - 仲間との絆：`BOND_LV` `bondLevel` `bondFx` `addBond`（rpg.bonds・bondSeen）。仲間の得意分野 `ALLIES[].likes`（戦いの正解は emitReward の stat.region で数える）＋計算ドリル（カイ）・条文の穴埋め（リーネ／ミラ）・書式（ミラ）。物語は src/data/story.js の `BOND_TALKS`（学習中＝タイマー作動中は待つ）
 - 試験日までのカウントダウン：src/data/story.js の `COUNTDOWN_TALKS`（100・50・30・14・7・3・1・0日、試験後）、rpg.countdown。演出が重なったら `evoQ` で順番待ち（前の演出と会話が終わってから出す）
+- 申請書の穴埋め：場面は `src/data/shinsei.js`（`SHINSEI_CASES`：登記の目的・原因・申請の期限・添付情報。根拠は不動産登記法と令の別表。内容を変えるときは法令で確かめる）。画面 `ShinseiDrill`、記録 `logShinsei`（rpg.shinsei）
+- 混同ペアの対比カード（今日タブ）：`confusionPairs`（errTypes.confusion のある問題と、同じ問題集・フォルダで文字の重なりが最も多い問題を組にする）`diffMarks`（違う文字に印）`ConfusionPairs`、整理済み `resolvePair`（rpg.pairsOk。その後また✕になると再び出る）
+- 耳で聞く一問一答（今日タブ）：`ListenMode`（端末の speechSynthesis。問題→間→答え。回答は記録しない、☆で印だけ）`speechText`
+- ホーム画面アプリ（PWA）：`public/manifest.webmanifest`、アイコン `public/icon-192.png` `icon-512.png` `icon-maskable-512.png` `apple-touch-icon.png`、保管係 `public/sw.js`（ページ本体はネット優先、そのほかは保管→裏で更新。他サイト＝Firebase には触れない）。登録は `src/main.jsx`（公開版のみ）。sw.js の中身を大きく変えたら `CACHE` の名前を変える
+- 条文図鑑：`LawDex`（問題によく出る条文＝`lawRefCounts` を集める。穴埋めで `LAWDEX_NEED`＝3回正解で登録、rpg.cloze.got）。全部そろうと `claimLawDex`（称号と300G、rpg.cloze.dexDone）。穴埋めの出題に「図鑑のすき間」
+- 月ごとのランク戦（クエストの欄）：`SEASON_RANKS` `seasonPoints`（ah の当月分＋学習時間。1回答1点・正解+1点・10分3点）`SeasonCard` `claimSeason`（rpg.season = {month, claimed, history}）。月が変わると合格力の記録の useEffect で先月の結果を残し、会話
+- 冒険の記録書（ステータス画面の上）：`AdventureBook`（7ページ：表紙・学び・合格力・冒険・鍛錬・仲間・結び）`longestStudyStreak`
+- 試し表示：.claude/launch.json に demo（5174）と preview（公開版と同じビルドを 4173 で。本番の Firebase につながるのでログインはしない）
 - テーマ：`DISPLAY_DEFAULTS`（既定は white）`THEME_PAL`（classic/white の配色）`CLASSIC_CSS` `WHITE_CSS` `ClassicThemeStyle` `TitleScreen` `ClassicInfoBar` `MenuHome`（クラシック）`SignpostHome`（白金・道しるべ）`migrateDisplay`
 
 ## テーマの仕組み
