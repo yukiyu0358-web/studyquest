@@ -12157,6 +12157,8 @@ const BOSS_CSS = `
 @keyframes sqyDark{0%{opacity:0}100%{opacity:.75}}
 `;
 function BossArena({ state, boss, bossHp, hp, maxHp, fx, combo, dying, party = [], assist = null }) {
+  const arenaRef = useRef(null);
+  useEffect(() => { if (fx || dying) bringIntoView(arenaRef.current); }, [fx && fx.n, dying]);
   const theme = (state.displaySettings && state.displaySettings.theme) || "white";
   const P = BATTLE_THEME[theme] || BATTLE_THEME.white;
   const bg = `${ART_URL}${BOSS_SCENES[boss.art] || (boss.id === "maou" ? "tower/zone2.jpg" : "scene.jpg")}`;
@@ -12177,7 +12179,7 @@ function BossArena({ state, boss, bossHp, hp, maxHp, fx, combo, dying, party = [
     : fx && fx.side === "mon" && ["tackle", "bite", "claw"].includes(fx.atk.kind) ? "sqxLungeL .34s ease-in-out" : "sqyFloat 3s ease-in-out infinite";
   const bar = (pct, color, h = 9) => <div style={{ height: h, borderRadius: h, background: "rgba(0,0,0,0.35)", border: "1px solid rgba(255,255,255,0.35)", overflow: "hidden" }}><div style={{ width: `${pct * 100}%`, height: "100%", background: color, transition: "width .45s ease-out", boxShadow: "inset 0 1px 0 rgba(255,255,255,0.45)" }} /></div>;
   return (
-    <div className="relative overflow-hidden select-none" style={{ height: 250, borderRadius: 10, border: "1px solid #b08a3e", background: `linear-gradient(0deg, rgba(10,16,32,0.6) 0%, rgba(10,16,32,0.05) 45%, rgba(10,16,32,0.3) 100%), url(${bg}) center/cover no-repeat`, boxShadow: "0 8px 22px rgba(20,28,50,0.25)", animation: fx ? (fx.side === "mon" ? `sqxQuake .42s ease-out ${t}s` : fx.crit ? `sqxPunch .3s ease-out ${t}s` : undefined) : undefined }}>
+    <div ref={arenaRef} className="relative overflow-hidden select-none" style={{ height: 250, borderRadius: 10, border: "1px solid #b08a3e", background: `linear-gradient(0deg, rgba(10,16,32,0.6) 0%, rgba(10,16,32,0.05) 45%, rgba(10,16,32,0.3) 100%), url(${bg}) center/cover no-repeat`, boxShadow: "0 8px 22px rgba(20,28,50,0.25)", animation: fx ? (fx.side === "mon" ? `sqxQuake .42s ease-out ${t}s` : fx.crit ? `sqxPunch .3s ease-out ${t}s` : undefined) : undefined }}>
       <style>{BATTLE_CSS + BATTLE_FX_CSS + BOSS_CSS + LUNA_CSS}</style>
       <Ambient region={region} kind={boss.id === "maou" || boss.art === "darkdragon" ? "fire" : ["grimoire", "ghost", "magolem"].includes(boss.art) ? "dark" : null} n={18} seed={hashStr(boss.id + (boss.art || ""))} />
       <div aria-hidden="true" style={{ position: "absolute", inset: 0, pointerEvents: "none", background: enraged ? "radial-gradient(ellipse at 70% 45%, transparent 40%, rgba(160,30,30,0.35) 100%)" : "radial-gradient(ellipse at 50% 50%, transparent 50%, rgba(10,16,32,0.35) 100%)", animation: enraged ? "sqxPulse 1.4s ease-in-out infinite" : undefined }} />
@@ -12498,13 +12500,19 @@ function AllyMedal({ p, size = 40, glow }) {
 const LUNA_SPRITE = `${ART_URL}sprite/luna-attack.webp`, LUNA_FRAMES = 10;
 // 攻撃モーションの帯（public/art/sprite/）：コマ数と、1回の長さ（秒）。セレナ・レイヴンは24コマから、本人が画面の外に出る3コマを除いた21コマ
 const SPRITES = {
-  luna: { url: LUNA_SPRITE, frames: LUNA_FRAMES, dur: 0.55 },
+  luna: { url: LUNA_SPRITE, frames: LUNA_FRAMES, dur: 0.7 },
   serena: { url: `${ART_URL}sprite/serena-attack.webp`, frames: 21, dur: 0.75 },
   raven: { url: `${ART_URL}sprite/raven-attack.webp`, frames: 21, dur: 0.75 },
 };
+function bringIntoView(el) {
+  if (!el) return;
+  const r = el.getBoundingClientRect();
+  if (r.top < 56 || r.top > window.innerHeight * 0.45) window.scrollTo({ top: Math.max(0, window.scrollY + r.top - 64), behavior: "smooth" });
+}
 const LUNA_CSS = `
 @keyframes sqlAtk{from{background-position:0% 0}to{background-position:100% 0}}
 @keyframes sqlBob{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}
+@keyframes sqlDash{0%{transform:none}22%{transform:translateX(var(--dash)) translateY(-4px)}70%{transform:translateX(var(--dash))}100%{transform:none}}
 @keyframes sqlJump{0%,100%{transform:translateY(0)}30%{transform:translateY(-18px)}50%{transform:translateY(0)}68%{transform:translateY(-8px)}}
 @keyframes sqlDown{0%{transform:none;opacity:1}100%{transform:translateY(16px) rotate(-70deg);opacity:.7}}
 @keyframes sqlAura{0%,100%{opacity:.5;transform:scaleX(1)}50%{opacity:.9;transform:scaleX(1.12)}}
@@ -12512,9 +12520,9 @@ const LUNA_CSS = `
 function LunaSprite(props) { return <CharSprite who="luna" {...props} />; }
 function CharSprite({ who = "luna", size = 120, pose = "idle", delay = 0, k = 0, aura = null }) {
   const sp = SPRITES[who] || SPRITES.luna;
-  const wrap = pose === "hurt" ? `sqbHurt .45s ease-out ${delay}s` : pose === "win" ? "sqlJump 1s ease-out" : pose === "down" ? `sqlDown .7s ease-in ${delay}s forwards` : pose === "attack" ? undefined : "sqlBob 2.2s ease-in-out infinite";
+  const wrap = pose === "hurt" ? `sqbHurt .45s ease-out ${delay}s` : pose === "win" ? "sqlJump 1s ease-out" : pose === "down" ? `sqlDown .7s ease-in ${delay}s forwards` : pose === "attack" ? `sqlDash ${sp.dur + 0.25}s ease-out ${delay}s` : "sqlBob 2.2s ease-in-out infinite";
   return (
-    <div key={k} style={{ position: "relative", width: size, height: size, animation: wrap }}>
+    <div key={k} style={{ position: "relative", width: size, height: size, animation: wrap, "--dash": `${Math.round(size * (who === "luna" ? 0.5 : 0.18))}px`, zIndex: pose === "attack" ? 3 : undefined }}>
       {aura && <div style={{ position: "absolute", left: "12%", right: "40%", bottom: "6%", height: "16%", borderRadius: "50%", background: `radial-gradient(ellipse, ${aura} 0%, transparent 70%)`, animation: "sqlAura 2s ease-in-out infinite" }} />}
       <div role="img" aria-label={who === "luna" ? HERO_NAME : who} style={{ position: "absolute", inset: 0, backgroundImage: `url(${sp.url})`, backgroundSize: `${sp.frames * 100}% 100%`, backgroundPosition: "0% 0", backgroundRepeat: "no-repeat", filter: "drop-shadow(0 3px 3px rgba(0,0,0,0.3))", animation: pose === "attack" ? `sqlAtk ${sp.dur}s steps(${sp.frames}, jump-none) ${delay}s 1 normal none` : undefined }} />
     </div>
@@ -12958,6 +12966,7 @@ function MonsterView({ m, anim, delay = 0, size = 92, hitAt = 0, lunge = false }
 // battleKey：1回の学習（セット）ごとに変わる値。変わったときだけ HP・コンボを最初からにする
 function BattleStage({ state, q, bankName, battleKey, boss = false, scene = null }) {
   if (BATTLE.key !== battleKey) { resetBattle(state); BATTLE.key = battleKey; }
+  const stageRef = useRef(null);
   const ds = state.displaySettings || {};
   const theme = ds.theme || "white";
   const P = BATTLE_THEME[theme] || BATTLE_THEME.white;
@@ -13022,6 +13031,7 @@ function BattleStage({ state, q, bankName, battleKey, boss = false, scene = null
         setTimeout(() => SFX.play("miss"), t * 1000);
       }
       setDoneQ(qRef.current);
+      bringIntoView(stageRef.current);
       setTimeout(() => setFx((f) => (f && f.n === n ? null : f)), hold);
     };
     battleBus.addEventListener("answer", on);
@@ -13033,7 +13043,7 @@ function BattleStage({ state, q, bankName, battleKey, boss = false, scene = null
   const hpPct = Math.max(0, Math.min(100, (BATTLE.hp / BATTLE.maxHp) * 100));
   const kind = mon.rank === "unknown" ? ["初見の魔物", "#5b6b8c"] : mon.rank === "elite" ? ["手強い魔物", "#a24a45"] : ["復習の魔物", "#4f8a72"];
   return (
-    <div className="relative overflow-hidden select-none" style={{ height: 168, borderRadius: 8, background: scene ? `${theme === "classic" ? "linear-gradient(0deg, rgba(10,18,38,0.82) 0%, rgba(10,18,38,0.25) 50%, rgba(10,18,38,0.05) 100%)" : "linear-gradient(0deg, rgba(253,251,245,0.9) 0%, rgba(253,251,245,0.25) 48%, rgba(253,251,245,0) 75%)"}, url(${scene}) center/cover no-repeat` : P.bg, border: P.border, color: P.text, boxShadow: "0 6px 18px rgba(40,50,80,0.12)", animation: fx ? (!fx.ok ? `sqbShake .38s ease-in-out ${fx.t || 0}s` : fx.crit ? `sqxPunch .3s ease-out ${fx.t || 0}s` : undefined) : undefined }}>
+    <div ref={stageRef} className="relative overflow-hidden select-none" style={{ height: 168, borderRadius: 8, background: scene ? `${theme === "classic" ? "linear-gradient(0deg, rgba(10,18,38,0.82) 0%, rgba(10,18,38,0.25) 50%, rgba(10,18,38,0.05) 100%)" : "linear-gradient(0deg, rgba(253,251,245,0.9) 0%, rgba(253,251,245,0.25) 48%, rgba(253,251,245,0) 75%)"}, url(${scene}) center/cover no-repeat` : P.bg, border: P.border, color: P.text, boxShadow: "0 6px 18px rgba(40,50,80,0.12)", animation: fx ? (!fx.ok ? `sqbShake .38s ease-in-out ${fx.t || 0}s` : fx.crit ? `sqxPunch .3s ease-out ${fx.t || 0}s` : undefined) : undefined }}>
       <style>{BATTLE_CSS + BATTLE_FX_CSS + LUNA_CSS}</style>
       <Ambient region={mon.th && mon.th.region} n={10} seed={hashStr(String(mon.th && mon.th.region))} />
       <div aria-hidden="true" style={{ position: "absolute", inset: 0, pointerEvents: "none", background: "radial-gradient(ellipse at 50% 55%, transparent 55%, rgba(20,28,50,0.16) 100%)" }} />
