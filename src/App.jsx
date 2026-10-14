@@ -2988,7 +2988,7 @@ function StudyRPG({ user }) {
             { id: "home",   label: "ホーム",     icon: <Home size={18} /> },
             { id: "today",  label: "今日",        icon: <Calendar size={18} /> },
             { id: "qbank",  label: "問題",        icon: <FileQuestion size={18} /> },
-            { id: "laps",   label: "周回",        icon: <Shuffle size={18} /> }, // 周回の部屋（学習計画・今日のタスク）
+            { id: "laps",   label: "周回の部屋",  icon: <Shuffle size={18} /> }, // 学習計画・今日のタスク・周回の記録
             { id: "adventure", label: "冒険",     icon: <Castle size={18} /> },
             { id: "status", label: "ステータス",  icon: <StatusIcon size={18} /> },
             { id: "notebook", label: "手帳",      icon: <Bookmark size={18} /> }, // 資格・タスク・時間・メモをまとめたタブ
@@ -11835,36 +11835,60 @@ function planToday(p, today = todayStr()) {
 const planBankOf = (state, p, k) => state.questionBanks.find((b) => b.id === p.bankIds[k % p.bankIds.length]) || null;
 const planBankName = (state, p, k) => { const b = planBankOf(state, p, k); return b ? b.name : "（消えた問題集）"; };
 function PlanMaker({ state, onSave, onCancel }) {
-  const folders = (state.folders || []).slice().sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-  const [folderId, setFolderId] = useState(folders[0] ? folders[0].id : "");
+  // フォルダ（＋フォルダなし）ごとに問題集を並べる。フォルダの☑で中の問題集をまとめて選べる。いくつかのフォルダにまたがってもよい
+  const folders = [...(state.folders || []).slice().sort((a, b) => (a.order ?? 0) - (b.order ?? 0)), { id: "", name: "フォルダなし" }];
   const banksIn = (fid) => state.questionBanks.filter((b) => (fid ? b.folderId === fid : !b.folderId)).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-  const [picked, setPicked] = useState(() => banksIn(folders[0] ? folders[0].id : "").map((b) => b.id));
+  const groups = folders.map((f) => ({ f, banks: banksIn(f.id) })).filter((g) => g.banks.length);
+  const [picked, setPicked] = useState([]);
+  const [open, setOpen] = useState(() => (groups[0] ? { [groups[0].f.id]: true } : {}));
   const [laps, setLaps] = useState(1);
   const [end, setEnd] = useState(addDays(todayStr(), 10));
   const [name, setName] = useState("");
-  const list = banksIn(folderId);
-  const ids = list.filter((b) => picked.includes(b.id)).map((b) => b.id);
+  const allIds = groups.flatMap((g) => g.banks.map((b) => b.id));
+  const ids = allIds.filter((id) => picked.includes(id)); // フォルダの順・問題集の順にそろえる
   const days = Math.max(1, daysBetween(todayStr(), end) + 1);
   const total = ids.length * laps;
   const perDay = total ? Math.ceil(total / days) : 0;
-  const fName = (folders.find((f) => f.id === folderId) || {}).name || "フォルダなし";
+  const usedGroups = groups.filter((g) => g.banks.some((b) => picked.includes(b.id)));
+  const defName = usedGroups.length === 1 ? `${usedGroups[0].f.name}を${laps}周` : `${ids.length}項目を${laps}周`;
+  const toggleGroup = (g) => { const gIds = g.banks.map((b) => b.id); const all = gIds.every((id) => picked.includes(id)); setPicked(all ? picked.filter((id) => !gIds.includes(id)) : [...new Set([...picked, ...gIds])]); };
+  const box = (state3) => <span style={{ width: 18, height: 18, flexShrink: 0, borderRadius: 4, border: `1.5px solid ${state3 ? "var(--gold)" : "var(--rule-soft)"}`, background: state3 === "all" ? "var(--gold)" : state3 === "some" ? "var(--cream)" : "var(--paper)", color: state3 === "all" ? "#fff" : "var(--gold)", fontSize: 12, fontWeight: 800, display: "inline-flex", alignItems: "center", justifyContent: "center", lineHeight: 1 }}>{state3 === "all" ? "✓" : state3 === "some" ? "－" : ""}</span>;
   const chip = (on) => ({ borderRadius: 999, border: `1px solid ${on ? "var(--gold)" : "var(--rule-soft)"}`, background: on ? "var(--cream)" : "var(--paper)", color: "var(--ink)", fontWeight: on ? 800 : 500, cursor: "pointer" });
   return (
     <div className="jp space-y-2 p-2" style={{ background: "var(--cream)", border: "1px solid var(--gold)", borderRadius: 10 }}>
       <div className="text-xs" style={{ fontWeight: 800, color: "var(--ink)" }}>学習計画をつくる</div>
-      <label className="block text-[10px]" style={{ color: "var(--ink-soft)" }}>フォルダ
-        <select className="rpg-input text-xs mt-0.5" value={folderId} onChange={(e) => { setFolderId(e.target.value); setPicked(banksIn(e.target.value).map((b) => b.id)); }}>
-          {folders.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
-          <option value="">（フォルダなしの問題集）</option>
-        </select>
-      </label>
-      <div className="text-[10px]" style={{ color: "var(--ink-soft)" }}>項目（問題集）：この順番で出ます（{ids.length}/{list.length}項目を選択）</div>
-      <div className="max-h-48 overflow-y-auto space-y-1">
-        {list.map((b, i) => { const on = picked.includes(b.id); return (
-          <button key={b.id} onClick={() => setPicked(on ? picked.filter((x) => x !== b.id) : [...picked, b.id])} className="w-full flex items-center gap-2 px-2 py-1 text-left text-xs" style={{ background: "var(--paper)", border: `1px solid ${on ? "var(--gold)" : "var(--rule-soft)"}`, borderRadius: 6, color: "var(--ink)", cursor: "pointer" }}>
-            <span>{on ? "☑" : "☐"}</span><span className="text-[10px]" style={{ color: "var(--ink-mute)", minWidth: 16 }}>{i + 1}</span><span className="flex-1 truncate">{b.name}</span><span className="text-[10px]" style={{ color: "var(--ink-mute)" }}>{(b.questions || []).length}問</span>
-          </button>); })}
-        {!list.length && <p className="text-[11px]" style={{ color: "var(--ink-mute)" }}>このフォルダには問題集がありません。</p>}
+      <div className="flex items-center gap-1.5">
+        <span className="flex-1 text-[10px]" style={{ color: "var(--ink-soft)" }}>項目（問題集）を選ぶ：{ids.length} / {allIds.length}項目</span>
+        <button onClick={() => setPicked(allIds)} className="btn-ghost text-[10px] px-2 py-1">すべて選ぶ</button>
+        <button onClick={() => setPicked([])} className="btn-ghost text-[10px] px-2 py-1">すべて外す</button>
+      </div>
+      <div className="max-h-72 overflow-y-auto space-y-1.5">
+        {groups.map((g) => {
+          const n = g.banks.filter((b) => picked.includes(b.id)).length;
+          const st = n === 0 ? null : n === g.banks.length ? "all" : "some";
+          const isOpen = !!open[g.f.id];
+          return (
+            <div key={g.f.id || "none"} style={{ background: "var(--paper)", border: `1px solid ${st ? "var(--gold)" : "var(--rule-soft)"}`, borderRadius: 8 }}>
+              <div className="flex items-center gap-2 px-2 py-1.5">
+                <button onClick={() => toggleGroup(g)} aria-label={`${g.f.name}をまとめて選ぶ`} style={{ background: "none", border: "none", padding: 0, cursor: "pointer" }}>{box(st)}</button>
+                <button onClick={() => setOpen({ ...open, [g.f.id]: !isOpen })} className="flex-1 flex items-center gap-1 text-left text-xs" style={{ background: "none", border: "none", color: "var(--ink)", fontWeight: 800, cursor: "pointer" }}>
+                  <span className="flex-1 truncate">{g.f.name}</span>
+                  <span className="text-[10px]" style={{ color: "var(--ink-mute)", fontWeight: 500 }}>{n}/{g.banks.length}</span>
+                  <span style={{ color: "var(--ink-mute)" }}>{isOpen ? "▾" : "▸"}</span>
+                </button>
+              </div>
+              {isOpen && (
+                <div className="px-2 pb-1.5 space-y-1">
+                  {g.banks.map((b, i) => { const on = picked.includes(b.id); return (
+                    <button key={b.id} onClick={() => setPicked(on ? picked.filter((x) => x !== b.id) : [...picked, b.id])} className="w-full flex items-center gap-2 pl-5 pr-1 py-1 text-left text-xs" style={{ background: "transparent", border: "none", borderTop: "1px dashed var(--rule-soft)", color: "var(--ink)", cursor: "pointer" }}>
+                      {box(on ? "all" : null)}<span className="text-[10px]" style={{ color: "var(--ink-mute)", minWidth: 16 }}>{i + 1}</span><span className="flex-1 truncate">{b.name}</span><span className="text-[10px]" style={{ color: "var(--ink-mute)" }}>{(b.questions || []).length}問</span>
+                    </button>); })}
+                </div>
+              )}
+            </div>
+          );
+        })}
+        {!groups.length && <p className="text-[11px]" style={{ color: "var(--ink-mute)" }}>問題集がまだありません。</p>}
       </div>
       <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
         <span style={{ color: "var(--ink-soft)" }}>周回</span>
@@ -11873,12 +11897,9 @@ function PlanMaker({ state, onSave, onCancel }) {
       <label className="block text-[10px]" style={{ color: "var(--ink-soft)" }}>いつまでに（期日）
         <input type="date" className="rpg-input text-xs mt-0.5" value={end} min={todayStr()} onChange={(e) => setEnd(e.target.value || todayStr())} />
       </label>
-      <input className="rpg-input text-xs" value={name} onChange={(e) => setName(e.target.value)} placeholder={`計画の名前（例：${fName}を${laps}周）`} />
-      <div className="text-xs px-2 py-1.5" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)", borderRadius: 6, color: "var(--ink)" }}>
-        {total ? <>{ids.length}項目 × {laps}周 ＝ <b>{total}項目</b>　／　今日から{Number(end.slice(5, 7))}月{Number(end.slice(8, 10))}日まで <b>{days}日</b><br />→ <b style={{ color: "var(--gold)", fontSize: 15 }}>1日 {perDay}項目</b> ずつ解きます{perDay * days > total ? `（最後の日は少なめ）` : ""}</> : "項目を1つ以上選んでください"}
-      </div>
+      <input className="rpg-input text-xs" value={name} onChange={(e) => setName(e.target.value)} placeholder={`計画の名前（${defName}）`} />
       <div className="grid grid-cols-2 gap-1.5">
-        <button disabled={!total} onClick={() => onSave({ name: name.trim() || `${fName}を${laps}周`, folderId, bankIds: ids, laps, start: todayStr(), end, perDay })} className="btn-primary py-2 text-xs" style={{ opacity: total ? 1 : 0.5 }}>この計画で始める</button>
+        <button disabled={!total} onClick={() => onSave({ name: name.trim() || defName, folderId: usedGroups.length === 1 ? usedGroups[0].f.id : null, bankIds: ids, laps, start: todayStr(), end, perDay })} className="btn-primary py-2 text-xs" style={{ opacity: total ? 1 : 0.5 }}>この計画で始める</button>
         <button onClick={onCancel} className="btn-ghost py-2 text-xs">やめる</button>
       </div>
     </div>

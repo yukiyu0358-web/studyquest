@@ -100,7 +100,7 @@ state の主なキー：`player` / `qualifications` / `tasks` / `studyPlans`（�
 - 仲間 `ALLIES`（リーネ・カイ・ミラ。地域を1つ・2つ・3つ解放で加入、`alliesJoined`）`PartyCard`。会話の話し手に仲間の id を使える（まだ加入していない仲間のせりふは飛ばす）。演出・会話・ログインボーナスはタイトル画面の間は出さない（`showTitleNow`）
 - 試練の塔（世界タブ「試練の塔」）：100階。1階10問（第1階は新10問、以降は新8問＋下の階から2問）、10の倍数の階は「試練の間」＝直前9階から15問の総復習。80%で突破（`TOWER_PASS`）。問題の並びは `towerSeq`（科目を比例で交互に）、出題 `towerFloorPool`、弱さ `weaknessOf`。画面 `TowerView`、戦い `TrialRun`（汎用：一定の正答率で突破）、結果 `towerFinish`（rpg.tower={floor,best}）
 - ストーリーの強化：節の守護者（問題集の全話クリアで出現、15問・80%、`secBossFinish`、rpg.secBoss）。地域の制覇＝全話＋全節の守護者＋地域の守護者（`regionConquest`、rpg.conquered、StudyRPG の効果で祝う）。不動産登記法・民法・調査士法の3つで特別章（`TRINITY_REGIONS` `TRINITY_TALK`、rpg.conquered.__trinity）。科目ごとの物語 `REGION_ARC` `regionArc`（intro・sec・finale。src/data/story.js）、地域に初めて入ると intro（rpg.arcSeen）
-- 下のタブは7つ（ホーム・今日・問題・周回・冒険・ステータス・手帳）。「周回」は周回の部屋 `LapRoom`（学習計画・今日のタスク・周回の記録）。「手帳」はタスク・時間・メモ・資格をまとめたもので、中の切り替えは `NOTE_TABS`（最後に開いたものを `lastNoteTab` で覚える）。学習カレンダーはステータスから外した（`StudyCalendar` 自体は残っている）
+- 下のタブは7つ（ホーム・今日・問題・周回の部屋・冒険・ステータス・手帳）。「周回の部屋」は `LapRoom`（学習計画・今日のタスク・周回の記録）。「手帳」はタスク・時間・メモ・資格をまとめたもので、中の切り替えは `NOTE_TABS`（最後に開いたものを `lastNoteTab` で覚える）。学習カレンダーはステータスから外した（`StudyCalendar` 自体は残っている）
 - ホームのキャラクター：`HOME_CHARS`（主人公・リーネ・カイ・ミラ・少年）`homeCharOf`、設定 `displaySettings.homeChar`。face は顔アイコンの切り抜き位置（背景サイズ300%のときの%）
 - 周回スタンプの演出：問題集を最後まで解く（`incrementBankClears`）と `LapStampScene`（印が押される演出。5周ごとに金の印、効果音 `stamp`）
 - iPhone での見切れ対策：index.html の `.grid > * { min-width: 0; }`（横並びの枠が中の長い文字で広がらないように）
@@ -132,7 +132,7 @@ state の主なキー：`player` / `qualifications` / `tasks` / `studyPlans`（�
 - 科目ごとのジョブ（ステータス画面）：`subjectJobs` `SubjectJobs` `JOB_RANKS`（見習い・修行者・術士・魔導士・大魔導士・賢者＝Lv1/5/10/20/35/50）`jobLevelOf`（経験値＝正解の回数＋定着した問題×5）。称号が上がると演出（rpg.jobRank、学習中は待つ）
 - 学習記録の控え（自動バックアップ）：userdata/{uid}/backups/{日付}（＋parts サブコレクションに小分け。書出と同じ中身）。`makeBackup` `readBackup` `BackupPanel`（ステータス画面のいちばん下。ファイルに書き出して「読込」で戻す）。7日ごとに自動（起動20秒後。`cloudLoadFailed` 中・問題10問未満のときは取らない）、新しい4回分を残す（`BACKUP_KEEP`）
 - 主人公の進化の絵の指示文：`docs/進化の絵の指示文.md`（絵ができたら public/white-hero-s1〜s5.jpg に入れる）
-- 学習計画（今日のタスク）：state.studyPlans = [{id, name, folderId, bankIds（順番）, laps, start, end, perDay（固定）, done:{通し番号: 日付}, finishedAt}]。項目＝問題集1つ。通し番号 k は bankIds[k % 項目数]。`planToday`（今日までに済ませる数＝perDay×日数、できなかった分は翌日に繰り越し）`PlanTasks` `PlanMaker`（下のタブ「周回」の周回の部屋 `LapRoom` に置く。今日タブには短いお知らせ `PlanSummary` だけ）、操作 `planActions`（addPlan・removePlan・togglePlanItem・openBank）。問題集を最後まで解くと `incrementBankClears` → `markPlanBank` で自動✓。「解く」は `openBankReq` → QBankTab の開始画面。ホームの道しるべにも「今日のタスク」の行
+- 学習計画（今日のタスク）：state.studyPlans = [{id, name, folderId, bankIds（順番）, laps, start, end, perDay（固定）, done:{通し番号: 日付}, finishedAt}]。項目＝問題集1つ。通し番号 k は bankIds[k % 項目数]。`planToday`（今日までに済ませる数＝perDay×日数、できなかった分は翌日に繰り越し）`PlanTasks` `PlanMaker`（フォルダごとの☑・すべて選ぶ／外す。いくつかのフォルダにまたがって選べる。下のタブ「周回の部屋」 `LapRoom` に置く。今日タブには短いお知らせ `PlanSummary` だけ）、操作 `planActions`（addPlan・removePlan・togglePlanItem・openBank）。問題集を最後まで解くと `incrementBankClears` → `markPlanBank` で自動✓。「解く」は `openBankReq` → QBankTab の開始画面。ホームの道しるべにも「今日のタスク」の行
 - 試し表示：.claude/launch.json に demo（5174）と preview（公開版と同じビルドを 4173 で。本番の Firebase につながるのでログインはしない）
 - テーマ：`DISPLAY_DEFAULTS`（既定は white）`THEME_PAL`（classic/white の配色）`CLASSIC_CSS` `WHITE_CSS` `ClassicThemeStyle` `TitleScreen` `ClassicInfoBar` `MenuHome`（クラシック）`SignpostHome`（白金・道しるべ）`migrateDisplay`
 
