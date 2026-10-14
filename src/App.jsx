@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { fsrs as createFsrs, createEmptyCard, Rating, State } from "ts-fsrs";
 import Papa from "papaparse";
 import { fbAuth, fbDb, fbFieldValue, getPushToken, FCM_VAPID_KEY } from "./firebase";
-import { LINE_ICONS, Ico, Sword, Plus, Check, Trash2, Sparkles, ScrollIcon, Upload, Play, Pause, BookOpen, Calendar, Home, FileQuestion, Eye, Shuffle, XIcon, Award, Clock, TrendingUp, Crown, Pencil, Bookmark, StarIcon, FolderIcon, Up, Down, Skull, Sword2, StatusIcon, LogoutIcon, Search, Castle, GA, swordArt, crossedSwords, oniArt, GAME_ART, GAME_ART_BY_ID, GAME_RING, GameIcon, paintedUrl } from "./game/icons"; // アイコン
+import { LINE_ICONS, Ico, Sword, Plus, Check, Trash2, Sparkles, ScrollIcon, Upload, Play, Pause, BookOpen, Calendar, Home, FileQuestion, Eye, Shuffle, XIcon, Award, Clock, TrendingUp, Crown, Pencil, Bookmark, StarIcon, FolderIcon, Up, Down, Skull, Sword2, StatusIcon, LogoutIcon, Search, Castle, GA, swordArt, crossedSwords, oniArt, GAME_ART, GAME_ART_BY_ID, GAME_RING, GameIcon, paintedUrl, MON_ART_URL } from "./game/icons"; // アイコン
 import { SFX } from "./game/sfx"; // 効果音
 import { CALC_TYPES, makeCalcProblem, checkCalc, calcAnsText, SAKUZU_TYPES, makeSakuzuProblem } from "./game/calc"; // 計算ドリル・作図ドリルの問題づくり
 import { makeCloze, BLANK_LABELS, makeTrap, isTrueAnswer } from "./game/cloze"; // 条文の穴埋め・○×のひっかけ版の問題づくり
@@ -7733,6 +7733,19 @@ const RPG_ITEMS = [
   { id: "x-glasses",   slot: "accessory", name: "学者の砂時計",   icon: "👓", rarity: "R",   price: 700, fx: { xpPct: 10 } },
   { id: "x-level",     slot: "accessory", name: "黄金の天球儀",   icon: "📐", rarity: "SR",  fx: { goldPct: 30, xpPct: 10 } },
   { id: "x-charm",     slot: "accessory", name: "公図の護符",     icon: "🗺️", rarity: "SSR", fx: { xpPct: 20, critPct: 5, goldPct: 20 } },
+  // アイテム図鑑の装備（絵は public/art/items/c01〜c12）
+  { id: "w-bow",       slot: "weapon",    name: "風翔の弓",       icon: "🏹", rarity: "R",   price: 650, fx: { bossDmgPct: 12, critPct: 4 } },
+  { id: "w-tome",      slot: "weapon",    name: "古代の魔導書",   icon: "📖", rarity: "SR",  fx: { bossDmgPct: 20, xpPct: 8 } },
+  { id: "w-sky",       slot: "weapon",    name: "蒼天の剣",       icon: "🗡️", rarity: "SR",  fx: { bossDmgPct: 28, critPct: 6 } },
+  { id: "w-star",      slot: "weapon",    name: "星詠の杖",       icon: "🪄", rarity: "SSR", fx: { bossDmgPct: 45, xpPct: 12 } },
+  { id: "a-uniform",   slot: "armor",     name: "学園の制服",     icon: "👔", rarity: "N",   price: 120, fx: { hpPlus: 8, xpPct: 2 } },
+  { id: "a-mantle",    slot: "armor",     name: "精霊のマント",   icon: "🧥", rarity: "R",   price: 650, fx: { hpPlus: 15, dmgCutPct: 12 } },
+  { id: "a-dragon",    slot: "armor",     name: "竜鱗の鎧",       icon: "🛡️", rarity: "SR",  fx: { hpPlus: 35, dmgCutPct: 22 } },
+  { id: "a-angel",     slot: "armor",     name: "天使のローブ",   icon: "👘", rarity: "SSR", fx: { hpPlus: 45, dmgCutPct: 35, xpPct: 5 } },
+  { id: "x-brooch",    slot: "accessory", name: "記憶のブローチ", icon: "⭐", rarity: "N",   price: 180, fx: { xpPct: 5 } },
+  { id: "x-bracelet",  slot: "accessory", name: "幸運のブレスレット", icon: "📿", rarity: "R", price: 750, fx: { critPct: 4, goldPct: 10 } },
+  { id: "x-pendant",   slot: "accessory", name: "旅人のペンダント", icon: "💠", rarity: "SR", fx: { hpPlus: 15, goldPct: 20 } },
+  { id: "x-ring",      slot: "accessory", name: "知の指輪",       icon: "💍", rarity: "SSR", fx: { xpPct: 18, bossDmgPct: 15, critPct: 4 } },
 ];
 const RPG_SLOTS = [
   { id: "weapon", label: "武器" },
@@ -7745,11 +7758,11 @@ const RPG_CONSUMABLES = [
   { id: "restTicket", name: "休息のランタン", icon: "🎫", price: 400, desc: "学習できなかった昨日を、連続学習日数に数える" },
 ];
 const RPG_BOSSES = [
-  { id: "slime",  name: "境界のスライム", icon: "🟢", hp: 60,  atk: 12 },
-  { id: "ghost",  name: "地番の亡霊",     icon: "👻", hp: 90,  atk: 15 },
-  { id: "golem",  name: "分筆ゴーレム",   icon: "🗿", hp: 120, atk: 18 },
-  { id: "dragon", name: "合筆ドラゴン",   icon: "🐉", hp: 160, atk: 22 },
-  { id: "shadow", name: "登記官の影",     icon: "🦹", hp: 200, atk: 26 },
+  { id: "slime",  name: "境界のスライム", icon: "🟢", hp: 60,  atk: 12, art: "slimeking" },
+  { id: "ghost",  name: "地番の亡霊",     icon: "👻", hp: 90,  atk: 15, art: "ghost" },
+  { id: "golem",  name: "分筆ゴーレム",   icon: "🗿", hp: 120, atk: 18, art: "magolem" },
+  { id: "dragon", name: "合筆ドラゴン",   icon: "🐉", hp: 160, atk: 22, art: "darkdragon" },
+  { id: "shadow", name: "登記官の影",     icon: "🦹", hp: 200, atk: 26, art: "grimoire" },
   { id: "maou",   name: "地籍の魔王",     icon: "👹", hp: 260, atk: 30 },
 ];
 const FX_LABELS = {
@@ -7787,9 +7800,11 @@ function takeFrags(mats, n) {
   }
   return m;
 }
+const MAT_PAINTED = { "m-star": "c26", "m-sage": "c17" }; // 星霊石＝スタディストーン、賢者の結晶＝魔鉱石の絵
 function MaterialIcon({ id, size = 28 }) {
   const m = matById(id);
   if (!m) return null;
+  if (MAT_PAINTED[id]) return <img src={paintedUrl(MAT_PAINTED[id])} alt={m.name} width={size} height={size} style={{ flexShrink: 0, borderRadius: "50%", objectFit: "cover", border: `1.5px solid ${m.dark}`, boxShadow: `0 0 5px ${m.color}` }} />;
   return (
     <svg width={size} height={size} viewBox="0 0 32 32" aria-hidden="true" style={{ flexShrink: 0, filter: m.kind !== "frag" ? `drop-shadow(0 0 4px ${m.color})` : undefined }}>
       {m.kind === "frag" ? (<>
@@ -8233,6 +8248,47 @@ function EvolutionRoad({ state }) {
 // ── モンスター図鑑：問題1問＝魔物1体。発見（解いた）→ 討伐（正解した）→ 制覇（しっかり覚えた） ──
 const DEX_PAGE = 48;
 const dexStatus = (q) => (q.excluded || (q.fs && q.fs.s >= MASTERED_STABILITY) ? 3 : (q.correct || 0) > 0 ? 2 : ((q.wrong || 0) > 0 || !!q.sr_nextReview) ? 1 : 0); // 0未発見 1発見 2討伐 3制覇
+// 魔物の種族：出会った問題の魔物の種類を集める。強い魔物はボスを倒すごとに1体ずつ載る
+function MonsterKinds({ state }) {
+  const [open, setOpen] = useState(false);
+  const cnt = {};
+  state.questionBanks.forEach((b) => (b.questions || []).forEach((q) => {
+    const s = dexStatus(q);
+    if (!s) return;
+    const k = MON_PAINTED[hashStr(String(q.id)) % MON_PAINTED.length].img;
+    const c = cnt[k] || (cnt[k] = { seen: 0, beat: 0 });
+    c.seen++; if (s >= 2) c.beat++;
+  }));
+  const wins = normRpg(state.rpg).bossWins || 0;
+  const found = MON_PAINTED.filter((x) => cnt[x.img]).length + MON_BOSS.filter((_, k) => wins > k).length;
+  const total = MON_PAINTED.length + MON_BOSS.length;
+  const cell = (x, ok, sub, strong) => (
+    <div key={x.img} className="jp text-center" style={{ padding: "4px 2px", borderRadius: 8, background: strong && ok ? "rgba(162,74,69,0.07)" : "var(--paper)", border: `1px solid ${strong && ok ? "#a24a45" : "var(--rule-soft)"}` }}>
+      <div className="flex justify-center"><MonPic m={{ sp: x }} size={56} dim={ok ? 0 : 2} /></div>
+      <div className="text-[9px] truncate" style={{ fontWeight: 700, color: ok ? "var(--ink)" : "var(--ink-mute)" }}>{ok ? x.name : "？？？"}</div>
+      <div className="text-[8px]" style={{ color: "var(--ink-mute)" }}>{sub}</div>
+    </div>
+  );
+  return (
+    <div className="mb-3">
+      <button onClick={() => setOpen(!open)} className="jp w-full flex items-center text-xs px-2 py-1.5" style={{ background: "var(--cream)", border: "1px solid var(--rule-soft)", borderRadius: 8, color: "var(--ink)", cursor: "pointer" }}>
+        <span className="flex-1 text-left" style={{ fontWeight: 800 }}>魔物の種族　{found} / {total}種</span><span style={{ color: "var(--ink-mute)" }}>{open ? "▲ 閉じる" : "▼ 見る"}</span>
+      </button>
+      {open && (
+        <div className="mt-2">
+          <div className="grid grid-cols-4 sm:grid-cols-6 gap-1.5">
+            {MON_PAINTED.map((x) => cell(x, !!cnt[x.img], cnt[x.img] ? `討伐 ${cnt[x.img].beat}` : "未発見", false))}
+          </div>
+          <div className="jp text-[11px] mt-2 mb-1" style={{ color: "#a24a45", fontWeight: 800 }}>強い魔物（論点の主・ボス）</div>
+          <div className="grid grid-cols-4 sm:grid-cols-6 gap-1.5">
+            {MON_BOSS.map((x, k) => cell(x, wins > k, wins > k ? "遭遇済み" : `ボス${k + 1}体目で`, true))}
+          </div>
+          <p className="jp text-[10px] mt-1" style={{ color: "var(--ink-mute)" }}>問題1つ1つに魔物が宿っています。解いて出会うと、その種族が載ります。強い魔物は、ストーリーの最後の1問や試練の間にも現れます。</p>
+        </div>
+      )}
+    </div>
+  );
+}
 function MonsterDex({ state }) {
   const banks = state.questionBanks.filter((b) => (b.questions || []).length > 0);
   const [bankId, setBankId] = useState(() => (banks[0] ? banks[0].id : null));
@@ -8253,6 +8309,10 @@ function MonsterDex({ state }) {
   const bar = (v, color) => <div style={{ height: 6, borderRadius: 3, background: "var(--beige)", overflow: "hidden" }}><div style={{ width: `${qs.length ? (v / qs.length) * 100 : 0}%`, height: "100%", background: color }} /></div>;
   return (
     <Box title="モンスター図鑑" icon={<BookOpen size={18} />}>
+      <div className="relative overflow-hidden mb-2" style={{ height: 92, borderRadius: 8, border: "1px solid #b08a3e", background: `url(${ART_URL}dex-banner.jpg) center 40%/cover no-repeat` }}>
+        <div className="absolute inset-x-0 bottom-0 px-3 py-1 jp text-xs" style={{ background: "linear-gradient(0deg, rgba(253,251,245,0.95), rgba(253,251,245,0))", color: "#22335c", fontWeight: 800 }}>それぞれの魔物が、君の成長を待っている</div>
+      </div>
+      <MonsterKinds state={state} />
       <div className="jp text-[11px] mb-2" style={{ color: "var(--ink-soft)" }}>全体：発見 {all.s1}/{all.n} ・ 討伐 {all.s2} ・ 制覇 {all.s3}</div>
       <select className="rpg-input mb-3 text-sm" value={bank.id} onChange={(e) => { setBankId(e.target.value); setPage(0); setPick(null); }}>
         {banks.map((b) => <option key={b.id} value={b.id}>{b.name}{b.year ? `（${b.year}）` : ""}</option>)}
@@ -8276,7 +8336,7 @@ function MonsterDex({ state }) {
         return (
           <div className="p-3 mb-3 jp" style={{ background: "var(--sky-pale)", border: "1px solid var(--gold)", animation: "sqFadeIn .25s ease-out" }}>
             <div className="flex items-center gap-3">
-              <svg viewBox="0 0 100 100" width="84" height="84" style={{ flexShrink: 0, overflow: "visible" }}>{view.sp.draw(view.rank === "unknown" ? MON_UNKNOWN : view.th)}</svg>
+              <div style={{ flexShrink: 0 }}><MonPic m={view} size={96} dim={view.rank === "unknown" ? 2 : 0} /></div>
               <div className="flex-1 min-w-0">
                 <div className="text-[10px]" style={{ color: "var(--ink-mute)" }}>No.{qs.indexOf(pq) + 1}</div>
                 <div className="text-base" style={{ fontWeight: 800, color: m.rank === "elite" && s > 0 ? "var(--brick)" : "var(--ink)" }}>{s === 0 ? "？？？" : m.name}</div>
@@ -8301,7 +8361,7 @@ function MonsterDex({ state }) {
           return (
             <button key={q.id} onClick={() => { setPick(q.id); setShowQ(false); }} className="relative p-1" title={s ? m.name : "？？？"}
               style={{ background: pick === q.id ? "var(--cream)" : "var(--paper)", border: `1px solid ${s === 3 ? "#d6b56a" : pick === q.id ? "var(--gold)" : "var(--rule-soft)"}`, borderRadius: 6, cursor: "pointer" }}>
-              <svg viewBox="0 0 100 100" width="100%" height="44" style={{ display: "block", overflow: "visible", opacity: s === 1 ? 0.6 : 1 }}>{m.sp.draw(s === 0 ? MON_UNKNOWN : m.th)}</svg>
+              <div className="flex justify-center"><MonPic m={m} size={48} dim={s === 0 ? 2 : s === 1 ? 1 : 0} /></div>
               <div className="jp text-[9px]" style={{ color: "var(--ink-mute)" }}>No.{cur * DEX_PAGE + i + 1}</div>
               {s === 3 && <span style={{ position: "absolute", top: 1, right: 3, fontSize: 10, color: "#d6b56a" }}>★</span>}
               {s > 0 && m.rank === "elite" && <span style={{ position: "absolute", top: 3, left: 3, width: 6, height: 6, borderRadius: "50%", background: "var(--brick)" }} />}
@@ -8806,13 +8866,13 @@ function StoryPanel({ pp, onTalk }) {
 // ── 週替わりボス：その週いちばん合格力の低い地域（科目）から現れる。勝てるのは週に1回 ──
 const weekKey = () => { const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return localDateStr(d); }; // その週の月曜日
 const WEEKLY_BOSS = {
-  "不動産登記法の王都": { name: "王都を蝕む影竜", icon: "🐉", boss: "dragon" },
-  "民法の古の森": { name: "古の森の大樹霊", icon: "👻", boss: "ghost" },
-  "区分所有の双子塔": { name: "双子塔の番人", icon: "🗿", boss: "golem" },
-  "調査士法の砦": { name: "砦の黒騎士", icon: "🦹", boss: "shadow" },
-  "測量の星見台": { name: "星見台の天球獣", icon: "🐉", boss: "dragon" },
-  "書式の迷宮": { name: "迷宮の書魔", icon: "👹", boss: "maou" },
-  "未踏の地": { name: "霧の主", icon: "🟢", boss: "slime" },
+  "不動産登記法の王都": { name: "王都を蝕む影竜", icon: "🐉", boss: "dragon", art: "darkdragon" },
+  "民法の古の森": { name: "古の森の大樹霊", icon: "👻", boss: "ghost", art: "elderweed" },
+  "区分所有の双子塔": { name: "双子塔の番人", icon: "🗿", boss: "golem", art: "magolem" },
+  "調査士法の砦": { name: "砦の黒騎士", icon: "🦹", boss: "shadow", art: "armor" },
+  "測量の星見台": { name: "星見台の天球獣", icon: "🐉", boss: "dragon", art: "lunawolf" },
+  "書式の迷宮": { name: "迷宮の書魔", icon: "👹", boss: "maou", art: "grimoire" },
+  "未踏の地": { name: "霧の主", icon: "🟢", boss: "slime", art: "wisp" },
 };
 const WEEKLY_REWARD = { gold: 250, xp: 150, star: 2, sage: 1, luck: 2.5 };
 const shuffleArr = (a) => { const x = [...a]; for (let i = x.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [x[i], x[j]] = [x[j], x[i]]; } return x; };
@@ -8831,7 +8891,7 @@ function weeklyBossFor(pp) {
   if (regs.length === 0) return null;
   const g = [...regs].sort((a, b) => a.power - b.power)[0];
   const def = WEEKLY_BOSS[g.name] || WEEKLY_BOSS["未踏の地"];
-  return { id: def.boss, weekly: true, idx: 3, loop: 0, icon: def.icon, name: def.name, label: `${def.name}（週替わり）`, region: g, hp: Math.min(260, 150 + g.weak * 2), atk: 22 };
+  return { id: def.boss, art: def.art, weekly: true, idx: 3, loop: 0, icon: def.icon, name: def.name, label: `${def.name}（週替わり）`, region: g, hp: Math.min(260, 150 + g.weak * 2), atk: 22 };
 }
 function WeeklyBossCard({ state, pp, onStart }) {
   const r = normRpg(state.rpg);
@@ -8841,7 +8901,7 @@ function WeeklyBossCard({ state, pp, onStart }) {
   return (
     <Box title="週替わりボス" icon={<Skull size={18} />}>
       <div className="flex items-center gap-3">
-        <div style={{ flexShrink: 0, filter: done ? "grayscale(1) opacity(0.5)" : undefined }}><GameIcon ch={wb.icon} id={wb.id} size={64} boss /></div>
+        <div style={{ flexShrink: 0, filter: done ? "grayscale(1) opacity(0.5)" : undefined }}><GameIcon ch={wb.icon} id={wb.id} art={wb.art} size={64} boss /></div>
         <div className="flex-1 min-w-0 jp">
           <div className="text-[10px]" style={{ color: "var(--ink-mute)" }}>今週の出現地：{wb.region.name}（合格力 {pctTxt(wb.region.power)}・いちばん低い地域）</div>
           <div className="text-base" style={{ fontWeight: 800, color: "var(--brick)" }}>{wb.name}</div>
@@ -8872,7 +8932,7 @@ function RehearsalCard({ state, pp, actions, onStart }) {
   const W = 300, H = 110, top = 100;
   const yOf = (v) => H - 14 - (v / top) * (H - 24);
   return (
-    <Box title="本番リハーサル" icon={<Clock size={18} />}>
+    <Box title="本番リハーサル" icon={<GameIcon ch="🗝️" painted="c25" size={24} />}>
       <p className="jp text-[11px] mb-2" style={{ color: "var(--ink-soft)" }}>本番（午後の部）と同じ形で、時間を計って解きます。択一20問のあと、書式（記述2問）は手元の問題を紙で解いて自己採点を入れてください。択一の基準点・記述の基準点・合格点の3つで判定します。</p>
       <div className="grid grid-cols-2 gap-2">
         <button disabled={!ok} onClick={() => go(true)} className="jp btn-primary py-2 px-1" style={{ opacity: ok ? 1 : 0.45 }}>
@@ -9977,7 +10037,7 @@ function ShoshikiDojo({ state, actions }) {
   };
   const chip = (on) => ({ borderRadius: 999, border: `1px solid ${on ? "var(--gold)" : "var(--rule-soft)"}`, background: on ? "var(--cream)" : "var(--paper)", color: "var(--ink)", fontWeight: on ? 800 : 500, cursor: "pointer" });
   return (
-    <Box title="書式の鍛錬場（記述式の記録）" icon={<Pencil size={18} />}>
+    <Box title="書式の鍛錬場（記述式の記録）" icon={<GameIcon ch="📖" painted="c04" size={24} />}>
       <p className="jp text-[11px] mb-2" style={{ color: "var(--ink-soft)" }}>書式の問題を解いたら、時間と自己採点、ミスの種類を記録しましょう。記録するたびにEXPと書式の欠片、8割以上なら星霊石も手に入ります。</p>
       <div className="jp space-y-2">
         <div className="flex flex-wrap gap-1.5">{SHOSHIKI_KINDS.map((k) => <button key={k} onClick={() => setKind(k)} className="text-xs px-3 py-1" style={chip(kind === k)}>{k}</button>)}</div>
@@ -10120,7 +10180,7 @@ function ShinseiDrill({ state, actions }) {
   const recent = log.slice(-10);
   const n = recent.reduce((t, e) => t + e.n, 0), ok = recent.reduce((t, e) => t + e.ok, 0);
   return (
-    <Box title="申請書の穴埋め（書式の基本）" icon={<FileQuestion size={18} />}>
+    <Box title="申請書の穴埋め（書式の基本）" icon={<GameIcon ch="📘" painted="c23" size={24} />}>
       <p className="jp text-[11px] mb-2" style={{ color: "var(--ink-soft)" }}>場面を読んで、申請書の「登記の目的」「登記原因及びその日付」「申請の期限」「添付情報」を選びます。書式で落としやすい欄を、くり返し確かめましょう。前回まちがえた場面は優先して出ます。</p>
       {done && (
         <div className="jp text-center mb-3 px-3 py-3" style={{ background: "var(--cream)", border: "1px solid var(--gold)", borderRadius: 10, animation: "sqFadeIn .3s ease-out" }}>
@@ -10270,7 +10330,7 @@ function SakuzuDrill({ state, actions }) {
   const recent = log.slice(-10), rn = recent.reduce((a, e) => a + e.n, 0), rok = recent.reduce((a, e) => a + e.ok, 0);
   const chip = (on) => ({ borderRadius: 999, border: `1px solid ${on ? "var(--gold)" : "var(--rule-soft)"}`, background: on ? "var(--cream)" : "var(--paper)", color: "var(--ink)", fontWeight: on ? 800 : 500, cursor: "pointer" });
   if (!prob) return (
-    <Box title="作図ドリル（方眼に描く）" icon={<Pencil size={18} />}>
+    <Box title="作図ドリル（方眼に描く）" icon={<GameIcon ch="📜" painted="c22" size={24} />}>
       <p className="jp text-[11px] mb-2" style={{ color: "var(--ink-soft)" }}>座標の表を見ながら、方眼（1目盛り＝1m・上が北）に点を打って図を描きます。書式の作図の練習です。点は近くの目盛りに吸い付きます。</p>
       <div className="jp flex flex-wrap gap-1.5 mb-2">{SAKUZU_TYPES.map((t) => <button key={t.id} onClick={() => setType(t.id)} className="text-xs px-3 py-1" style={chip(type === t.id)}>{t.name}</button>)}</div>
       <button onClick={() => start()} className="jp btn-primary w-full py-2">作図を始める</button>
@@ -10468,7 +10528,7 @@ function CalcDrill({ state, actions }) {
   });
   const today = log.filter((e) => e.d === todayStr());
   return (
-    <Box title="計算ドリル（座標・面積）" icon={<Pencil size={18} />}>
+    <Box title="計算ドリル（座標・面積）" icon={<GameIcon ch="⚙️" painted="c20" size={24} />}>
       <p className="jp text-[11px] mb-2" style={{ color: "var(--ink-soft)" }}>記述式で必ず使う座標の計算を、数字を変えて何問でも練習できます。電卓を用意して、速さと正確さをきたえましょう。正解するたびにEXPとゴールド、座標の欠片が手に入ります。</p>
       {done && (
         <div className="jp text-center mb-3 px-3 py-3" style={{ background: "var(--cream)", border: "1px solid var(--gold)", borderRadius: 10, animation: "sqFadeIn .3s ease-out" }}>
@@ -10664,7 +10724,7 @@ function LawCloze({ state, actions }) {
 
   const stats = LAWS.map((l) => { const lg = cz.log.filter((e) => e.law === l.key).slice(-5); const n = lg.reduce((a, e) => a + e.n, 0), ok = lg.reduce((a, e) => a + e.ok, 0); return { l, acc: n ? ok / n : null, times: cz.log.filter((e) => e.law === l.key).length, miss: Object.keys(cz.miss || {}).filter((k) => k.startsWith(`${l.key}:`)).length }; }).filter((x) => x.times > 0);
   return (
-    <Box title="条文の穴埋め" icon={<ScrollIcon size={18} />}>
+    <Box title="条文の穴埋め" icon={<GameIcon ch="📗" painted="c21" size={24} />}>
       <p className="jp text-[11px] mb-2" style={{ color: "var(--ink-soft)" }}>条文の大事な言葉（期間・数・「しなければならない／できる」・用語）が空欄になります。4つの中から選んでください。まちがえた条文は覚えておき、あとで集中して復習できます。</p>
       {done && (
         <div className="jp text-center mb-3 px-3 py-3" style={{ background: "var(--cream)", border: "1px solid var(--gold)", borderRadius: 10, animation: "sqFadeIn .3s ease-out" }}>
@@ -10967,6 +11027,10 @@ const TOWER_PASS = 0.8;
 const TOWER_LAYERS = ["礎の層", "書庫の層", "風の回廊", "水鏡の層", "星読みの層", "黄金の層", "霧の層", "雷鳴の層", "聖域の層", "天頂"];
 const towerLayer = (f) => TOWER_LAYERS[Math.min(TOWER_LAYERS.length - 1, Math.floor((f - 1) / 10))];
 const isCheckpoint = (f) => f % 10 === 0;
+// 塔の4つの区域（絵は public/art/tower/zone1〜4.jpg）と10の層の景色（layer01〜10.jpg）
+const TOWER_ZONES = [{ at: 1, name: "試練のはじまり", range: "1〜24階" }, { at: 25, name: "下層の間", range: "25〜49階" }, { at: 50, name: "中層の間", range: "50〜74階" }, { at: 75, name: "天空の間", range: "75〜100階" }];
+const towerZone = (f) => TOWER_ZONES.reduce((k, z, i) => (f >= z.at ? i : k), 0);
+const towerSceneUrl = (f) => `${ART_URL}tower/zone${towerZone(f) + 1}.jpg`;
 const towerNewCount = (f) => (isCheckpoint(f) ? 0 : f === 1 ? 10 : 8);
 const towerStart = (f) => { let n = 0; for (let i = 1; i < f; i++) n += towerNewCount(i); return n; };
 // 塔に並べる問題の順番：科目（地域）ごとの出題順を、問題数に比例して交互に混ぜる
@@ -11024,15 +11088,40 @@ function TowerView({ state, pp, onStart }) {
   const cp = isCheckpoint(next);
   return (
     <Box title="試練の塔" icon={<Castle size={18} />}>
-      <div className="relative overflow-hidden mb-3" style={{ borderRadius: 8, height: 130, border: "1px solid #b08a3e" }}>
-        <img src={`${ART_URL}academy.jpg`} alt="王立魔法学院都市" className="w-full h-full" style={{ objectFit: "cover", objectPosition: "center 30%" }} />
-        <div className="absolute inset-x-0 bottom-0 px-3 py-1 jp text-xs" style={{ background: "linear-gradient(0deg, rgba(253,251,245,0.95), rgba(253,251,245,0))", color: "#22335c", fontWeight: 800 }}>王立魔法学院の試練の塔</div>
-      </div>
+      {!(tw.floor > 0) ? (
+        <div className="relative overflow-hidden mb-3" style={{ borderRadius: 8, height: 130, border: "1px solid #b08a3e" }}>
+          <img src={`${ART_URL}academy.jpg`} alt="王立魔法学院都市" className="w-full h-full" style={{ objectFit: "cover", objectPosition: "center 30%" }} />
+          <div className="absolute inset-x-0 bottom-0 px-3 py-1 jp text-xs" style={{ background: "linear-gradient(0deg, rgba(253,251,245,0.95), rgba(253,251,245,0))", color: "#22335c", fontWeight: 800 }}>王立魔法学院の試練の塔 ― 100の階層に挑む、君の成長の証</div>
+        </div>
+      ) : (
+        <div className="flex gap-2 mb-3" style={{ height: 140 }}>
+          {/* 塔の絵：いまいる高さのあたりを映す */}
+          <div className="relative overflow-hidden flex-shrink-0" style={{ width: 92, borderRadius: 8, border: "1px solid #b08a3e", background: `url(${ART_URL}tower/tower.jpg) center ${Math.round(100 - ((tw.floor || 0) / TOWER_MAX) * 100)}%/cover no-repeat` }}>
+            <div className="absolute jp text-[10px] px-1.5" style={{ left: 4, top: "46%", background: "rgba(34,51,92,0.85)", color: "#fdfbf5", borderRadius: 4, fontWeight: 800 }}>▶ {next}F</div>
+          </div>
+          {/* 区域の景色 */}
+          <div className="relative overflow-hidden flex-1" style={{ borderRadius: 8, border: "1px solid #b08a3e", background: `url(${towerSceneUrl(next)}) center/cover no-repeat` }}>
+            <div className="absolute left-0 top-0 jp text-[11px] px-2 py-0.5" style={{ background: "rgba(34,51,92,0.82)", color: "#fdfbf5", borderBottomRightRadius: 8, fontWeight: 800 }}>{TOWER_ZONES[towerZone(next)].name}（{TOWER_ZONES[towerZone(next)].range}）</div>
+            <div className="absolute inset-x-0 bottom-0 px-2 py-1 jp text-[11px]" style={{ background: "linear-gradient(0deg, rgba(253,251,245,0.95), rgba(253,251,245,0))", color: "#22335c", fontWeight: 800 }}>{done ? "塔の頂 ― 100の階層を越えた" : `いまの層：${towerLayer(next)}`}</div>
+          </div>
+        </div>
+      )}
       <div className="jp flex items-baseline justify-between mb-1">
         <span style={{ fontFamily: "'Shippori Mincho B1', serif", fontWeight: 800, fontSize: 18, color: "var(--ink)" }}>{done ? "塔の頂に到達" : `第${next}階　${towerLayer(next)}`}</span>
         <span className="text-[11px]" style={{ color: "var(--ink-soft)" }}>突破 {tw.floor || 0} / {TOWER_MAX}階</span>
       </div>
       <div style={{ height: 6, borderRadius: 3, background: "var(--beige)", overflow: "hidden", marginBottom: 10 }}><div style={{ width: `${((tw.floor || 0) / TOWER_MAX) * 100}%`, height: "100%", background: "linear-gradient(90deg, #8c79c8, #d6b56a)" }} /></div>
+      <div className="grid grid-cols-5 gap-1 mb-3">
+        {TOWER_LAYERS.map((name, k) => {
+          const st0 = k * 10 + 1, reached = (tw.floor || 0) >= st0 - 1, cur = next >= st0 && next <= st0 + 9 && !done, clear = (tw.floor || 0) >= st0 + 9;
+          return (
+            <div key={name} className="relative overflow-hidden jp" title={`${st0}〜${st0 + 9}階　${name}`} style={{ height: 46, borderRadius: 6, border: `${cur ? 2 : 1}px solid ${cur ? "#b08a3e" : "var(--rule-soft)"}`, background: `url(${ART_URL}tower/layer${String(k + 1).padStart(2, "0")}.jpg) center/cover no-repeat`, filter: reached ? undefined : "grayscale(1) brightness(0.55)", opacity: reached ? 1 : 0.7 }}>
+              <div className="absolute inset-x-0 bottom-0 text-center text-[8px]" style={{ background: "rgba(20,28,50,0.65)", color: "#fdfbf5", fontWeight: 700, lineHeight: 1.5 }}>{st0}〜{st0 + 9}F{clear ? " ✓" : ""}</div>
+              {!reached && <div className="absolute inset-0 flex items-center justify-center text-sm" style={{ color: "#fdfbf5" }}>🔒</div>}
+            </div>
+          );
+        })}
+      </div>
       <div className="flex gap-3">
         {/* いまの層の10階分 */}
         <div className="flex-shrink-0" style={{ width: 110 }}>
@@ -11132,7 +11221,7 @@ function TrialRun({ state, run, recordAnswer, startTimer, stopTimer, onExit, onF
       <div className="jp text-center" style={{ fontFamily: "'Shippori Mincho B1', serif", fontWeight: 800, color: "var(--ink)" }}>{run.title}</div>
       {run.sub && <div className="jp text-center text-[11px]" style={{ color: "var(--ink-soft)" }}>{run.sub}</div>}
       <div className="flex gap-1">{pool.map((_, i) => <span key={i} style={{ flex: 1, height: 5, borderRadius: 3, background: i < res.length ? (res[i] ? "#d6b56a" : "#e0948a") : i === idx ? "var(--sky-deep)" : "var(--beige)" }} />)}</div>
-      <BattleStage state={state} q={q} bankName={bank.name} battleKey={battleKey} boss={boss} />
+      <BattleStage state={state} q={q} bankName={bank.name} battleKey={battleKey} boss={boss} scene={run.scene} />
       <div className="rpg-box p-1">
         <div className="rpg-inner-border min-h-[180px] flex flex-col">
           <div className="jp text-[10px] mb-2" style={{ color: "var(--ink-mute)" }}>{bank.name}</div>
@@ -11246,7 +11335,7 @@ function AdventureTab({ state, actions, recordAnswer, startTimer, stopTimer, tod
     const f = towerRun.floor;
     const cp = isCheckpoint(f);
     return <TrialRun key={`${f}-${towerRun.n || 0}`} state={state} recordAnswer={recordAnswer} startTimer={startTimer} stopTimer={stopTimer}
-      run={{ kind: cp ? "試練の間" : `第${f}階`, title: cp ? `第${f}階　試練の間 ― ${towerLayer(f)}の番人` : `試練の塔　第${f}階　${towerLayer(f)}`, sub: cp ? `第${f - 9}〜${f - 1}階の総復習` : null, pool: towerRun.pool, pass: TOWER_PASS, boss: cp ? "all" : "last" }}
+      run={{ kind: cp ? "試練の間" : `第${f}階`, title: cp ? `第${f}階　試練の間 ― ${towerLayer(f)}の番人` : `試練の塔　第${f}階　${towerLayer(f)}`, sub: cp ? `第${f - 9}〜${f - 1}階の総復習` : null, pool: towerRun.pool, pass: TOWER_PASS, boss: cp ? "all" : "last", scene: towerSceneUrl(f) }}
       onFinish={(acc) => actions.towerFinish({ floor: f, acc })}
       onExit={() => setTowerRun(null)}
       nextLabel={f < TOWER_MAX ? `第${f + 1}階へ` : "塔をおりる"}
@@ -11340,7 +11429,7 @@ function AdventureTab({ state, actions, recordAnswer, startTimer, stopTimer, tod
       {/* ボス戦 */}
       <Box title="ボス戦" icon={<Skull size={18} />}>
         <div className="flex items-center gap-3 mb-3">
-          <div className="text-5xl"><GameIcon ch={boss.icon} id={boss.id} size={64} boss /></div>
+          <div className="text-5xl"><GameIcon ch={boss.icon} id={boss.id} art={boss.art} size={64} boss /></div>
           <div className="flex-1">
             <div className="jp text-base" style={{ color: "var(--brick)", fontWeight: "bold" }}>{boss.label}</div>
             <div className="pixel text-[10px]" style={{ color: "var(--ink-soft)" }}>HP {boss.hp} ・ ATK {boss.atk}</div>
@@ -11433,7 +11522,9 @@ function AdventureTab({ state, actions, recordAnswer, startTimer, stopTimer, tod
 
       {/* ショップ */}
       <Box title="ショップ" icon={<Crown size={18} />}>
-        <div className="mb-3" style={{ height: 90, borderRadius: 8, border: "1px solid #b08a3e", background: `url(${ART_URL}forge.jpg) center 70%/cover no-repeat` }} />
+        <div className="mb-3 relative overflow-hidden" style={{ height: 90, borderRadius: 8, border: "1px solid #b08a3e", background: `url(${ART_URL}items-banner.jpg) center 45%/cover no-repeat` }}>
+          <div className="absolute inset-x-0 bottom-0 px-3 py-1 jp text-xs" style={{ background: "linear-gradient(0deg, rgba(253,251,245,0.95), rgba(253,251,245,0))", color: "#22335c", fontWeight: 800 }}>集めたアイテムは、君の力になる</div>
+        </div>
         <div className="space-y-1">
           {RPG_ITEMS.filter((it) => it.price).map((it) => (
             <div key={it.id} className="flex items-center gap-2 p-1.5" style={{ border: "1px solid var(--rule-soft)", background: "var(--paper)" }}>
@@ -11558,7 +11649,7 @@ function BossBattle({ state, boss, pool, actions, recordAnswer, startTimer, stop
     return (
       <Box title={result.won ? "勝利！" : "敗北…"} icon={result.won ? <Award size={18} /> : <Skull size={18} />}>
         <div className="text-center py-3">
-          <div className="text-6xl mb-2" style={{ filter: result.won ? "grayscale(1) opacity(0.4)" : "none" }}><GameIcon ch={boss.icon} id={boss.id} size={76} boss /></div>
+          <div className="text-6xl mb-2" style={{ filter: result.won ? "grayscale(1) opacity(0.4)" : "none" }}><GameIcon ch={boss.icon} id={boss.id} art={boss.art} size={76} boss /></div>
           <div className="jp text-base mb-2" style={{ color: result.won ? "var(--sage)" : "var(--brick)" }}>
             {result.won ? `${boss.label}を倒した！` : result.fled ? `${boss.label}は逃げていった…` : "力尽きてしまった…"}
           </div>
@@ -11588,7 +11679,7 @@ function BossBattle({ state, boss, pool, actions, recordAnswer, startTimer, stop
       <div className="rpg-box p-1">
         <div className="rpg-inner-border">
           <div className="flex items-center gap-3">
-            <div className={`text-5xl ${hit === "boss" ? "sq-shake" : ""}`}><GameIcon ch={boss.icon} id={boss.id} size={64} boss /></div>
+            <div className={`text-5xl ${hit === "boss" ? "sq-shake" : ""}`}><GameIcon ch={boss.icon} id={boss.id} art={boss.art} size={64} boss /></div>
             <div className="flex-1">
               <div className="jp text-sm mb-1" style={{ color: "var(--brick)", fontWeight: "bold" }}>{boss.label}</div>
               {bar(bossHp, boss.hp, "linear-gradient(90deg, var(--brick), #c66060)")}
@@ -12130,9 +12221,25 @@ const MONSTER_SPECIES = [
     {monEyes({ ...c, eye: c.eye || "#f2c14e" }, 38, 12, 3)}
   </>) },
 ];
+// 描きおろしの魔物（public/art/mon/）。ふだんの魔物と、強い魔物（論点の主・ボス）
+const MON_PAINTED = [
+  ["slime", "スライム"], ["wolf", "ウルフ"], ["magician", "マジシャン"], ["stonegolem", "ストーンゴーレム"], ["harpy", "ハーピー"],
+  ["mandrake", "マンドレイク"], ["lizard", "リザードマン"], ["mimic", "ミミック"], ["sprite", "マジック・スプライト"], ["lunawolf", "ルナウルフ"],
+  ["wisp", "ウィスプ"], ["kelpie", "グリーンケルピー"], ["goblin", "ゴブリン"], ["skeleton", "スケルトンウォリアー"], ["spider", "スパイダー"],
+  ["armor", "リビングアーマー"], ["mandragora", "マンドラゴラ"], ["rockgolem", "ロックゴーレム"], ["ghost", "ゴースト"],
+].map(([img, name]) => ({ img, name }));
+const MON_BOSS = [["slimeking", "スライムキング"], ["magolem", "古代の魔導ゴーレム"], ["darkdragon", "ダークドラゴン"], ["elderweed", "エルダーウィード"], ["grimoire", "魔導書の番人"]].map(([img, name]) => ({ img, name }));
+const MON_MASK = "radial-gradient(circle at 50% 50%, #000 55%, rgba(0,0,0,0.55) 63%, transparent 70.5%)";
+// 魔物の絵：dim 0＝ふつう、1＝うすく（発見だけ）、2＝影（まだ出会っていない）
+function MonPic({ m, size, dim = 0 }) {
+  if (!m.sp.img) return <svg viewBox="0 0 100 100" width={size} height={size} style={{ display: "block", overflow: "visible", opacity: dim === 1 ? 0.6 : 1 }}>{m.sp.draw(dim === 2 ? MON_UNKNOWN : m.th)}</svg>;
+  return <div role="img" aria-label={dim === 2 ? "まだ見ぬ魔物" : m.sp.name} style={{ width: size, height: size, borderRadius: "50%", backgroundImage: `url(${MON_ART_URL}${m.sp.img}.jpg)`, backgroundSize: "cover", backgroundPosition: "center", WebkitMaskImage: MON_MASK, maskImage: MON_MASK, filter: dim === 2 ? "brightness(0.18) saturate(0) contrast(1.2)" : undefined, opacity: dim === 1 ? 0.6 : 1 }} />;
+}
 function monsterFor(q, bankName) {
   const th = themeOf(bankName);
-  const sp = MONSTER_SPECIES[hashStr(String(q.id)) % MONSTER_SPECIES.length];
+  const h = hashStr(String(q.id));
+  const pm = MON_PAINTED[h % MON_PAINTED.length];
+  const sp = { ...MONSTER_SPECIES[h % MONSTER_SPECIES.length], name: pm.name, img: pm.img };
   const seen = (q.correct || 0) + (q.wrong || 0) > 0 || !!q.sr_nextReview;
   const rank = !seen ? "unknown" : isQuestionWeak(q) ? "elite" : "normal";
   return { key: String(q.id), sp, th, rank, name: `${rank === "elite" ? "手強い" : ""}${th.prefix}${sp.name}` };
@@ -12182,7 +12289,7 @@ function MonsterView({ m, anim, delay = 0, size = 92 }) {
       </div>
       <div style={{ position: "relative", width: size, height: size, animation: anim === "enter" ? "sqbIdle 2.4s ease-in-out infinite" : undefined }}>
         {m.rank === "elite" && <div style={{ position: "absolute", inset: -8, borderRadius: "50%", background: "radial-gradient(circle, rgba(201,74,74,0.45) 0%, rgba(201,74,74,0.12) 55%, transparent 72%)", animation: "sqbAura 1.6s ease-in-out infinite" }} />}
-        <svg viewBox="0 0 100 100" width={size} height={size} style={{ position: "relative", display: "block", overflow: "visible" }}>{m.sp.draw(c)}</svg>
+        <div style={{ position: "relative" }}>{m.sp.img ? <MonPic m={m} size={size} dim={m.rank === "unknown" ? 2 : 0} /> : <svg viewBox="0 0 100 100" width={size} height={size} style={{ display: "block", overflow: "visible" }}>{m.sp.draw(c)}</svg>}</div>
         {m.rank === "unknown" && <div className="jp" style={{ position: "absolute", left: "50%", top: "8%", transform: "translateX(-50%)", fontSize: size * 0.3, fontWeight: 800, color: "#f2c14e", textShadow: "0 0 8px rgba(242,193,78,0.8)" }}>？</div>}
       </div>
       <div style={{ width: size * 0.7, height: 7, borderRadius: "50%", background: "rgba(34,51,92,0.18)", marginTop: -3 }} />
@@ -12191,14 +12298,15 @@ function MonsterView({ m, anim, delay = 0, size = 92 }) {
 }
 
 // battleKey：1回の学習（セット）ごとに変わる値。変わったときだけ HP・コンボを最初からにする
-function BattleStage({ state, q, bankName, battleKey, boss = false }) {
+function BattleStage({ state, q, bankName, battleKey, boss = false, scene = null }) {
   if (BATTLE.key !== battleKey) { resetBattle(state); BATTLE.key = battleKey; }
   const ds = state.displaySettings || {};
   const theme = ds.theme || "white";
   const P = BATTLE_THEME[theme] || BATTLE_THEME.white;
   const mon0 = q ? monsterFor(q, bankName) : null;
   // ストーリークエストの最後の1問は「論点の主」（手強い魔物の見た目）
-  const mon = mon0 && boss ? { ...mon0, rank: "elite", name: `論点の主・${mon0.name.replace("手強い", "")}` } : mon0;
+  const bossSp = mon0 && boss ? MON_BOSS[hashStr(mon0.key) % MON_BOSS.length] : null;
+  const mon = mon0 && boss ? { ...mon0, rank: "elite", sp: { ...mon0.sp, ...bossSp }, name: `論点の主・${mon0.th.prefix}${bossSp.name}` } : mon0;
   const monRef = useRef(mon); monRef.current = mon;
   const qRef = useRef(q); qRef.current = q;
   const stRef = useRef(state); stRef.current = state;
@@ -12256,14 +12364,14 @@ function BattleStage({ state, q, bankName, battleKey, boss = false }) {
   const kind = mon.rank === "unknown" ? ["初見の魔物", "#5b6b8c"] : mon.rank === "elite" ? ["手強い魔物", "#a24a45"] : ["復習の魔物", "#4f8a72"];
   const parts = fx && fx.ok ? Array.from({ length: 10 }, (_, i) => { const a = (i / 10) * Math.PI * 2 + (fx.n % 7) * 0.3; const r = 34 + ((i * 13 + fx.n * 7) % 22); return { dx: `${Math.round(Math.cos(a) * r)}px`, dy: `${Math.round(Math.sin(a) * r)}px`, c: i % 3 === 0 ? "#fff3c4" : fx.crit ? "#f2c14e" : (fx.mon.rank === "unknown" ? MON_UNKNOWN : fx.mon.th).body }; }) : [];
   return (
-    <div className="relative overflow-hidden select-none" style={{ height: 156, borderRadius: 8, background: P.bg, border: P.border, color: P.text, boxShadow: "0 6px 18px rgba(40,50,80,0.12)", animation: fx && !fx.ok ? "sqbShake .38s ease-in-out" : undefined }}>
+    <div className="relative overflow-hidden select-none" style={{ height: 156, borderRadius: 8, background: scene ? `${theme === "classic" ? "linear-gradient(0deg, rgba(10,18,38,0.82) 0%, rgba(10,18,38,0.25) 50%, rgba(10,18,38,0.05) 100%)" : "linear-gradient(0deg, rgba(253,251,245,0.9) 0%, rgba(253,251,245,0.25) 48%, rgba(253,251,245,0) 75%)"}, url(${scene}) center/cover no-repeat` : P.bg, border: P.border, color: P.text, boxShadow: "0 6px 18px rgba(40,50,80,0.12)", animation: fx && !fx.ok ? "sqbShake .38s ease-in-out" : undefined }}>
       <style>{BATTLE_CSS}</style>
-      {/* 遠景（山並みと城） */}
-      <svg viewBox="0 0 400 100" preserveAspectRatio="none" aria-hidden="true" style={{ position: "absolute", left: 0, right: 0, bottom: "30%", width: "100%", height: 70 }}>
+      {/* 遠景（山並みと城）。景色の絵があるときは出さない */}
+      {!scene && <svg viewBox="0 0 400 100" preserveAspectRatio="none" aria-hidden="true" style={{ position: "absolute", left: 0, right: 0, bottom: "30%", width: "100%", height: 70 }}>
         <path d="M0 100V62l38-22 30 16 44-34 40 26 30-14 52 30 34-18 46 22 40-28 46 30v30z" fill={P.hill} />
         <path d="M250 100V58h6v-8l4-6 4 6v8h8V46l5-9 5 9v12h8v-6l4-5 4 5v48zM0 100V80l60-10 70 14 90-12 80 10 100-8v26z" fill={P.hill2} />
-      </svg>
-      <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: "40%", background: P.ground }} />
+      </svg>}
+      {!scene && <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: "40%", background: P.ground }} />}
       {/* 魔物の種類 */}
       <div className="jp" style={{ position: "absolute", left: 10, top: 8, fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 999, background: P.chip, border: `1px solid ${kind[1]}`, color: kind[1] }}>{kind[0]}</div>
       {/* コンボ */}

@@ -144,14 +144,25 @@ export const PAINTED_BY_ID = {
   "w-staff": "a13", "w-pen": "a07", "w-chain": "a01", "w-holy": "b01", "w-divine": "b01",
   "a-robe": "a10", "a-vest": "b09", "a-coat": "b07", "a-border": "a02", "a-immovable": "a03",
   "x-compass": "b05", "x-glasses": "a16", "x-level": "b03", "x-charm": "a09",
+  // アイテム図鑑の装備（四角い絵を丸く切り抜く）
+  "w-star": "c01", "w-sky": "c02", "w-bow": "c03", "w-tome": "c04",
+  "a-angel": "c05", "a-dragon": "c06", "a-mantle": "c07", "a-uniform": "c08",
+  "x-ring": "c09", "x-pendant": "c10", "x-bracelet": "c11", "x-brooch": "c12",
 };
 export const PAINTED_BY_CH = { "🧪": "b04", "📕": "b02", "🎫": "a11" };
-export const paintedUrl = (file) => `${ITEM_ART}${file}.png`;
-export function GameIcon({ ch, id, rarity, size = 28, boss = false }) {
+// c01〜c26 はアイテム図鑑から切り出した四角い絵（背景つき）。メダルの中に丸く切り抜いて出す
+export const paintedUrl = (file) => `${ITEM_ART}${file}.${file[0] === "c" ? "jpg" : "png"}`;
+// 描きおろしの魔物（public/art/mon/）
+export const MON_ART_URL = `${(import.meta.env && import.meta.env.BASE_URL) || "/"}art/mon/`;
+export function GameIcon({ ch, id, rarity, size = 28, boss = false, art: monArt, painted: paintedFile }) {
   const gid = useId();
-  const painted = (id && PAINTED_BY_ID[id]) || (!boss && PAINTED_BY_CH[ch]);
-  const art = painted ? (
-    <image href={paintedUrl(painted)} x="7" y="7" width="34" height="34" preserveAspectRatio="xMidYMid meet"
+  const painted = paintedFile || (id && PAINTED_BY_ID[id]) || (!boss && PAINTED_BY_CH[ch]);
+  const round = monArt || (painted && painted[0] === "c");
+  const art = monArt ? (
+    <image href={`${MON_ART_URL}${monArt}.jpg`} x="3" y="3" width="42" height="42" preserveAspectRatio="xMidYMid slice" clipPath={`url(#${gid}c)`} />
+  ) : painted ? (round
+    ? <image href={paintedUrl(painted)} x="5" y="5" width="38" height="38" preserveAspectRatio="xMidYMid slice" clipPath={`url(#${gid}c)`} />
+    : <image href={paintedUrl(painted)} x="7" y="7" width="34" height="34" preserveAspectRatio="xMidYMid meet"
       style={id === "w-divine" ? { filter: "drop-shadow(0 0 2px #f2c14e) drop-shadow(0 0 3px #d98fa6)" } : undefined} />
   ) : (id && GAME_ART_BY_ID[id]) || GAME_ART[ch];
   const emoji = <span className={art ? "ico-emoji sq-emo" : "sq-emo"} style={{ fontSize: size * 0.8, lineHeight: 1 }}>{ch}</span>;
@@ -160,6 +171,7 @@ export function GameIcon({ ch, id, rarity, size = 28, boss = false }) {
   return (<>{emoji}
     <svg className="ico-line" width={size} height={size} viewBox="0 0 48 48" fill="none" aria-hidden="true">
       {rarity === "SSR" && <defs><linearGradient id={gid} x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#e9cf8e" /><stop offset=".45" stopColor="#d98fa6" /><stop offset=".75" stopColor="#8c79c8" /><stop offset="1" stopColor="#d6b56a" /></linearGradient></defs>}
+      {round && <defs><clipPath id={`${gid}c`}><circle cx="24" cy="24" r={monArt ? 20.5 : 19} /></clipPath></defs>}
       <circle cx="24" cy="24" r="22" fill={boss ? "#f3ebe0" : rarity === "SSR" ? "#fff7e2" : "#fbf6ea"} stroke={ring} strokeWidth={rarity === "SR" || rarity === "SSR" ? 2.8 : 2.2} />
       <circle cx="24" cy="24" r="19" stroke={rarity === "R" ? "rgba(79,127,184,0.35)" : "rgba(176,138,62,0.35)"} strokeWidth=".8" />
       {art}
