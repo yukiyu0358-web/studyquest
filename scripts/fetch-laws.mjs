@@ -8,7 +8,7 @@
 // 法改正があったときは、もう一度実行すれば最新の条文に更新されます。
 // 出典：e-Gov法令検索（デジタル庁） https://laws.e-gov.go.jp/
 // ============================================================
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, writeFile, readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
 
@@ -115,10 +115,22 @@ async function main() {
   const index = [];
   const fetchedAt = new Date().toISOString().slice(0, 10);
   let ok = 0;
+  // 法改正の記録：前回のデータと比べて、内容が変わった条文（新しくできた条文も）に日付を付けて changes.json に残す
+  const readJson = async (f) => { try { return JSON.parse(await readFile(join(outDir, f), "utf8")); } catch (e) { return null; } };
+  const changesFile = (await readJson("changes.json")) || { changes: {} };
+  const changes = changesFile.changes || {};
+  let changedN = 0;
   for (const src of LAW_SOURCES) {
     process.stdout.write(`${src.name} を取得中... `);
     try {
       const { title, articles } = await fetchLaw(src);
+      const prev = await readJson(`${src.key}.json`);
+      if (prev && Array.isArray(prev.articles)) {
+        const old = new Map(prev.articles.map((a) => [a.n, JSON.stringify(a)]));
+        for (const a of articles) {
+          if (old.get(a.n) !== JSON.stringify(a)) { (changes[src.key] = changes[src.key] || {})[a.n] = fetchedAt; changedN++; }
+        }
+      }
       const data = { key: src.key, name: src.name, title, lawId: src.lawId, lawNum: src.lawNum, fetchedAt, articles };
       await writeFile(join(outDir, `${src.key}.json`), JSON.stringify(data));
       index.push({ key: src.key, name: src.name, count: articles.length, fetchedAt });
@@ -130,6 +142,8 @@ async function main() {
     await new Promise((r) => setTimeout(r, 800)); // 相手のサーバーに負担をかけないよう少し待つ
   }
   await writeFile(join(outDir, "index.json"), JSON.stringify({ fetchedAt, laws: index }));
+  await writeFile(join(outDir, "changes.json"), JSON.stringify({ updatedAt: fetchedAt, changes }));
+  console.log(changedN ? `法改正：${changedN}条の変更を changes.json に記録しました（アプリで「⚠ 法改正あり」と表示されます）。` : "前回から変わった条文はありませんでした。");
   console.log(`\n完了：${ok} / ${LAW_SOURCES.length} 件の法令を public/laws に保存しました。`);
   if (ok < LAW_SOURCES.length) process.exitCode = 1;
 }

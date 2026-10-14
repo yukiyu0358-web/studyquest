@@ -89,7 +89,8 @@ state の主なキー：`player` / `qualifications` / `tasks` / `studyPlans`（�
 - バトル演出：`BattleStage`（問題の上に魔物。`AnswerPanel` が `emitBattle` で結果を送る）`BattleResult` `MONSTER_SPECIES` `MON_THEMES`（問題集名→科目の色・素材）`SFX`（効果音・既定オフ）`BATTLE`（1セットのHP・コンボ）。設定 `displaySettings.battle` `displaySettings.sfx`
 - 戦いの技と演出（`src/game/battlefx.jsx`）：主人公の技 `heroAttackFor`（装備中の武器 `equippedWeaponId`・科目の属性 `REGION_EL`・コンボで、斬撃［斬撃・十字斬り・三連斬］／魔法［炎・氷・雷・光・風］／弓を選ぶ。会心は大技の名前）、魔物の技 `monAttackFor`（種族ごと `MON_MOVES`：ひっかき・かみつき・炎の息・魔弾・たいあたり・岩石落とし・のろい・かまいたち）、当たるまでの時間 `impactOf`（ダメージの数字・のけぞり・揺れはここに合わせて遅らせる）。描画は `AttackFx`（H＝主人公・M＝魔物の位置を % で）`SkillBanner`（技の名前）`Ambient`（地域ごとの漂う光）、CSS は `BATTLE_FX_CSS`（sqx〜）。効果音は sfx.js の fire・ice・thunder・holy・wind・arrow・claw・roar・magicHit・victory
 - ボス戦の舞台：`BossArena`（背景 `BOSS_SCENES`［ボスの絵ごとに塔の景色］、大きなボスの絵、HP3割未満で「怒り」、主人公の表情 HERO_FACES、連撃 `combo`［2連目から威力+6%ずつ・最大+30%］、決着の演出 `dying`［VICTORY／力尽きた］。決着の演出のあいだは `busy` で答えを受け付けない）
-- 戦いの主人公の顔：`GearPortrait`（イラストのまま。装備のレア度 `equippedLook` で SR は青・SSR は金に光り、装備中の武器のしるしを右下に付ける。問題の戦いとボス戦。2頭身のミニキャラは本人の希望で入れなかった）
+- 冒険のキャラ絵（2026年10月14日、イラストフォルダの「キャラクター進化譚」「luna_attack_24_sheet.png」から）：主人公の名前は `HERO_NAME`＝ルナ（白銀の魔法剣士）。戦いの主人公は `LunaSprite`（public/art/sprite/luna-attack.webp＝攻撃モーション10コマ。attack で再生、ほかは1コマ目に動き［待機・被弾・勝利・力尽きる］、足もとに装備のレア度の光 `auraOf`。CSS は `LUNA_CSS`）。カイトのモーション（kaito_attack_24）は透明処理が粗いため未使用。セレナ・レイヴンの攻撃モーション（selena_attack_24・rayvn_attack_24、24コマから本人が画面外の3コマを除いた21コマ）は public/art/sprite/serena-attack.webp・raven-attack.webp。動く絵は `SPRITES`（url・コマ数・長さ）と `CharSprite`（LunaSprite は who=luna）。ボス戦は仲間を後ろの列に並べ（`slots`、動く絵があれば全身・なければ `AllyMedal`）、加勢のときに技のモーション。問題の戦いの3連撃ごとの加勢でも、動く絵があれば技を出す。進化の絵 public/art/evo/{luna,kaito,serena,raven}-1〜6.jpg（`EVO_URL` `heroEvoArt`。ルナは主人公の6段階 HERO_STAGES に順に対応、仲間は絆レベル `allyEvoStage`）。`EvolutionGallery`（地図と仲間「キャラクター進化譚」）・進化の道 `EvolutionRoad`・進化の演出（ev.art / ev.prevArt）・仲間の欄（魔法学院の三人はいまの姿）
+- 仲間の加勢：`battleParty`（加入した仲間から3人。`ALLY_SKILLS`：追撃 chase＝3連撃ごとに+40%、魔法 magic＝会心か2割で+30%、回復 heal＝攻撃を受けたとき4割でHP12%）。ボス戦は本当に効く（BossBattle の answer、`assist` の演出・`AllyMedal`）。問題の戦いは3連撃ごとに顔を出す演出だけ（fx.cameo）。`GearPortrait` は残っているが戦いでは使っていない
 - 戦闘力（ログレス風）：`combatPower`（レベル・HP・攻撃・会心・守り・装備のレア度 `CP_GEAR`×強化段階）。拠点の装備の欄とボス戦に表示、装備を替えると増減を知らせる（rpgActions.equip）
 - 召喚（ガチャ）：`GachaPanel` `GachaResult`（拠点。ゴールドで1回300G・10連2700G［SR以上1つ確定］、確率 `GACHA_RATE`、50回で SSR 確定 `GACHA_PITY`。rpg.gacha = {n, since}）、操作 `gachaPull` `sellBulk`（装備していない・強化していない N／R をまとめて売る）。持ち物は300個まで `invCap`（あふれたら装備していない古いものから消す）
 - 育成：素材 `RPG_MATERIALS`（戦利品は `emitReward`→StudyRPG が記録）、スキル `SKILL_TREE`（SP＝レベル−1）、鍛冶 `forgeCost` `forgedFx` `rpgInvItem`（持ち物 `{u,i,p}` の p が強化段階）。`SkillPanel` `ForgePanel`。rpg に `materials` `skills` `forgeLog` を追加
@@ -150,6 +151,16 @@ state の主なキー：`player` / `qualifications` / `tasks` / `studyPlans`（�
 - ○×のひっかけ版（問題タブ「⚡ ○×の『ひっかけ版』をつくる」）：`src/game/cloze.js` の `makeTrap`（期間は同じ単位の別の数 `SAME_UNIT`・割合・言い回し `MODAL_SWAP`・同じ仲間の用語を1つ入れ替え）`isTrueAnswer`（答えが○で始まるか）。画面 `TrapMakerPanel`（確かめて☑・🎲で作り直し、元の○の問題もまぜて新しい問題集「○○（ひっかけ版）」にする。元の問題集は変えない）
 - 知識の城（冒険の世界タブ「地図と仲間」）：`knowledgeCastle` `KnowledgeCastle` `KC_STAGES`（空き地・礎石・城壁・屋根・旗）。フォルダ1つ＝塔1本、問題集1つ＝1段。進み具合＝（定着［fs.s≥21］＋正解したことのある問題×0.5）÷問題数。城全体が25%で城壁、全部の塔に旗で完成
 - 次に取れそうな称号：`nextTitles`（冒険の実績 `ACH_PROGRESS`・レベルの称号・科目ごとのジョブの次の段階を、近い順に）`NextTitles`（ステータス画面の称号の下）。ホームの道しるべの行 `next` にも1つ
+- 学習の工夫（設定 displaySettings.study = {explain: off|say|write, slowSec, followUp, mix}。`STUDY_DEFAULTS`、StudyRPG が描くたびに `STUDY_PREFS` へ写す。設定画面は `StudySettings`）：
+  - 「答えを見る」は全部 `RevealButton`（答える前のひとこと説明、問題が出てから開くまでの秒数を `THINK` に）。`AnswerPanel` が秒数・説明を表示し、回答の meta.sec で問題の `ts`（直近5回の秒数）に記録。`slowSec` 以上かかった◎は「あやふや」（Hard）扱い
+  - 自分ルール：2回目のまちがいで AnswerPanel が一行ルールを聞き、問題の `rule` に保存（答えの下に表示・書き直し）。一覧は手帳の「ルール帳」`RuleBook`（NOTE_TABS に rules）。問題の書きかえは合図 `patchQuestion`（sq-q-patch）
+  - 交互練習 `interleaveItems`（今日の復習のセットを科目ごとに交互に）。類題で追い打ち `followUpFor`（まちがえたら同じ条文の別の問題を1問あとに。条文の索引 `lawIndex` `refsOfQ`）
+  - 試験前の仕上げ：`finishInfo` `effectiveSr`（試験日の30日前から目標記憶率95%、`FINISH_DAYS` `FINISH_RETENTION`。srSettings.finish=false でやめる）。今日の復習は、記憶率が95%を下回った問題を期限前でも前倒し（item.early）
+  - 重要度ランク `questionRanks` `RankChip`（よく出る条文6割・まちがえやすさ3割・⭐1割で A30%・B40%・C30%）。今日の復習の「重要度Aだけ」
+  - 特別な出題（今日タブ `SpecialQuizCards`、TodayTab の `startSpecial` と `pInfo`、結果は rpgActions.finishSpecial）：週末の抜き打ちテスト（土日、今週答えた問題から10問、rpg.weeklyTest[週]）、寝る前の10問（20時から、今日まちがえた問題、rpg.sleep）と翌日の朝の確認、力試し（はじめての問題集の開始画面 SessionConfig から10問、kind: pretest）。合図 sq-study-items は配列か {items, kind, title}
+  - 学習の分析（周回の部屋 `StudyAnalysis`）：思い込み度 `overconfidence`（◎の次の回にまちがえた割合＋cwCnt）・条文マップ `lawMastery` `LawMastery`・年度別 `YearScores`（問題集の year。`yearNum` で R/H を西暦に）・法改正 `LawChangeList`
+  - 本番形式の組合せ問題 `KumiaiDrill` `makeKumiai`（鍛錬。○×の問題を5つ選び「正しい／誤っているものの組合せ」5択。まちがえた肢は合図 sq-record-answer で✕として記録、rpg.kumiai）。仲間に教えるモード `TeachMode`（鍛錬。3つの答えから選んで教える、rpg.teach、絆）
+  - 法改正のお知らせ：`scripts/fetch-laws.mjs` が前回の条文と比べ、変わった条文を `public/laws/changes.json`（{updatedAt, changes:{法令:{条:日付}}}）に記録。アプリは `useLawChanges` `lawChangeOf`（LawRefChips に ⚠、「確かめた」で問題の lawOk に日付）
 - 試し表示：.claude/launch.json に demo（5174）と preview（公開版と同じビルドを 4173 で。本番の Firebase につながるのでログインはしない）
 - テーマ：`DISPLAY_DEFAULTS`（既定は white）`THEME_PAL`（classic/white の配色）`CLASSIC_CSS` `WHITE_CSS` `ClassicThemeStyle` `TitleScreen` `ClassicInfoBar` `MenuHome`（クラシック）`SignpostHome`（白金・道しるべ）`migrateDisplay`
 
