@@ -87,3 +87,88 @@ export function makeCloze(text, maxBlanks = 2) {
 }
 
 export const BLANK_LABELS = ["ア", "イ", "ウ"];
+
+// ── ○×の「ひっかけ版」：正しい文（答えが○）の大事な言葉を1つだけ入れ替えて、誤りの文を作る ──
+// 期間・数・結びの言い回し・同じ仲間の用語のどれか1つを、意味が変わる別の言葉にする。作れなければ null
+const KNUM = { 〇: 0, 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 };
+const kanjiToNum = (t) => {
+  if (/^\d+$/.test(t)) return Number(t);
+  let n = 0, cur = 0;
+  for (const ch of t) {
+    if (ch in KNUM) cur = KNUM[ch];
+    else if (ch === "十") { n += (cur || 1) * 10; cur = 0; }
+    else if (ch === "百") { n += (cur || 1) * 100; cur = 0; }
+    else return NaN;
+  }
+  return n + cur;
+};
+// 「1月以内」「一箇月以内」などを同じ形に（比べるため）
+const numKey = (w) => w.replace(/[一二三四五六七八九十百〇]+|\d+/, (m) => String(kanjiToNum(m))).replace(/箇月|か月|ヶ月|カ月/, "月");
+// 元の書き方（算用数字か漢数字か、「箇月」か「月」か）に合わせる
+const numLike = (w, orig) => {
+  let x = w;
+  if (/\d/.test(orig)) x = x.replace(/[一二三四五六七八九十百〇]+/, (m) => String(kanjiToNum(m)));
+  if (/箇月/.test(orig)) x = x.replace(/(\d|[一二三四五六七八九十])月/, "$1箇月");
+  else if (/か月/.test(orig)) x = x.replace(/(\d|[一二三四五六七八九十])(箇)?月/, "$1か月");
+  else x = x.replace(/箇月/, "月");
+  return x;
+};
+// 同じ単位で入れ替えるときの、ありそうな数
+const SAME_UNIT = { "月": [1, 2, 3, 6], "日": [3, 7, 10, 14, 20, 30], "週間": [1, 2], "年": [1, 2, 3, 5, 10, 20], "時間": [24, 48] };
+const KDIG = ["", "一", "二", "三", "四", "五", "六", "七", "八", "九"];
+const numToKanji = (v) => (v >= 10 ? `${v >= 20 ? KDIG[Math.floor(v / 10)] : ""}十${KDIG[v % 10]}` : KDIG[v] || String(v));
+// 意味が反対・別になる結びの言い回し
+const MODAL_SWAP = {
+  "しなければならない": ["することができる", "しないことができる"],
+  "することができる": ["しなければならない", "することができない"],
+  "することができない": ["することができる"],
+  "しないことができる": ["しなければならない"],
+  "してはならない": ["することができる"],
+  "とみなす": ["と推定する"],
+  "と推定する": ["とみなす"],
+  "を要しない": ["を要する"],
+  "を妨げない": ["を妨げる"],
+};
+const MODAL_EXTRA = ["できる", "できない", "要する", "要しない"];
+export function makeTrap(text) {
+  if (!text || text.length < 8 || text.length > 400) return null;
+  const cands = findCandidates(text).filter((c) => text.split(c.word).length === 2);
+  // 「できる」「できない」の短い言い回し（一問一答によく出る）
+  MODAL_EXTRA.forEach((w) => {
+    const re = new RegExp(`${w}(?=[。、]|$)`, "g"); let m;
+    while ((m = re.exec(text))) { const st = m.index; if (!cands.some((c) => st < c.end && st + w.length > c.start)) cands.push({ start: st, end: st + w.length, word: w, cat: "modal2" }); }
+  });
+  const pri = { num: 0, frac: 0, modal: 1, modal2: 1, term: 2 };
+  for (const c of shuffle(cands).sort((a, b) => pri[a.cat] - pri[b.cat] + (Math.random() - 0.5) * 1.5)) {
+    let to = null;
+    if (c.cat === "num") {
+      // 多くは同じ単位で数だけ変える（1月以内→2月以内）。ときどき単位ごと変える（1月以内→2週間以内）
+      const unit = (c.word.match(/年|箇月|か月|ヶ月|月|週間|日|時間/) || [""])[0];
+      const numStr = (c.word.match(/[一二三四五六七八九十百〇]+|\d+/) || [""])[0];
+      const n = kanjiToNum(numStr);
+      const near = (SAME_UNIT[unit.replace(/箇月|か月|ヶ月/, "月")] || []).filter((v) => v !== n);
+      if (near.length && Math.random() < 0.8) {
+        const v = shuffle(near)[0];
+        to = c.word.replace(numStr, /\d/.test(numStr) ? String(v) : numToKanji(v));
+      } else {
+        const key = numKey(c.word);
+        to = distractors(c).map((w) => numLike(w, c.word)).filter((w) => numKey(w) !== key)[0];
+      }
+    } else if (c.cat === "frac") {
+      to = shuffle(FRAC_POOL.filter((w) => w !== c.word))[0];
+    } else if (c.cat === "modal") {
+      to = shuffle(MODAL_SWAP[c.word] || [])[0];
+    } else if (c.cat === "modal2") {
+      to = { "できる": "できない", "できない": "できる", "要する": "要しない", "要しない": "要する" }[c.word];
+    } else if (c.cat === "term") {
+      // 同じ仲間の用語だけ（仲間がいない言葉は入れ替えない）
+      const g = TERM_GROUPS.find((x) => x.includes(c.word));
+      if (g) to = shuffle(g.filter((w) => w !== c.word && !c.word.includes(w) && !w.includes(c.word)))[0];
+    }
+    if (!to || to === c.word) continue;
+    return { text: text.slice(0, c.start) + to + text.slice(c.end), from: c.word, to, cat: c.cat };
+  }
+  return null;
+}
+// 答えが「○」「正しい」で始まる問題か
+export const isTrueAnswer = (a) => /^\s*[○◯〇]|^\s*正(しい)?(\s|。|$|　)/.test(String(a || ""));

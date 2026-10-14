@@ -139,6 +139,12 @@ state の主なキー：`player` / `qualifications` / `tasks` / `studyPlans`（�
 - 集中タイマー（手帳の「時間」）：`FocusTimer` `FOCUS_MIN`25・`FOCUS_BREAK_MIN`5、`focusChime`（効果音の設定に関係なく鳴らす）。状態は rpg.focusRun = {phase: focus|break|ready, endAt, own}（StudyRPG の useEffect が時間で切り替え。ほかの画面でも止まらない）、rpg.focus = {day, n, total}。集中中は学習タイマーを動かして時間を記録
 - 直前見直しノート（問題タブ「🖨 直前見直しノート」）：`PrintNoteButton` `PrintNote`（苦手／まちがえたことがある／⭐、フォルダの選択、最大問題数、答えを最後にまとめる。window.print、印刷時は body.sq-printing でほかを隠す）
 - 仲間の勉強会（クエストの欄）：`StudyGroupCard` `studyGroupHost`（加入している仲間が週ごとに順番）`studyGroupPool`（その仲間の likes の地域から10問）、戦いは TrialRun（7割＝`STUDY_GROUP_PASS`）、結果 `studyGroupFinish`（その週はじめてのクリアで絆+30・80G・EXP30、src/data/story.js の `STUDY_GROUP_TALK`。rpg.studyGroup）
+- ホームの並べ替え・非表示（設定「Aa 文字」の「ホームの表示」）：`HOME_BLOCKS`（top・events・guide・quest・quals）`HOME_TOP_PARTS`（hero・menu・mentor）`HOME_ROWS`（道しるべの行：task・review・story・goal・final・reflect・quick・rival・next・stats）`homeLayoutOf` `HomeLayoutSettings`。設定 displaySettings.homeLayout = {order, rows, hidden:["events" や "row:task" "top:hero"]}（null で元に戻る。新しい行は自動で末尾に入る）。`HomeDashboard` の `part`（events／guide／quest／guide+quest）で部分ごとに描く
+- データの健康診断（ステータス画面・控えの上）：`healthReport` `HealthPanel`（問題集1つ・学習記録の本体の大きさを Firestore の1MB上限 `DOC_LIMIT` と比べる。70%で△、90%で危険。二重登録・空の問題も一覧。見るだけで変えない）。危険のときは問題タブの上に `HealthWarning`
+- 条文から問題を解く：`LawArticleModal` の「この条文の問題を解く」（その条文を引用している問題から最大30問）→ window の合図 `sq-study-items`（detail＝今日タブの出題リスト）→ StudyRPG が `quickPreset` に入れて今日タブで始める
+- ○×のひっかけ版（問題タブ「⚡ ○×の『ひっかけ版』をつくる」）：`src/game/cloze.js` の `makeTrap`（期間は同じ単位の別の数 `SAME_UNIT`・割合・言い回し `MODAL_SWAP`・同じ仲間の用語を1つ入れ替え）`isTrueAnswer`（答えが○で始まるか）。画面 `TrapMakerPanel`（確かめて☑・🎲で作り直し、元の○の問題もまぜて新しい問題集「○○（ひっかけ版）」にする。元の問題集は変えない）
+- 知識の城（冒険の世界タブ「地図と仲間」）：`knowledgeCastle` `KnowledgeCastle` `KC_STAGES`（空き地・礎石・城壁・屋根・旗）。フォルダ1つ＝塔1本、問題集1つ＝1段。進み具合＝（定着［fs.s≥21］＋正解したことのある問題×0.5）÷問題数。城全体が25%で城壁、全部の塔に旗で完成
+- 次に取れそうな称号：`nextTitles`（冒険の実績 `ACH_PROGRESS`・レベルの称号・科目ごとのジョブの次の段階を、近い順に）`NextTitles`（ステータス画面の称号の下）。ホームの道しるべの行 `next` にも1つ
 - 試し表示：.claude/launch.json に demo（5174）と preview（公開版と同じビルドを 4173 で。本番の Firebase につながるのでログインはしない）
 - テーマ：`DISPLAY_DEFAULTS`（既定は white）`THEME_PAL`（classic/white の配色）`CLASSIC_CSS` `WHITE_CSS` `ClassicThemeStyle` `TitleScreen` `ClassicInfoBar` `MenuHome`（クラシック）`SignpostHome`（白金・道しるべ）`migrateDisplay`
 
@@ -161,6 +167,5 @@ state の主なキー：`player` / `qualifications` / `tasks` / `studyPlans`（�
 ## 今後の候補
 
 - App.jsx のファイル分割（components/ などへ）
-- 知識の城
 - 白金テーマの主人公（少女）の進化段階の絵（指示文は docs/進化の絵の指示文.md。絵ができたら入れる）
 - 弱点リストの「論点分析（AI）」は api.anthropic.com を直接呼ぶため GitHub Pages では動かない → 代替が必要
