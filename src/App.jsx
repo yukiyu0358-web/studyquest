@@ -6,6 +6,7 @@ import { fbAuth, fbDb, fbFieldValue, getPushToken, FCM_VAPID_KEY } from "./fireb
 import { LINE_ICONS, Ico, Sword, Plus, Check, Trash2, Sparkles, ScrollIcon, Upload, Play, Pause, BookOpen, Calendar, Home, FileQuestion, Eye, Shuffle, XIcon, Award, Clock, TrendingUp, Crown, Pencil, Bookmark, StarIcon, FolderIcon, Up, Down, Skull, Sword2, StatusIcon, LogoutIcon, Search, Castle, GA, swordArt, crossedSwords, oniArt, GAME_ART, GAME_ART_BY_ID, GAME_RING, GameIcon, paintedUrl, MON_ART_URL } from "./game/icons"; // アイコン
 import { SFX } from "./game/sfx"; // 効果音
 import { CALC_TYPES, makeCalcProblem, checkCalc, calcAnsText, SAKUZU_TYPES, makeSakuzuProblem } from "./game/calc"; // 計算ドリル・作図ドリルの問題づくり
+import { BATTLE_FX_CSS, heroAttackFor, monAttackFor, impactOf, AttackFx, SkillBanner, Ambient } from "./game/battlefx"; // 戦いの技と演出
 import { makeCloze, BLANK_LABELS, makeTrap, isTrueAnswer } from "./game/cloze"; // 条文の穴埋め・○×のひっかけ版の問題づくり
 import { parseQuickText, TEXT_IMPORT_MODES } from "./game/textimport"; // 貼り付けた文章を一問一答に分ける
 import { SHINSEI_CASES, SHINSEI_PURPOSES, SHINSEI_CAUSES, SHINSEI_DEADLINES, SHINSEI_ATTACH } from "./data/shinsei"; // 申請書の穴埋めの場面
@@ -7906,6 +7907,7 @@ function normRpg(r) {
   return x;
 }
 const rpgItemById = (id) => RPG_ITEMS.find((i) => i.id === id) || null;
+const equippedWeaponId = (r) => { const inv = r.inventory.find((v) => v.u === r.equipped.weapon); return inv ? inv.i : null; };
 const rpgEquippedItems = (r) => RPG_SLOTS.map((s) => rpgInvItem(r.inventory.find((v) => v.u === r.equipped[s.id]))).filter(Boolean);
 
 // 装備とステータスから、実際の効果を計算する
@@ -11573,7 +11575,11 @@ function BossBattle({ state, boss, pool, actions, recordAnswer, startTimer, stop
   const [hp, setHp] = useState(bonus.maxHp);
   const [maxHp] = useState(bonus.maxHp);
   const [log, setLog] = useState([`${boss.icon} ${boss.label}があらわれた！`]);
-  const [hit, setHit] = useState(null); // "boss" | "me"
+  const [fx, setFx] = useState(null); // 技の演出 { n, side: "hero"|"mon", atk, t, dmg, crit }
+  const [combo, setCombo] = useState(0);
+  const [dying, setDying] = useState(null); // "boss"（倒した）| "me"（力尽きた）
+  const fxN = useRef(0);
+  const busy = useRef(false); // 決着の演出中は答えを受け付けない
   const [result, setResult] = useState(null); // { won, gold, xp, itemId, fled }
   const timerStartedByMe = useRef(false);
   const finished = useRef(false);
@@ -11601,33 +11607,47 @@ function BossBattle({ state, boss, pool, actions, recordAnswer, startTimer, stop
   };
 
   const addLog = (t) => setLog((l) => [...l, t].slice(-4));
-  const flashHit = (who) => { setHit(who); setTimeout(() => setHit(null), 450); };
+  const bossRegion = typeof boss.region === "string" ? boss.region : boss.region && boss.region.name;
 
   const answer = (correct, meta) => {
-    if (!q || result) return;
+    if (!q || result || busy.current) return;
     recordAnswer(item.bankId, q.id, correct, meta);
     let nb = bossHp, nh = hp;
+    const n = ++fxN.current;
+    let t = 0;
     if (correct) {
       const base = 12 + Math.min(30, Math.floor(st.int / 40));
       const mult = meta && meta.conf === "unsure" ? 0.6 : 1;
       const crit = Math.random() * 100 < bonus.critPct;
-      const dmg = Math.max(1, Math.round(base * mult * (1 + bonus.bossDmgPct / 100) * (crit ? 2 : 1)));
+      const nc = combo + 1;
+      // 連続で正解すると、2連目から少しずつ威力が上がる（最大+30%）
+      const comboMul = 1 + Math.min(0.3, (nc - 1) * 0.06);
+      const dmg = Math.max(1, Math.round(base * mult * comboMul * (1 + bonus.bossDmgPct / 100) * (crit ? 2 : 1)));
+      const atk = heroAttackFor({ weapon: equippedWeaponId(r), region: bossRegion, crit, combo: nc });
+      t = impactOf(atk);
       nb = Math.max(0, bossHp - dmg);
-      setBossHp(nb);
-      flashHit("boss");
-      addLog(crit ? `💥 会心の一撃！ ${dmg}のダメージ！` : `⚔ ${boss.name}に${dmg}のダメージ！`);
+      setCombo(nc);
+      setFx({ n, side: "hero", atk, t, dmg, crit });
+      if (atk.kind !== "slash") SFX.play(atk.sfx);
+      setTimeout(() => { setBossHp(nb); SFX.play(crit ? "crit" : atk.kind === "slash" ? "hit" : "magicHit"); }, t * 1000);
+      addLog(crit ? `💥 会心の一撃！ ${atk.name}で ${dmg}のダメージ！` : `⚔ ${atk.name}！ ${boss.name}に${dmg}のダメージ${nc >= 2 ? `（${nc}連撃）` : ""}`);
     } else {
       const raw = boss.atk * (meta && meta.confident ? 1.3 : 1);
       const dmg = Math.max(1, Math.round(raw * (1 - bonus.dmgCutPct / 100)));
+      const atk = monAttackFor(boss.art);
+      t = impactOf(atk);
       nh = Math.max(0, hp - dmg);
-      setHp(nh);
-      flashHit("me");
-      addLog(`${boss.icon} ${boss.name}の攻撃！ ${dmg}のダメージを受けた`);
+      setCombo(0);
+      setFx({ n, side: "mon", atk, t, dmg });
+      SFX.play("roar");
+      setTimeout(() => { setHp(nh); SFX.play(["claw", "bite", "gust"].includes(atk.kind) ? "claw" : "miss"); }, t * 1000);
+      addLog(`${boss.icon} ${boss.name}の${atk.name}！ ${dmg}のダメージを受けた`);
     }
     setShowAnswer(false);
-    if (nb <= 0) { addLog(`🎉 ${boss.name}を倒した！`); finish(true, false); return; }
-    if (nh <= 0) { addLog("💀 力尽きた…"); finish(false, false); return; }
-    if (idx + 1 >= pool.length) { addLog(`${boss.name}は逃げていった…`); finish(false, true); return; }
+    setTimeout(() => setFx((f) => (f && f.n === n ? null : f)), 1000 + t * 1000);
+    if (nb <= 0) { busy.current = true; addLog(`🎉 ${boss.name}を倒した！`); setTimeout(() => { setDying("boss"); SFX.play("victory"); }, t * 1000 + 250); setTimeout(() => finish(true, false), t * 1000 + 2100); return; }
+    if (nh <= 0) { busy.current = true; addLog("💀 力尽きた…"); setTimeout(() => setDying("me"), t * 1000 + 250); setTimeout(() => finish(false, false), t * 1000 + 1700); return; }
+    if (idx + 1 >= pool.length) { busy.current = true; addLog(`${boss.name}は逃げていった…`); setTimeout(() => finish(false, true), t * 1000 + 900); return; }
     setIdx(idx + 1);
   };
 
@@ -11676,31 +11696,12 @@ function BossBattle({ state, boss, pool, actions, recordAnswer, startTimer, stop
         <button onClick={() => { if (confirm("戦いから逃げますか？（敗北として記録されます）")) finish(false, true); }} className="jp text-xs flex items-center gap-1" style={{ color: "var(--ink-soft)" }}><XIcon size={14} /> 逃げる</button>
         <div className="pixel text-xs" style={{ color: "var(--brick)" }}>⚔ {idx + 1}/{pool.length}</div>
       </div>
-      <div className="rpg-box p-1">
-        <div className="rpg-inner-border">
-          <div className="flex items-center gap-3">
-            <div className={`text-5xl ${hit === "boss" ? "sq-shake" : ""}`}><GameIcon ch={boss.icon} id={boss.id} art={boss.art} size={64} boss /></div>
-            <div className="flex-1">
-              <div className="jp text-sm mb-1" style={{ color: "var(--brick)", fontWeight: "bold" }}>{boss.label}</div>
-              {bar(bossHp, boss.hp, "linear-gradient(90deg, var(--brick), #c66060)")}
-              <div className="pixel text-[10px] mt-0.5" style={{ color: "var(--ink-soft)" }}>HP {bossHp}/{boss.hp}</div>
-            </div>
-          </div>
-          <div className={`flex items-center gap-3 mt-3 ${hit === "me" ? "sq-shake" : ""}`}>
-            <div className="flex-shrink-0 flex items-end" title="あなた">
-              <CharacterDisplay level={state.player.level} job="" icon="" size={44} showAura={false} />
-              {(() => { const pt = getPetInfo(state); return pt ? <span style={{ marginLeft: -6 }}><PetIcon pet={pt} size={24} /></span> : null; })()}
-            </div>
-            <div className="flex-1">
-              {bar(hp, maxHp, "linear-gradient(90deg, var(--sage), var(--mint))")}
-              <div className="pixel text-[10px] mt-0.5" style={{ color: "var(--ink-soft)" }}>HP {hp}/{maxHp}</div>
-            </div>
-            <button disabled={!(r.consumables.potion > 0) || hp >= maxHp} onClick={usePotion} className="jp text-[11px] px-2 py-1 btn-ghost">🧪×{r.consumables.potion || 0}</button>
-          </div>
-          <div className="jp text-[11px] mt-2 p-1.5" style={{ background: "var(--cream)", color: "var(--ink)", minHeight: 40 }}>
-            {log.map((l, i) => <div key={i} style={{ opacity: i === log.length - 1 ? 1 : 0.55 }}>{l}</div>)}
-          </div>
+      <BossArena state={state} boss={boss} bossHp={bossHp} hp={hp} maxHp={maxHp} fx={fx} combo={combo} dying={dying} />
+      <div className="flex items-stretch gap-2">
+        <div className="jp text-[11px] p-1.5 flex-1" style={{ background: "var(--cream)", color: "var(--ink)", minHeight: 40, border: "1px solid var(--rule-soft)", borderRadius: 8 }}>
+          {log.map((l, i) => <div key={i} style={{ opacity: i === log.length - 1 ? 1 : 0.55 }}>{l}</div>)}
         </div>
+        <button disabled={!(r.consumables.potion > 0) || hp >= maxHp || !!dying} onClick={usePotion} className="jp text-[11px] px-2 btn-ghost flex-shrink-0">🧪×{r.consumables.potion || 0}</button>
       </div>
       {q ? (
         <div className="rpg-box p-1">
@@ -11724,6 +11725,88 @@ function BossBattle({ state, boss, pool, actions, recordAnswer, startTimer, stop
       ) : (
         <p className="jp text-xs" style={{ color: "var(--ink-mute)" }}>問題が見つかりません。</p>
       )}
+    </div>
+  );
+}
+
+// ── ボス戦の舞台：背景の景色・漂う光・大きなボスの絵・主人公の顔と HP・技の演出 ──
+const BOSS_SCENES = { slimeking: "tower/zone4.jpg", wisp: "tower/zone4.jpg", lunawolf: "tower/zone4.jpg", ghost: "tower/zone1.jpg", magolem: "tower/zone1.jpg", armor: "tower/zone1.jpg", darkdragon: "tower/zone2.jpg", grimoire: "tower/zone3.jpg", elderweed: "tower/layer01.jpg" };
+const BOSS_CSS = `
+@keyframes sqyFloat{0%,100%{transform:translateY(0) scale(1)}50%{transform:translateY(-6px) scale(1.015)}}
+@keyframes sqyAura{0%,100%{opacity:.45;transform:scale(1)}50%{opacity:.9;transform:scale(1.07)}}
+@keyframes sqyDie{0%{opacity:1;filter:brightness(1)}20%{filter:brightness(3) saturate(.3)}100%{opacity:0;transform:scale(1.25) translateY(-10px);filter:brightness(4) blur(6px)}}
+@keyframes sqyWin{0%{opacity:0;transform:translate(-50%,-50%) scale(2.4);letter-spacing:.6em}25%{opacity:1;transform:translate(-50%,-50%) scale(1);letter-spacing:.2em}100%{opacity:1;transform:translate(-50%,-50%) scale(1)}}
+@keyframes sqyRays{0%{opacity:0;transform:translate(-50%,-50%) rotate(0) scale(.4)}30%{opacity:.85}100%{opacity:.5;transform:translate(-50%,-50%) rotate(40deg) scale(1.2)}}
+@keyframes sqyDark{0%{opacity:0}100%{opacity:.75}}
+`;
+function BossArena({ state, boss, bossHp, hp, maxHp, fx, combo, dying }) {
+  const theme = (state.displaySettings && state.displaySettings.theme) || "white";
+  const P = BATTLE_THEME[theme] || BATTLE_THEME.white;
+  const bg = `${ART_URL}${BOSS_SCENES[boss.art] || (boss.id === "maou" ? "tower/zone2.jpg" : "scene.jpg")}`;
+  const region = typeof boss.region === "string" ? boss.region : boss.region && boss.region.name;
+  const bossPct = Math.max(0, Math.min(1, bossHp / boss.hp)), myPct = Math.max(0, Math.min(1, hp / maxHp));
+  const enraged = bossHp > 0 && bossPct < 0.3;
+  const t = (fx && fx.t) || 0;
+  const H = ["62px", "calc(100% - 56px)"], M = ["calc(100% - 96px)", "calc(50% + 4px)"];
+  // 主人公の表情（白金テーマ）：ふだんは真剣、会心で笑顔、攻撃を受けると驚き、力尽きると…
+  const face = theme === "white" ? HERO_FACES[dying === "boss" ? "smile" : fx && fx.side === "mon" ? "surprise" : fx && fx.crit ? "smile" : "serious"] : null;
+  const bossAnim = dying === "boss" ? "sqyDie 1.2s ease-in forwards"
+    : fx && fx.side === "hero" ? `sqxKnock .3s ease-out ${t}s`
+    : fx && fx.side === "mon" && ["tackle", "bite", "claw"].includes(fx.atk.kind) ? "sqxLungeL .34s ease-in-out" : "sqyFloat 3s ease-in-out infinite";
+  const bar = (pct, color, h = 9) => <div style={{ height: h, borderRadius: h, background: "rgba(0,0,0,0.35)", border: "1px solid rgba(255,255,255,0.35)", overflow: "hidden" }}><div style={{ width: `${pct * 100}%`, height: "100%", background: color, transition: "width .45s ease-out", boxShadow: "inset 0 1px 0 rgba(255,255,255,0.45)" }} /></div>;
+  return (
+    <div className="relative overflow-hidden select-none" style={{ height: 250, borderRadius: 10, border: "1px solid #b08a3e", background: `linear-gradient(0deg, rgba(10,16,32,0.6) 0%, rgba(10,16,32,0.05) 45%, rgba(10,16,32,0.3) 100%), url(${bg}) center/cover no-repeat`, boxShadow: "0 8px 22px rgba(20,28,50,0.25)", animation: fx ? (fx.side === "mon" ? `sqxQuake .42s ease-out ${t}s` : fx.crit ? `sqxPunch .3s ease-out ${t}s` : undefined) : undefined }}>
+      <style>{BATTLE_CSS + BATTLE_FX_CSS + BOSS_CSS}</style>
+      <Ambient region={region} kind={boss.id === "maou" || boss.art === "darkdragon" ? "fire" : ["grimoire", "ghost", "magolem"].includes(boss.art) ? "dark" : null} n={18} seed={hashStr(boss.id + (boss.art || ""))} />
+      <div aria-hidden="true" style={{ position: "absolute", inset: 0, pointerEvents: "none", background: enraged ? "radial-gradient(ellipse at 70% 45%, transparent 40%, rgba(160,30,30,0.35) 100%)" : "radial-gradient(ellipse at 50% 50%, transparent 50%, rgba(10,16,32,0.35) 100%)", animation: enraged ? "sqxPulse 1.4s ease-in-out infinite" : undefined }} />
+      {/* ボスの名前と HP */}
+      <div className="jp" style={{ position: "absolute", right: 10, top: 8, width: "56%", zIndex: 2 }}>
+        <div className="flex items-center gap-1.5" style={{ color: "#fdfbf5", textShadow: "0 1px 3px rgba(0,0,0,0.8)" }}>
+          <span className="text-xs truncate flex-1" style={{ fontWeight: 800 }}>{boss.label}</span>
+          {enraged && <span className="text-[9px] px-1.5" style={{ background: "#a02828", borderRadius: 999, fontWeight: 800, animation: "sqxPulse 1s ease-in-out infinite" }}>怒り</span>}
+        </div>
+        {bar(bossPct, enraged ? "linear-gradient(90deg, #7a1414, #e04848)" : "linear-gradient(90deg, #a24a45, #e0948a)")}
+        <div className="text-[9px] text-right" style={{ color: "#fdfbf5", textShadow: "0 1px 2px rgba(0,0,0,0.8)" }}>HP {bossHp}/{boss.hp}</div>
+      </div>
+      {/* ボス */}
+      <div style={{ position: "absolute", right: 18, top: 44, width: 156, height: 156, zIndex: 1 }}>
+        <div style={{ position: "absolute", inset: -14, borderRadius: "50%", background: `radial-gradient(circle, ${enraged ? "rgba(220,50,50,0.6)" : "rgba(255,236,190,0.35)"} 0%, transparent 68%)`, animation: "sqyAura 2s ease-in-out infinite" }} />
+        <div key={fx ? `b${fx.n}` : "b"} style={{ position: "absolute", inset: 0, animation: bossAnim }}>
+          {boss.art
+            ? <div role="img" aria-label={boss.name} style={{ width: "100%", height: "100%", borderRadius: "50%", backgroundImage: `url(${MON_ART_URL}${boss.art}.jpg)`, backgroundSize: "cover", backgroundPosition: "center", WebkitMaskImage: MON_MASK, maskImage: MON_MASK, filter: enraged ? "saturate(1.4) contrast(1.1)" : undefined }} />
+            : <div className="flex items-center justify-center" style={{ width: "100%", height: "100%" }}><GameIcon ch={boss.icon} id={boss.id} size={130} boss /></div>}
+        </div>
+        <div style={{ position: "absolute", left: "15%", right: "15%", bottom: -8, height: 12, borderRadius: "50%", background: "rgba(0,0,0,0.35)", filter: "blur(2px)" }} />
+      </div>
+      {/* 主人公 */}
+      <div style={{ position: "absolute", left: 10, bottom: 10, zIndex: 2, display: "flex", alignItems: "flex-end", gap: 8 }}>
+        <div key={fx ? `h${fx.n}` : "h"} style={{ position: "relative", width: 76, height: 76, borderRadius: "50%", border: `2px solid ${P.ring}`, boxShadow: "0 3px 10px rgba(0,0,0,0.35)", backgroundColor: "#e9e4d6", backgroundImage: `url(${face || P.avatar})`, backgroundSize: face ? "cover" : "300% auto", backgroundPosition: face ? "center 20%" : `${P.face[0]}% ${P.face[1]}%`, animation: dying === "me" ? "sqyDie 1.2s ease-in forwards" : fx ? (fx.side === "hero" ? "sqbLunge .32s ease-out" : `sqbHurt .45s ease-out ${t}s`) : undefined }}>
+          {(() => { const pt = getPetInfo(state); return pt ? <span style={{ position: "absolute", right: -12, bottom: -4 }}><PetIcon pet={pt} size={26} /></span> : null; })()}
+        </div>
+        <div style={{ width: 120 }}>
+          <div className="jp text-[10px]" style={{ color: "#fdfbf5", fontWeight: 800, textShadow: "0 1px 3px rgba(0,0,0,0.8)" }}>Lv.{state.player.level}　HP {hp}/{maxHp}</div>
+          {bar(myPct, myPct < 0.3 ? "linear-gradient(90deg,#a24a45,#e0948a)" : "linear-gradient(90deg,#4f8a72,#8cc4a8)", 8)}
+        </div>
+      </div>
+      {/* 連撃 */}
+      {combo >= 2 && !dying && <div key={`c${combo}`} style={{ position: "absolute", left: 12, top: 10, zIndex: 3, animation: "sqbPop .28s ease-out both", fontFamily: "'Cinzel', serif", fontWeight: 900, fontSize: 20, color: "#f2c14e", textShadow: "0 0 10px rgba(242,193,78,0.8), 0 2px 0 #3a2a10" }}>{combo}<span style={{ fontSize: 11, marginLeft: 3 }}>HIT</span></div>}
+      {/* 技の演出・名前・ダメージ */}
+      {fx && <AttackFx key={`fx${fx.n}`} fx={fx} H={H} M={M} />}
+      {fx && <SkillBanner fx={fx} />}
+      {fx && <div key={`d${fx.n}`} style={{ position: "absolute", left: fx.side === "hero" ? M[0] : H[0], top: fx.side === "hero" ? "34%" : "calc(100% - 110px)", zIndex: 4, animation: `sqxNum 1s ease-out ${t}s both`, fontFamily: "'Cinzel', serif", fontWeight: 900, fontSize: fx.crit ? 34 : 26, color: fx.side === "mon" ? "#ff8a80" : fx.crit ? "#f2c14e" : "#ffffff", textShadow: "0 2px 0 #22335c, 0 0 8px rgba(0,0,0,0.6)", whiteSpace: "nowrap", pointerEvents: "none" }}>
+        {fx.crit && <div className="jp" style={{ fontSize: 11, letterSpacing: 2, textAlign: "center" }}>CRITICAL!</div>}{fx.side === "mon" ? "-" : ""}{fx.dmg}
+      </div>}
+      {fx && fx.side === "mon" && <div key={`r${fx.n}`} style={{ position: "absolute", inset: 0, pointerEvents: "none", boxShadow: "inset 0 0 60px rgba(201,40,40,0.7)", animation: `sqbRed .55s ease-out ${t}s both` }} />}
+      {fx && fx.crit && <div key={`w${fx.n}`} style={{ position: "absolute", inset: 0, pointerEvents: "none", background: "rgba(255,248,220,0.75)", animation: `sqbFlash .3s ease-out ${t}s both` }} />}
+      {/* 決着 */}
+      {dying === "boss" && (<>
+        <div style={{ position: "absolute", left: M[0], top: M[1], width: 360, height: 360, background: "repeating-conic-gradient(rgba(255,240,200,0.55) 0 8deg, transparent 8deg 22deg)", borderRadius: "50%", WebkitMaskImage: "radial-gradient(circle, #000 20%, transparent 70%)", maskImage: "radial-gradient(circle, #000 20%, transparent 70%)", animation: "sqyRays 1.6s ease-out both", pointerEvents: "none" }} />
+        <div className="jp" style={{ position: "absolute", left: "50%", top: "46%", zIndex: 5, animation: "sqyWin .7s cubic-bezier(.2,.8,.2,1) .25s both", fontFamily: "'Cinzel', serif", fontWeight: 900, fontSize: 34, color: "#f2c14e", textShadow: "0 0 18px rgba(242,193,78,0.9), 0 3px 0 #3a2a10", whiteSpace: "nowrap" }}>VICTORY</div>
+      </>)}
+      {dying === "me" && (<>
+        <div style={{ position: "absolute", inset: 0, background: "#0a0f1e", animation: "sqyDark 1.2s ease-out both", pointerEvents: "none" }} />
+        <div className="jp" style={{ position: "absolute", left: "50%", top: "46%", zIndex: 5, animation: "sqyWin .8s ease-out .3s both", fontFamily: "'Shippori Mincho B1', serif", fontWeight: 800, fontSize: 22, color: "#e0948a", whiteSpace: "nowrap" }}>力尽きた……</div>
+      </>)}
     </div>
   );
 }
@@ -12278,9 +12361,11 @@ const BATTLE_CSS = `
 @keyframes sqfPulse{0%,100%{box-shadow:0 0 0 0 rgba(214,181,106,0.55)}50%{box-shadow:0 0 0 6px rgba(214,181,106,0)}}
 `;
 
-function MonsterView({ m, anim, delay = 0, size = 92 }) {
+function MonsterView({ m, anim, delay = 0, size = 92, hitAt = 0, lunge = false }) {
   const c = m.rank === "unknown" ? MON_UNKNOWN : m.th;
-  const a = anim === "defeat" ? "sqbDefeat .6s ease-in forwards" : anim === "escape" ? "sqbEscape .75s ease-in-out forwards" : `sqbEnter .35s ease-out ${delay}s both`;
+  const a = anim === "defeat" ? `sqxKnock .26s ease-out ${hitAt}s, sqbDefeat .6s ease-in ${hitAt + 0.2}s forwards`
+    : anim === "escape" ? `${lunge ? "sqxLungeL .32s ease-in-out, " : ""}sqbEscape .75s ease-in-out ${lunge ? hitAt + 0.15 : hitAt + 0.1}s forwards`
+    : `sqbEnter .35s ease-out ${delay}s both`;
   return (
     <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", animation: a }}>
       <div className="jp" style={{ fontSize: 11, fontWeight: 700, color: m.rank === "elite" ? "#a24a45" : "inherit", whiteSpace: "nowrap", marginBottom: 2 }}>{m.rank === "unknown" ? "？？？" : m.name}</div>
@@ -12338,18 +12423,28 @@ function BattleStage({ state, q, bankName, battleKey, boss = false, scene = null
         Object.entries(mats).forEach(([k, v]) => { BATTLE.mats[k] = (BATTLE.mats[k] || 0) + v; });
         // 戦利品と、デイリークエスト用の記録（倒した魔物の種類・会心・コンボ）
         emitReward({ mats, xp: xpBonus, stat: { elite: m.rank === "elite", fresh: m.rank === "unknown", crit, combo: BATTLE.combo, region: m.th && m.th.region } });
-        setFx({ n, ok: true, crit, dmg, cut, mon: m, drops: Object.keys(mats) });
-        SFX.play(crit ? "crit" : "hit");
-        if (Object.keys(mats).length) setTimeout(() => SFX.play("drop"), 320);
-        setTimeout(() => SFX.play(cut ? "combo" : "defeat"), 170);
+        // 技：装備中の武器・科目の属性・コンボで変わる（斬撃・魔法・弓）
+        const atk = heroAttackFor({ weapon: equippedWeaponId(normRpg(stRef.current.rpg)), region: m.th && m.th.region, crit, combo: BATTLE.combo });
+        const t = impactOf(atk);
+        hold += Math.round(t * 1000);
+        setFx({ n, ok: true, crit, dmg, cut, mon: m, drops: Object.keys(mats), side: "hero", atk, t });
+        if (atk.kind !== "slash") SFX.play(atk.sfx);
+        setTimeout(() => SFX.play(crit ? "crit" : atk.kind === "slash" ? "hit" : "magicHit"), t * 1000);
+        if (Object.keys(mats).length) setTimeout(() => SFX.play("drop"), 320 + t * 1000);
+        setTimeout(() => SFX.play(cut ? "combo" : "defeat"), 170 + t * 1000);
       } else {
         BATTLE.combo = 0; BATTLE.escaped++;
         const taken = Math.max(1, Math.round((10 + Math.random() * 8 + (m.rank === "elite" ? 6 : 0)) * (1 - b.dmgCutPct / 100)));
         BATTLE.hp -= taken;
         let faint = false;
         if (BATTLE.hp <= 0) { BATTLE.faints++; BATTLE.hp = Math.ceil(BATTLE.maxHp * (0.3 + (b.revivePct || 0) / 100)); faint = true; }
-        setFx({ n, ok: false, taken, faint, mon: m });
-        SFX.play("miss");
+        // 魔物の反撃：種族ごとの技（ひっかき・かみつき・炎の息・魔弾など）
+        const atk = monAttackFor(m.sp && m.sp.img);
+        const t = impactOf(atk);
+        hold += Math.round(t * 1000);
+        setFx({ n, ok: false, taken, faint, mon: m, side: "mon", atk, t });
+        SFX.play(["claw", "bite", "gust"].includes(atk.kind) ? "claw" : atk.kind === "tackle" || atk.kind === "rock" ? "roar" : "fire");
+        setTimeout(() => SFX.play("miss"), t * 1000);
       }
       setDoneQ(qRef.current);
       setTimeout(() => setFx((f) => (f && f.n === n ? null : f)), hold);
@@ -12362,10 +12457,11 @@ function BattleStage({ state, q, bankName, battleKey, boss = false, scene = null
   const showCur = q !== doneQ;
   const hpPct = Math.max(0, Math.min(100, (BATTLE.hp / BATTLE.maxHp) * 100));
   const kind = mon.rank === "unknown" ? ["初見の魔物", "#5b6b8c"] : mon.rank === "elite" ? ["手強い魔物", "#a24a45"] : ["復習の魔物", "#4f8a72"];
-  const parts = fx && fx.ok ? Array.from({ length: 10 }, (_, i) => { const a = (i / 10) * Math.PI * 2 + (fx.n % 7) * 0.3; const r = 34 + ((i * 13 + fx.n * 7) % 22); return { dx: `${Math.round(Math.cos(a) * r)}px`, dy: `${Math.round(Math.sin(a) * r)}px`, c: i % 3 === 0 ? "#fff3c4" : fx.crit ? "#f2c14e" : (fx.mon.rank === "unknown" ? MON_UNKNOWN : fx.mon.th).body }; }) : [];
   return (
-    <div className="relative overflow-hidden select-none" style={{ height: 156, borderRadius: 8, background: scene ? `${theme === "classic" ? "linear-gradient(0deg, rgba(10,18,38,0.82) 0%, rgba(10,18,38,0.25) 50%, rgba(10,18,38,0.05) 100%)" : "linear-gradient(0deg, rgba(253,251,245,0.9) 0%, rgba(253,251,245,0.25) 48%, rgba(253,251,245,0) 75%)"}, url(${scene}) center/cover no-repeat` : P.bg, border: P.border, color: P.text, boxShadow: "0 6px 18px rgba(40,50,80,0.12)", animation: fx && !fx.ok ? "sqbShake .38s ease-in-out" : undefined }}>
-      <style>{BATTLE_CSS}</style>
+    <div className="relative overflow-hidden select-none" style={{ height: 168, borderRadius: 8, background: scene ? `${theme === "classic" ? "linear-gradient(0deg, rgba(10,18,38,0.82) 0%, rgba(10,18,38,0.25) 50%, rgba(10,18,38,0.05) 100%)" : "linear-gradient(0deg, rgba(253,251,245,0.9) 0%, rgba(253,251,245,0.25) 48%, rgba(253,251,245,0) 75%)"}, url(${scene}) center/cover no-repeat` : P.bg, border: P.border, color: P.text, boxShadow: "0 6px 18px rgba(40,50,80,0.12)", animation: fx ? (!fx.ok ? `sqbShake .38s ease-in-out ${fx.t || 0}s` : fx.crit ? `sqxPunch .3s ease-out ${fx.t || 0}s` : undefined) : undefined }}>
+      <style>{BATTLE_CSS + BATTLE_FX_CSS}</style>
+      <Ambient region={mon.th && mon.th.region} n={10} seed={hashStr(String(mon.th && mon.th.region))} />
+      <div aria-hidden="true" style={{ position: "absolute", inset: 0, pointerEvents: "none", background: "radial-gradient(ellipse at 50% 55%, transparent 55%, rgba(20,28,50,0.16) 100%)" }} />
       {/* 遠景（山並みと城）。景色の絵があるときは出さない */}
       {!scene && <svg viewBox="0 0 400 100" preserveAspectRatio="none" aria-hidden="true" style={{ position: "absolute", left: 0, right: 0, bottom: "30%", width: "100%", height: 70 }}>
         <path d="M0 100V62l38-22 30 16 44-34 40 26 30-14 52 30 34-18 46 22 40-28 46 30v30z" fill={P.hill} />
@@ -12382,33 +12478,28 @@ function BattleStage({ state, q, bankName, battleKey, boss = false, scene = null
       )}
       {/* 主人公（顔・HP） */}
       <div style={{ position: "absolute", left: 10, bottom: 10, display: "flex", alignItems: "flex-end", gap: 8 }}>
-        <div key={fx ? `hero${fx.n}` : "hero"} style={{ width: 54, height: 54, borderRadius: "50%", flexShrink: 0, backgroundColor: "#e9e4d6", backgroundImage: `url(${P.avatar})`, backgroundSize: "300% auto", backgroundPosition: `${P.face[0]}% ${P.face[1]}%`, border: `2px solid ${P.ring}`, boxShadow: "0 2px 6px rgba(0,0,0,0.2)", animation: fx ? (fx.ok ? "sqbLunge .32s ease-out" : "sqbHurt .4s ease-out") : undefined }} />
+        <div key={fx ? `hero${fx.n}` : "hero"} style={{ width: 54, height: 54, borderRadius: "50%", flexShrink: 0, backgroundColor: "#e9e4d6", backgroundImage: `url(${P.avatar})`, backgroundSize: "300% auto", backgroundPosition: `${P.face[0]}% ${P.face[1]}%`, border: `2px solid ${P.ring}`, boxShadow: "0 2px 6px rgba(0,0,0,0.2)", animation: fx ? (fx.ok ? "sqbLunge .32s ease-out" : `sqbHurt .4s ease-out ${fx.t || 0}s`) : undefined }} />
         <div style={{ width: 96, position: "relative" }}>
           <div className="jp" style={{ fontSize: 10, color: P.sub, fontWeight: 700 }}>HP {BATTLE.hp}/{BATTLE.maxHp}</div>
           <div style={{ height: 7, borderRadius: 4, background: "rgba(0,0,0,0.15)", overflow: "hidden" }}>
             <div style={{ height: "100%", width: `${hpPct}%`, background: hpPct < 30 ? "linear-gradient(90deg,#a24a45,#e0948a)" : "linear-gradient(90deg,#4f8a72,#8cc4a8)", transition: "width .4s" }} />
           </div>
-          {fx && !fx.ok && <div key={`t${fx.n}`} className="jp" style={{ position: "absolute", left: "50%", top: -18, animation: "sqbDmg .8s ease-out forwards", color: "#c94a4a", fontWeight: 900, fontSize: 18, textShadow: "0 0 3px #fff, 0 0 3px #fff" }}>-{fx.taken}</div>}
+          {fx && !fx.ok && <div key={`t${fx.n}`} className="jp" style={{ position: "absolute", left: "50%", top: -18, animation: `sqxNum .9s ease-out ${fx.t || 0}s both`, color: "#c94a4a", fontWeight: 900, fontSize: 18, textShadow: "0 0 3px #fff, 0 0 3px #fff" }}>-{fx.taken}</div>}
           {fx && fx.faint && <div className="jp" style={{ position: "absolute", left: 0, top: -34, fontSize: 11, fontWeight: 800, color: "#a24a45", whiteSpace: "nowrap" }}>ふんばった！</div>}
         </div>
       </div>
       {/* 魔物 */}
       <div style={{ position: "absolute", right: "7%", bottom: 8, width: 120, height: 136 }}>
-        {fx && <MonsterView key={`leave${fx.n}`} m={fx.mon} anim={fx.ok ? "defeat" : "escape"} />}
-        {showCur && <MonsterView key={`m${mon.key}`} m={mon} anim="enter" delay={fx ? 0.45 : 0} />}
+        {fx && <MonsterView key={`leave${fx.n}`} m={fx.mon} anim={fx.ok ? "defeat" : "escape"} hitAt={fx.t || 0} lunge={!fx.ok && fx.atk && ["tackle", "bite", "claw"].includes(fx.atk.kind)} />}
+        {showCur && <MonsterView key={`m${mon.key}`} m={mon} anim="enter" delay={fx ? 0.45 + (fx.t || 0) : 0} />}
         {fx && fx.ok && (
           <>
-            <svg key={`s${fx.n}`} viewBox="0 0 100 100" style={{ position: "absolute", left: 10, top: 26, width: 100, height: 100, overflow: "visible", pointerEvents: "none" }}>
-              <path d="M12 88L88 12" stroke={fx.crit ? "#f2c14e" : "#ffffff"} strokeWidth={fx.crit ? 7 : 5} strokeLinecap="round" strokeDasharray="150" style={{ animation: "sqbSlash .38s ease-out forwards", filter: "drop-shadow(0 0 4px rgba(255,255,255,0.9))" }} />
-              {fx.crit && <path d="M12 12L88 88" stroke="#ffffff" strokeWidth="5" strokeLinecap="round" strokeDasharray="150" style={{ animation: "sqbSlash .38s ease-out .08s both", filter: "drop-shadow(0 0 4px rgba(242,193,78,0.9))" }} />}
-            </svg>
-            {parts.map((p, i) => <span key={`p${fx.n}-${i}`} style={{ position: "absolute", left: "50%", top: "62%", width: 7, height: 7, marginLeft: -3, borderRadius: "50%", background: p.c, boxShadow: `0 0 6px ${p.c}`, "--dx": p.dx, "--dy": p.dy, animation: "sqbBurst .55s ease-out .08s both", pointerEvents: "none" }} />)}
-            <div key={`d${fx.n}`} style={{ position: "absolute", left: "50%", top: "30%", animation: "sqbDmg .8s ease-out forwards", fontFamily: "'Cinzel', serif", fontWeight: 900, fontSize: fx.crit ? 30 : 24, color: fx.crit ? "#f2c14e" : "#ffffff", textShadow: "0 2px 0 #22335c, 0 0 6px rgba(34,51,92,0.7)", whiteSpace: "nowrap", pointerEvents: "none" }}>
+            <div key={`d${fx.n}`} style={{ position: "absolute", left: "50%", top: "30%", animation: `sqxNum .9s ease-out ${fx.t || 0}s both`, zIndex: 4, fontFamily: "'Cinzel', serif", fontWeight: 900, fontSize: fx.crit ? 30 : 24, color: fx.crit ? "#f2c14e" : "#ffffff", textShadow: "0 2px 0 #22335c, 0 0 6px rgba(34,51,92,0.7)", whiteSpace: "nowrap", pointerEvents: "none" }}>
               {fx.crit && <div className="jp" style={{ fontSize: 11, letterSpacing: 2, textAlign: "center" }}>CRITICAL!</div>}{fx.dmg}
             </div>
           </>
         )}
-        {fx && !fx.ok && <div key={`e${fx.n}`} className="jp" style={{ position: "absolute", left: "50%", top: "18%", transform: "translateX(-50%)", fontSize: 11, fontWeight: 800, color: P.sub, whiteSpace: "nowrap", animation: "sqbRed .9s ease-out forwards" }}>逃げられた…</div>}
+        {fx && !fx.ok && <div key={`e${fx.n}`} className="jp" style={{ position: "absolute", left: "50%", top: "18%", transform: "translateX(-50%)", fontSize: 11, fontWeight: 800, color: P.sub, whiteSpace: "nowrap", animation: `sqbRed .9s ease-out ${(fx.t || 0) + 0.3}s both` }}>逃げられた…</div>}
         {fx && fx.drops && fx.drops.length > 0 && (
           <div key={`drop${fx.n}`} style={{ position: "absolute", left: "50%", bottom: 6, display: "flex", gap: 2, alignItems: "center", animation: "sqbDrop 1s ease-out .25s both", pointerEvents: "none" }}>
             {fx.drops.map((id) => <MaterialIcon key={id} id={id} size={22} />)}
@@ -12416,9 +12507,12 @@ function BattleStage({ state, q, bankName, battleKey, boss = false, scene = null
           </div>
         )}
       </div>
+      {/* 技の演出と名前 */}
+      {fx && <AttackFx key={`fx${fx.n}`} fx={fx} H={["37px", "calc(100% - 37px)"]} M={["calc(93% - 60px)", "calc(100% - 66px)"]} />}
+      {fx && <SkillBanner fx={fx} />}
       {/* 被ダメージの赤いふち */}
-      {fx && !fx.ok && <div key={`r${fx.n}`} style={{ position: "absolute", inset: 0, pointerEvents: "none", boxShadow: "inset 0 0 40px rgba(201,74,74,0.55)", animation: "sqbRed .5s ease-out forwards" }} />}
-      {fx && fx.crit && <div key={`w${fx.n}`} style={{ position: "absolute", inset: 0, pointerEvents: "none", background: "rgba(255,248,220,0.7)", animation: "sqbFlash .25s ease-out forwards" }} />}
+      {fx && !fx.ok && <div key={`r${fx.n}`} style={{ position: "absolute", inset: 0, pointerEvents: "none", boxShadow: "inset 0 0 40px rgba(201,74,74,0.55)", animation: `sqbRed .5s ease-out ${fx.t || 0}s both` }} />}
+      {fx && fx.crit && <div key={`w${fx.n}`} style={{ position: "absolute", inset: 0, pointerEvents: "none", background: "rgba(255,248,220,0.7)", animation: `sqbFlash .25s ease-out ${fx.t || 0}s both` }} />}
       {/* コンボの必殺技（カットイン） */}
       {fx && fx.cut && (
         <div key={`cut${fx.n}`} style={{ position: "absolute", left: 0, right: 0, top: "50%", height: 74, marginTop: -37, pointerEvents: "none", animation: "sqbCut 1.05s cubic-bezier(.2,.8,.2,1) forwards", background: "linear-gradient(90deg, rgba(34,51,92,0.92) 0%, rgba(34,51,92,0.85) 55%, rgba(34,51,92,0) 100%)", borderTop: "2px solid #d6b56a", borderBottom: "2px solid #d6b56a", display: "flex", alignItems: "center", gap: 12, paddingLeft: 12 }}>
