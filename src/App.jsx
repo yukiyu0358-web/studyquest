@@ -1577,7 +1577,7 @@ function StudyRPG({ user }) {
   const grantItem = (itemId, reason) => {
     const it = rpgItemById(itemId);
     if (!it) return;
-    updateRpg((r) => ({ ...r, inventory: [...r.inventory, { u: uid(), i: itemId }].slice(-150) }));
+    updateRpg((r) => ({ ...r, inventory: invCap([...r.inventory, { u: uid(), i: itemId }], r.equipped) }));
     showRpgToast(`${it.icon} ${it.name}（${it.rarity}）を手に入れた！${reason ? `［${reason}］` : ""}`, RARITY[it.rarity].color);
   };
   const rpgActions = {
@@ -1593,7 +1593,7 @@ function StudyRPG({ user }) {
       const it = rpgItemById(id);
       if (!it || !it.price) return "";
       if (r.gold < it.price) return "ゴールドが足りません";
-      updateRpg((x) => (x.gold < it.price ? x : { ...x, gold: x.gold - it.price, inventory: [...x.inventory, { u: uid(), i: id }].slice(-150) }));
+      updateRpg((x) => (x.gold < it.price ? x : { ...x, gold: x.gold - it.price, inventory: invCap([...x.inventory, { u: uid(), i: id }], x.equipped) }));
       return `${it.icon} ${it.name}を買った！`;
     },
     sell: (u) => updateRpg((x) => {
@@ -1604,7 +1604,47 @@ function StudyRPG({ user }) {
       Object.keys(eq).forEach((k) => { if (eq[k] === u) eq[k] = null; });
       return { ...x, gold: x.gold + (it ? RARITY[it.rarity].sell : 0), inventory: x.inventory.filter((y) => y.u !== u), equipped: eq };
     }),
-    equip: (slot, u) => updateRpg((x) => ({ ...x, equipped: { ...x.equipped, [slot]: u } })),
+    equip: (slot, u) => {
+      const cur = stateRef.current;
+      const r0 = normRpg(cur.rpg);
+      const before = combatPower(cur);
+      const after = combatPower({ ...cur, rpg: { ...r0, equipped: { ...r0.equipped, [slot]: u } } });
+      updateRpg((x) => ({ ...x, equipped: { ...x.equipped, [slot]: u } }));
+      if (after !== before) showRpgToast(`戦闘力 ${before.toLocaleString()} → ${after.toLocaleString()}（${after > before ? "+" : ""}${(after - before).toLocaleString()}）`, after > before ? "#b08a3e" : "#8696b0");
+    },
+    // 召喚：count は 1 か 10。結果の一覧を返す（ゴールドが足りなければ文字）
+    gachaPull: (count) => {
+      const r = normRpg(stateRef.current.rpg);
+      const cost = GACHA_COST[count];
+      if (!cost) return "";
+      if (r.gold < cost) return "ゴールドが足りません";
+      const g = r.gacha || { n: 0, since: 0 };
+      let since = g.since || 0;
+      const owned = new Set(r.inventory.map((v) => v.i));
+      const out = [];
+      for (let k = 0; k < count; k++) {
+        const pity = since + 1 >= GACHA_PITY;
+        const needSr = count === 10 && k === count - 1 && !out.some((o) => RARITY_RANK[rpgItemById(o.i).rarity] >= 2);
+        const i = gachaRoll(pity ? "SSR" : needSr ? "SR" : null);
+        const it = rpgItemById(i);
+        since = it.rarity === "SSR" ? 0 : since + 1;
+        out.push({ u: uid(), i, isNew: !owned.has(i) });
+        owned.add(i);
+      }
+      updateRpg((x) => (x.gold < cost ? x : { ...x, gold: x.gold - cost, inventory: invCap([...x.inventory, ...out.map(({ u, i }) => ({ u, i }))], x.equipped), gacha: { n: (g.n || 0) + count, since } }));
+      return out;
+    },
+    // 装備していない N・R をまとめて売る
+    sellBulk: (rars) => {
+      const r = normRpg(stateRef.current.rpg);
+      const eq = new Set(Object.values(r.equipped).filter(Boolean));
+      const list = r.inventory.filter((v) => !eq.has(v.u) && !(v.p > 0) && rars.includes((rpgItemById(v.i) || {}).rarity));
+      if (!list.length) return "売れるものがありません";
+      const gold = list.reduce((t, v) => t + RARITY[rpgItemById(v.i).rarity].sell, 0);
+      const ids = new Set(list.map((v) => v.u));
+      updateRpg((x) => ({ ...x, gold: x.gold + gold, inventory: x.inventory.filter((v) => !ids.has(v.u)) }));
+      return `${list.length}個を売って ${gold}G になりました`;
+    },
     useConsumable: (id) => {
       const cur = stateRef.current;
       const r = normRpg(cur.rpg);
@@ -1649,7 +1689,7 @@ function StudyRPG({ user }) {
         ...x, gold: x.gold + gold, goldEarned: x.goldEarned + gold,
         bossWins: x.bossWins + (won ? 1 : 0), bossLosses: x.bossLosses + (won ? 0 : 1),
         bossLog: [...x.bossLog, { d: todayStr(), b: bossId, w: won, l: loop }].slice(-30),
-        inventory: itemId ? [...x.inventory, { u: uid(), i: itemId }].slice(-150) : x.inventory,
+        inventory: itemId ? invCap([...x.inventory, { u: uid(), i: itemId }], x.equipped) : x.inventory,
       }));
       if (xp) setTimeout(() => awardXp(xp), 300);
     },
@@ -1707,7 +1747,7 @@ function StudyRPG({ user }) {
         return {
           ...x, gold: x.gold + (already ? 0 : gold), goldEarned: x.goldEarned + (already ? 0 : gold),
           materials: win ? { ...x.materials, "m-star": (x.materials["m-star"] || 0) + WEEKLY_REWARD.star, "m-sage": (x.materials["m-sage"] || 0) + WEEKLY_REWARD.sage } : x.materials,
-          inventory: win && itemId ? [...x.inventory, { u: uid(), i: itemId }].slice(-150) : x.inventory,
+          inventory: win && itemId ? invCap([...x.inventory, { u: uid(), i: itemId }], x.equipped) : x.inventory,
           weekly: { week: wk, won: !!(already || won), tries: ((x.weekly && x.weekly.week === wk && x.weekly.tries) || 0) + 1 },
         };
       });
@@ -1764,7 +1804,7 @@ function StudyRPG({ user }) {
       const already = regionCleared(normRpg(stateRef.current.rpg), region);
       updateRpg((x) => ({
         ...x, gold: x.gold + gold, goldEarned: x.goldEarned + gold,
-        inventory: won && itemId ? [...x.inventory, { u: uid(), i: itemId }].slice(-150) : x.inventory,
+        inventory: won && itemId ? invCap([...x.inventory, { u: uid(), i: itemId }], x.equipped) : x.inventory,
         regions: won ? { ...x.regions, [region]: { cleared: true, at: todayStr() } } : x.regions,
       }));
       if (won && xp) setTimeout(() => awardXp(xp), 300);
@@ -7907,6 +7947,55 @@ function normRpg(r) {
   return x;
 }
 const rpgItemById = (id) => RPG_ITEMS.find((i) => i.id === id) || null;
+const INV_MAX = 300;
+function invCap(list, equipped) {
+  if (list.length <= INV_MAX) return list;
+  const keep = new Set(Object.values(equipped || {}).filter(Boolean));
+  let over = list.length - INV_MAX;
+  return list.filter((v) => { if (over > 0 && !keep.has(v.u)) { over--; return false; } return true; });
+}
+// 装備の見た目：武器・防具・アクセサリーの id と、いちばん高いレア度（戦いの顔の光に使う）
+const RARITY_RANK = { N: 0, R: 1, SR: 2, SSR: 3 };
+function equippedLook(r) {
+  const get = (slot) => { const v = r.inventory.find((x) => x.u === r.equipped[slot]); return v ? rpgItemById(v.i) : null; };
+  const w = get("weapon"), a = get("armor"), x = get("accessory");
+  const best = [w, a, x].filter(Boolean).reduce((m, it) => (RARITY_RANK[it.rarity] > RARITY_RANK[m] ? it.rarity : m), "N");
+  return { weapon: w ? w.id : null, armor: a ? a.id : null, accessory: x ? x.id : null, rarity: best === "N" || best === "R" ? null : best };
+}
+// 戦いの主人公の顔（イラストのまま）：装備のレア度で光り、装備中の武器のしるしを付ける
+function GearPortrait({ state, size, img, bgSize, bgPos, ring, anim, children }) {
+  const r = normRpg(state.rpg);
+  const look = equippedLook(r);
+  const wv = r.inventory.find((v) => v.u === r.equipped.weapon);
+  const w = wv && rpgItemById(wv.i);
+  const glow = look.rarity === "SSR" ? "0 0 0 2px #f2c14e, 0 0 14px 3px rgba(242,193,78,0.75)" : look.rarity === "SR" ? "0 0 0 2px #7fb6ff, 0 0 12px 2px rgba(127,182,255,0.6)" : "0 2px 6px rgba(0,0,0,0.25)";
+  return (
+    <div style={{ position: "relative", width: size, height: size, flexShrink: 0, borderRadius: "50%", border: `2px solid ${ring}`, boxShadow: glow, backgroundColor: "#e9e4d6", backgroundImage: `url(${img})`, backgroundSize: bgSize, backgroundPosition: bgPos, animation: anim }}>
+      {w && <span title={w.name} style={{ position: "absolute", right: -8, bottom: -6, lineHeight: 0 }}><GameIcon ch={w.icon} id={w.id} rarity={w.rarity} size={Math.round(size * 0.46)} /></span>}
+      {children}
+    </div>
+  );
+}
+// 戦闘力：レベル・HP・攻撃・会心・守り・装備のレア度と強化段階から
+const CP_GEAR = { N: 60, R: 150, SR: 320, SSR: 600 };
+function combatPower(state) {
+  const r = normRpg(state.rpg), b = getRpgBonuses(state);
+  const gear = RPG_SLOTS.reduce((t, sl) => { const v = r.inventory.find((x) => x.u === r.equipped[sl.id]); const it = v && rpgItemById(v.i); return it ? t + CP_GEAR[it.rarity] * (1 + (v.p || 0) * 0.2) : t; }, 0);
+  return Math.round((state.player.level || 1) * 25 + b.maxHp * 3 + b.bossDmgPct * 12 + b.critPct * 20 + b.dmgCutPct * 15 + b.xpPct * 4 + b.goldPct * 3 + gear);
+}
+// ── 召喚（ガチャ）：ゴールドで装備を引く。10連は SR 以上が1つ確定、50回 SSR が出なければ次は SSR ──
+const GACHA_COST = { 1: 300, 10: 2700 };
+const GACHA_RATE = { N: 55, R: 30, SR: 12, SSR: 3 };
+const GACHA_PITY = 50;
+function gachaRoll(min) {
+  const order = ["N", "R", "SR", "SSR"];
+  const pool = order.slice(order.indexOf(min || "N"));
+  const total = pool.reduce((t, k) => t + GACHA_RATE[k], 0);
+  let x = Math.random() * total, rar = pool[0];
+  for (const k of pool) { if (x < GACHA_RATE[k]) { rar = k; break; } x -= GACHA_RATE[k]; }
+  const items = RPG_ITEMS.filter((i) => i.rarity === rar);
+  return items[Math.floor(Math.random() * items.length)].id;
+}
 const equippedWeaponId = (r) => { const inv = r.inventory.find((v) => v.u === r.equipped.weapon); return inv ? inv.i : null; };
 const rpgEquippedItems = (r) => RPG_SLOTS.map((s) => rpgInvItem(r.inventory.find((v) => v.u === r.equipped[s.id]))).filter(Boolean);
 
@@ -11459,8 +11548,15 @@ function AdventureTab({ state, actions, recordAnswer, startTimer, stopTimer, tod
         )}
       </Box>
 
+      {/* 召喚 */}
+      <GachaPanel state={state} actions={actions} flash={flash} />
+
       {/* 装備 */}
       <Box title="装備" icon={<Sword size={18} />}>
+        <div className="jp flex items-baseline justify-between mb-2 px-2 py-1.5" style={{ background: "linear-gradient(90deg, rgba(214,181,106,0.18), rgba(214,181,106,0.04))", border: "1px solid #d6b56a", borderRadius: 8 }}>
+          <span className="text-xs" style={{ color: "var(--ink-soft)", fontWeight: 700 }}>戦闘力</span>
+          <span style={{ fontFamily: "'Cinzel', serif", fontWeight: 900, fontSize: 24, color: "#b08a3e" }}>{combatPower(state).toLocaleString()}</span>
+        </div>
         <div className="space-y-1">
           {RPG_SLOTS.map((s) => {
             const it = eqMap[s.id];
@@ -11502,6 +11598,10 @@ function AdventureTab({ state, actions, recordAnswer, startTimer, stopTimer, tod
         <div className="jp text-[10px] mt-2 p-2" style={{ background: "var(--cream)", color: "var(--ink-soft)" }}>
           いまの効果：会心率 {bonus.critPct}% ／ EXP+{bonus.xpPct}% ／ ゴールド+{bonus.goldPct}% ／ ボスへの攻撃+{bonus.bossDmgPct}% ／ 被ダメージ-{bonus.dmgCutPct}% ／ 最大HP {bonus.maxHp}
           <br />会心率はLUK、攻撃はINT、被ダメージ軽減はDEF、HPは連続学習日数とレベルでも上がります。
+        </div>
+        <div className="flex gap-2 mt-2">
+          <button onClick={() => { if (confirm("装備していない N の装備（強化していないもの）を、まとめて売りますか？")) flash(actions.sellBulk(["N"])); }} className="jp btn-ghost text-[11px] px-2 py-1 flex-1">N をまとめて売る</button>
+          <button onClick={() => { if (confirm("装備していない N と R の装備（強化していないもの）を、まとめて売りますか？")) flash(actions.sellBulk(["N", "R"])); }} className="jp btn-ghost text-[11px] px-2 py-1 flex-1">N・R をまとめて売る</button>
         </div>
       </Box>
 
@@ -11747,8 +11847,9 @@ function BossArena({ state, boss, bossHp, hp, maxHp, fx, combo, dying }) {
   const bossPct = Math.max(0, Math.min(1, bossHp / boss.hp)), myPct = Math.max(0, Math.min(1, hp / maxHp));
   const enraged = bossHp > 0 && bossPct < 0.3;
   const t = (fx && fx.t) || 0;
-  const H = ["62px", "calc(100% - 56px)"], M = ["calc(100% - 96px)", "calc(50% + 4px)"];
-  // 主人公の表情（白金テーマ）：ふだんは真剣、会心で笑顔、攻撃を受けると驚き、力尽きると…
+  const H = ["50px", "calc(100% - 50px)"], M = ["calc(100% - 96px)", "calc(50% + 4px)"];
+  const cp = combatPower(state);
+  // 主人公の表情（白金テーマ）：ふだんは真剣、会心で笑顔、攻撃を受けると驚き
   const face = theme === "white" ? HERO_FACES[dying === "boss" ? "smile" : fx && fx.side === "mon" ? "surprise" : fx && fx.crit ? "smile" : "serious"] : null;
   const bossAnim = dying === "boss" ? "sqyDie 1.2s ease-in forwards"
     : fx && fx.side === "hero" ? `sqxKnock .3s ease-out ${t}s`
@@ -11780,10 +11881,11 @@ function BossArena({ state, boss, bossHp, hp, maxHp, fx, combo, dying }) {
       </div>
       {/* 主人公 */}
       <div style={{ position: "absolute", left: 10, bottom: 10, zIndex: 2, display: "flex", alignItems: "flex-end", gap: 8 }}>
-        <div key={fx ? `h${fx.n}` : "h"} style={{ position: "relative", width: 76, height: 76, borderRadius: "50%", border: `2px solid ${P.ring}`, boxShadow: "0 3px 10px rgba(0,0,0,0.35)", backgroundColor: "#e9e4d6", backgroundImage: `url(${face || P.avatar})`, backgroundSize: face ? "cover" : "300% auto", backgroundPosition: face ? "center 20%" : `${P.face[0]}% ${P.face[1]}%`, animation: dying === "me" ? "sqyDie 1.2s ease-in forwards" : fx ? (fx.side === "hero" ? "sqbLunge .32s ease-out" : `sqbHurt .45s ease-out ${t}s`) : undefined }}>
-          {(() => { const pt = getPetInfo(state); return pt ? <span style={{ position: "absolute", right: -12, bottom: -4 }}><PetIcon pet={pt} size={26} /></span> : null; })()}
-        </div>
-        <div style={{ width: 120 }}>
+        <GearPortrait key={fx ? `h${fx.n}` : "h"} state={state} size={76} img={face || P.avatar} bgSize={face ? "cover" : "300% auto"} bgPos={face ? "center 20%" : `${P.face[0]}% ${P.face[1]}%`} ring={P.ring} anim={dying === "me" ? "sqyDie 1.2s ease-in forwards" : fx ? (fx.side === "hero" ? "sqbLunge .32s ease-out" : `sqbHurt .45s ease-out ${t}s`) : undefined}>
+          {(() => { const pt = getPetInfo(state); return pt ? <span style={{ position: "absolute", left: -12, bottom: -4 }}><PetIcon pet={pt} size={26} /></span> : null; })()}
+        </GearPortrait>
+        <div style={{ width: 120, paddingLeft: 10 }}>
+          <div className="jp text-[10px]" style={{ color: "#f1dfae", fontWeight: 800, textShadow: "0 1px 3px rgba(0,0,0,0.8)" }}>戦闘力 <span style={{ fontFamily: "'Cinzel', serif", fontSize: 13 }}>{cp.toLocaleString()}</span></div>
           <div className="jp text-[10px]" style={{ color: "#fdfbf5", fontWeight: 800, textShadow: "0 1px 3px rgba(0,0,0,0.8)" }}>Lv.{state.player.level}　HP {hp}/{maxHp}</div>
           {bar(myPct, myPct < 0.3 ? "linear-gradient(90deg,#a24a45,#e0948a)" : "linear-gradient(90deg,#4f8a72,#8cc4a8)", 8)}
         </div>
@@ -11808,6 +11910,85 @@ function BossArena({ state, boss, bossHp, hp, maxHp, fx, combo, dying }) {
         <div className="jp" style={{ position: "absolute", left: "50%", top: "46%", zIndex: 5, animation: "sqyWin .8s ease-out .3s both", fontFamily: "'Shippori Mincho B1', serif", fontWeight: 800, fontSize: 22, color: "#e0948a", whiteSpace: "nowrap" }}>力尽きた……</div>
       </>)}
     </div>
+  );
+}
+
+// ── 召喚（ガチャ）の欄 ──
+const GACHA_CSS = `
+@keyframes sqgSpin{to{transform:translate(-50%,-50%) rotate(360deg)}}
+@keyframes sqgPillar{0%{opacity:0;transform:translateX(-50%) scaleY(0)}30%{opacity:1;transform:translateX(-50%) scaleY(1)}75%{opacity:1}100%{opacity:0;transform:translateX(-50%) scaleY(1) scaleX(2.5)}}
+@keyframes sqgCard{0%{opacity:0;transform:translateY(18px) rotateY(90deg) scale(.8)}60%{opacity:1;transform:translateY(-4px) rotateY(0) scale(1.05)}100%{opacity:1;transform:none}}
+@keyframes sqgShine{0%,100%{box-shadow:0 0 6px var(--c)}50%{box-shadow:0 0 18px var(--c),0 0 30px var(--c)}}
+`;
+function GachaPanel({ state, actions, flash }) {
+  const r = normRpg(state.rpg);
+  const g = r.gacha || { n: 0, since: 0 };
+  const [res, setRes] = useState(null);
+  const pull = (n) => {
+    const out = actions.gachaPull(n);
+    if (typeof out === "string") { flash(out); return; }
+    SFX.play("evolve");
+    setRes(out);
+  };
+  return (
+    <Box title="召喚の祭壇（ガチャ）" icon={<Sparkles size={18} />}>
+      <div className="relative overflow-hidden mb-2" style={{ height: 96, borderRadius: 8, border: "1px solid #b08a3e", background: `radial-gradient(circle at 50% 60%, rgba(159,210,255,0.55), transparent 55%), url(${ART_URL}items-banner.jpg) center 40%/cover no-repeat` }}>
+        <div className="absolute inset-x-0 bottom-0 px-3 py-1 jp text-xs" style={{ background: "linear-gradient(0deg, rgba(20,28,50,0.85), rgba(20,28,50,0))", color: "#fdfbf5", fontWeight: 800 }}>ゴールドを捧げて、装備を召喚する</div>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <button onClick={() => pull(1)} disabled={r.gold < GACHA_COST[1]} className="jp btn-sky py-2 text-sm">1回召喚<br /><span className="text-[11px]">{GACHA_COST[1]}G</span></button>
+        <button onClick={() => pull(10)} disabled={r.gold < GACHA_COST[10]} className="jp btn-primary py-2 text-sm">10連召喚<br /><span className="text-[11px]">{GACHA_COST[10]}G・SR以上1つ確定</span></button>
+      </div>
+      <div className="jp text-[10px] mt-2" style={{ color: "var(--ink-mute)" }}>
+        出る確率：SSR {GACHA_RATE.SSR}%・SR {GACHA_RATE.SR}%・R {GACHA_RATE.R}%・N {GACHA_RATE.N}%。{GACHA_PITY}回 SSR が出なければ、次は SSR 確定（あと{Math.max(1, GACHA_PITY - (g.since || 0))}回）。これまで {g.n || 0}回 召喚。
+      </div>
+      {res && <GachaResult items={res} state={state} actions={actions} onClose={() => setRes(null)} />}
+    </Box>
+  );
+}
+function GachaResult({ items, state, actions, onClose }) {
+  const r = normRpg(state.rpg);
+  const top = items.reduce((m, o) => Math.max(m, RARITY_RANK[rpgItemById(o.i).rarity]), 0);
+  const pillar = ["#cfd6e2", "#7fb6ff", "#c9a6ff", "#f2c14e"][top];
+  const cpNow = combatPower(state);
+  const cpIf = (slot, u) => combatPower({ ...state, rpg: { ...r, equipped: { ...r.equipped, [slot]: u } } }) - cpNow;
+  const [shown, setShown] = useState(false);
+  useEffect(() => { const t = setTimeout(() => { setShown(true); if (top >= 3) SFX.play("victory"); else SFX.play("result"); }, 1100); return () => clearTimeout(t); }, []);
+  return createPortal(
+    <div style={{ position: "fixed", inset: 0, zIndex: 9997, background: "radial-gradient(circle at 50% 45%, #2a3f7a 0%, #10182f 70%)", overflowY: "auto", display: "flex", flexDirection: "column", alignItems: "center", padding: "24px 12px" }}>
+      <style>{GACHA_CSS}</style>
+      {!shown ? (
+        <div style={{ position: "relative", width: "100%", flex: 1, minHeight: 360 }}>
+          <svg viewBox="0 0 200 200" style={{ position: "absolute", left: "50%", top: "50%", width: 260, height: 260, animation: "sqgSpin 2.4s linear infinite", transform: "translate(-50%,-50%)" }}>
+            <circle cx="100" cy="100" r="92" fill="none" stroke={pillar} strokeWidth="2" /><circle cx="100" cy="100" r="74" fill="none" stroke={pillar} strokeWidth="1" strokeDasharray="4 3" />
+            <polygon points="100,14 174,143 26,143" fill="none" stroke={pillar} strokeWidth="1.2" /><polygon points="100,186 26,57 174,57" fill="none" stroke={pillar} strokeWidth="1.2" />
+          </svg>
+          <div style={{ position: "absolute", left: "50%", top: 0, bottom: 0, width: 90, background: `linear-gradient(0deg, transparent, ${pillar}, #ffffff, ${pillar}, transparent)`, filter: "blur(6px)", transformOrigin: "50% 50%", animation: "sqgPillar 1.1s ease-out both" }} />
+        </div>
+      ) : (<>
+        <div className="jp" style={{ fontFamily: "'Shippori Mincho B1', serif", fontWeight: 800, fontSize: 20, color: "#f1dfae", marginBottom: 12, textShadow: "0 0 10px rgba(242,193,78,0.6)" }}>召喚の結果</div>
+        <div className={items.length === 1 ? "grid grid-cols-1 gap-2" : "grid grid-cols-2 sm:grid-cols-5 gap-2"} style={{ width: "100%", maxWidth: items.length === 1 ? 180 : 640, perspective: 600, marginTop: items.length === 1 ? "18vh" : 0 }}>
+          {items.map((o, k) => {
+            const it = rpgItemById(o.i);
+            const c = RARITY[it.rarity].color;
+            const on = Object.values(r.equipped).includes(o.u);
+            return (
+              <div key={o.u} className="jp text-center" style={{ position: "relative", padding: "8px 4px", borderRadius: 10, background: it.rarity === "SSR" ? "linear-gradient(160deg, #fff7e2, #f1dfae)" : it.rarity === "SR" ? "linear-gradient(160deg, #f4effa, #ddd0ef)" : "#fbf8f0", border: `2px solid ${c}`, "--c": c, animation: `sqgCard .45s ease-out ${k * 0.12}s both${RARITY_RANK[it.rarity] >= 2 ? `, sqgShine 1.6s ease-in-out ${k * 0.12 + 0.45}s infinite` : ""}` }}>
+                {o.isNew && <span style={{ position: "absolute", left: 4, top: 4, fontSize: 9, fontWeight: 800, color: "#fff", background: "#c9433f", borderRadius: 4, padding: "0 4px" }}>NEW</span>}
+                <div className="flex justify-center"><GameIcon ch={it.icon} id={it.id} rarity={it.rarity} size={56} /></div>
+                <div className="text-[11px] mt-1" style={{ fontWeight: 800, color: "#22335c" }}>{it.name}</div>
+                <div><RpgRarityTag rarity={it.rarity} /></div>
+                <div className="text-[9px]" style={{ color: "#4f6b9a", minHeight: 24 }}>{fxText(it.fx)}</div>
+                {on ? <div className="text-[10px]" style={{ color: "#4f8a72", fontWeight: 800 }}>装備中</div>
+                  : (() => { const d = cpIf(it.slot, o.u); return <button onClick={() => actions.equip(it.slot, o.u)} className="btn-sky text-[10px] px-2 py-0.5">装備する<span style={{ marginLeft: 3, color: d > 0 ? "#f2c14e" : "#e0948a" }}>{d > 0 ? `▲${d.toLocaleString()}` : d < 0 ? `▼${(-d).toLocaleString()}` : ""}</span></button>; })()}
+              </div>
+            );
+          })}
+        </div>
+        <button onClick={onClose} className="jp btn-primary px-8 py-2 mt-4">閉じる</button>
+      </>)}
+    </div>,
+    document.body
   );
 }
 
@@ -12478,7 +12659,7 @@ function BattleStage({ state, q, bankName, battleKey, boss = false, scene = null
       )}
       {/* 主人公（顔・HP） */}
       <div style={{ position: "absolute", left: 10, bottom: 10, display: "flex", alignItems: "flex-end", gap: 8 }}>
-        <div key={fx ? `hero${fx.n}` : "hero"} style={{ width: 54, height: 54, borderRadius: "50%", flexShrink: 0, backgroundColor: "#e9e4d6", backgroundImage: `url(${P.avatar})`, backgroundSize: "300% auto", backgroundPosition: `${P.face[0]}% ${P.face[1]}%`, border: `2px solid ${P.ring}`, boxShadow: "0 2px 6px rgba(0,0,0,0.2)", animation: fx ? (fx.ok ? "sqbLunge .32s ease-out" : `sqbHurt .4s ease-out ${fx.t || 0}s`) : undefined }} />
+        <GearPortrait key={fx ? `hero${fx.n}` : "hero"} state={state} size={56} img={P.avatar} bgSize="300% auto" bgPos={`${P.face[0]}% ${P.face[1]}%`} ring={P.ring} anim={fx ? (fx.ok ? "sqbLunge .32s ease-out" : `sqbHurt .4s ease-out ${fx.t || 0}s`) : undefined} />
         <div style={{ width: 96, position: "relative" }}>
           <div className="jp" style={{ fontSize: 10, color: P.sub, fontWeight: 700 }}>HP {BATTLE.hp}/{BATTLE.maxHp}</div>
           <div style={{ height: 7, borderRadius: 4, background: "rgba(0,0,0,0.15)", overflow: "hidden" }}>
@@ -12508,7 +12689,7 @@ function BattleStage({ state, q, bankName, battleKey, boss = false, scene = null
         )}
       </div>
       {/* 技の演出と名前 */}
-      {fx && <AttackFx key={`fx${fx.n}`} fx={fx} H={["37px", "calc(100% - 37px)"]} M={["calc(93% - 60px)", "calc(100% - 66px)"]} />}
+      {fx && <AttackFx key={`fx${fx.n}`} fx={fx} H={["38px", "calc(100% - 38px)"]} M={["calc(93% - 60px)", "calc(100% - 66px)"]} />}
       {fx && <SkillBanner fx={fx} />}
       {/* 被ダメージの赤いふち */}
       {fx && !fx.ok && <div key={`r${fx.n}`} style={{ position: "absolute", inset: 0, pointerEvents: "none", boxShadow: "inset 0 0 40px rgba(201,74,74,0.55)", animation: `sqbRed .5s ease-out ${fx.t || 0}s both` }} />}

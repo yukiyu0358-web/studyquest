@@ -89,6 +89,9 @@ state の主なキー：`player` / `qualifications` / `tasks` / `studyPlans`（�
 - バトル演出：`BattleStage`（問題の上に魔物。`AnswerPanel` が `emitBattle` で結果を送る）`BattleResult` `MONSTER_SPECIES` `MON_THEMES`（問題集名→科目の色・素材）`SFX`（効果音・既定オフ）`BATTLE`（1セットのHP・コンボ）。設定 `displaySettings.battle` `displaySettings.sfx`
 - 戦いの技と演出（`src/game/battlefx.jsx`）：主人公の技 `heroAttackFor`（装備中の武器 `equippedWeaponId`・科目の属性 `REGION_EL`・コンボで、斬撃［斬撃・十字斬り・三連斬］／魔法［炎・氷・雷・光・風］／弓を選ぶ。会心は大技の名前）、魔物の技 `monAttackFor`（種族ごと `MON_MOVES`：ひっかき・かみつき・炎の息・魔弾・たいあたり・岩石落とし・のろい・かまいたち）、当たるまでの時間 `impactOf`（ダメージの数字・のけぞり・揺れはここに合わせて遅らせる）。描画は `AttackFx`（H＝主人公・M＝魔物の位置を % で）`SkillBanner`（技の名前）`Ambient`（地域ごとの漂う光）、CSS は `BATTLE_FX_CSS`（sqx〜）。効果音は sfx.js の fire・ice・thunder・holy・wind・arrow・claw・roar・magicHit・victory
 - ボス戦の舞台：`BossArena`（背景 `BOSS_SCENES`［ボスの絵ごとに塔の景色］、大きなボスの絵、HP3割未満で「怒り」、主人公の表情 HERO_FACES、連撃 `combo`［2連目から威力+6%ずつ・最大+30%］、決着の演出 `dying`［VICTORY／力尽きた］。決着の演出のあいだは `busy` で答えを受け付けない）
+- 戦いの主人公の顔：`GearPortrait`（イラストのまま。装備のレア度 `equippedLook` で SR は青・SSR は金に光り、装備中の武器のしるしを右下に付ける。問題の戦いとボス戦。2頭身のミニキャラは本人の希望で入れなかった）
+- 戦闘力（ログレス風）：`combatPower`（レベル・HP・攻撃・会心・守り・装備のレア度 `CP_GEAR`×強化段階）。拠点の装備の欄とボス戦に表示、装備を替えると増減を知らせる（rpgActions.equip）
+- 召喚（ガチャ）：`GachaPanel` `GachaResult`（拠点。ゴールドで1回300G・10連2700G［SR以上1つ確定］、確率 `GACHA_RATE`、50回で SSR 確定 `GACHA_PITY`。rpg.gacha = {n, since}）、操作 `gachaPull` `sellBulk`（装備していない・強化していない N／R をまとめて売る）。持ち物は300個まで `invCap`（あふれたら装備していない古いものから消す）
 - 育成：素材 `RPG_MATERIALS`（戦利品は `emitReward`→StudyRPG が記録）、スキル `SKILL_TREE`（SP＝レベル−1）、鍛冶 `forgeCost` `forgedFx` `rpgInvItem`（持ち物 `{u,i,p}` の p が強化段階）。`SkillPanel` `ForgePanel`。rpg に `materials` `skills` `forgeLog` を追加
 - 進化：`HERO_STAGES`（Lv1/10/20/30/40/50 の6つの姿。額縁・紋章・翼・星）`heroStage` `HeroDecor` `EvolutionScene`（全画面の進化演出。`showEvolution` で出す：主人公の段階変化・覚醒★・相棒）`EvolutionRoad`
 - モンスター図鑑：`MonsterDex` `dexStatus`（0未発見 1発見 2討伐 3制覇＝fs.s≥21）。魔物の種族 `MonsterKinds`（出会った問題の種族を集める。強い魔物はボスを倒すごとに1体ずつ）
