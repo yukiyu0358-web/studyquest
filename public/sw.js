@@ -3,7 +3,7 @@
 // ・絵・プログラム・条文データなどは「保管していたものをすぐ出し、裏で新しいものに入れ替える」
 // ・Google Fonts（文字の形）だけは保管して、電波がなくても文字がくずれないようにする
 // ・Firebase など、そのほかのサイトへの通信には一切さわらない（学習記録の保存はこれまでどおり）
-const CACHE = "sq-cache-v3";
+const CACHE = "sq-cache-v4";
 const FONT_HOSTS = ["fonts.googleapis.com", "fonts.gstatic.com"];
 
 self.addEventListener("install", () => self.skipWaiting());
@@ -23,7 +23,7 @@ self.addEventListener("fetch", (e) => {
   if (url.origin !== self.location.origin) return;
   if (req.mode === "navigate") {
     e.respondWith(
-      fetch(req).then((res) => { const copy = res.clone(); caches.open(CACHE).then((c) => c.put(req, copy)); return res; })
+      fetch(req, { cache: "no-store" }).then((res) => { const copy = res.clone(); caches.open(CACHE).then((c) => c.put(req, copy)); return res; })
         .catch(() => caches.match(req).then((r) => r || caches.match(self.registration.scope)))
     );
     return;

@@ -12056,7 +12056,7 @@ function BossBattle({ state, boss, pool, actions, recordAnswer, startTimer, stop
       const comboMul = 1 + Math.min(0.3, (nc - 1) * 0.06);
       const dmg = Math.max(1, Math.round(base * mult * comboMul * (1 + bonus.bossDmgPct / 100) * (crit ? 2 : 1)));
       const atk = heroAttackFor({ weapon: equippedWeaponId(r), region: bossRegion, crit, combo: nc });
-      t = impactOf(atk) + (bossCut(nc) ? 1.3 : 0); // カットイン → ルナの必殺技 → 命中
+      t = impactOf(atk) + (bossCut(nc) ? (bossCut(nc).ult ? 1.6 : 1.3) : 0); // カットイン → ルナの必殺技 → 命中
       // 仲間の加勢：カイトなどは3連撃ごとに追撃、レイヴンなどは会心か2割で魔法
       const chase = party.find((p) => p.skill.kind === "chase"), magic = party.find((p) => p.skill.kind === "magic");
       let as = null;
@@ -12100,7 +12100,7 @@ function BossBattle({ state, boss, pool, actions, recordAnswer, startTimer, stop
       if (as) addLog(`✨ ${as.p.a.name}の${as.p.skill.name}！ HPが${as.val}回復した`);
     }
     setShowAnswer(false);
-    setTimeout(() => setFx((f) => (f && f.n === n ? null : f)), (correct && (bossCut(combo + 1) || combo + 1 >= 3) ? 1600 : 1000) + t * 1000);
+    setTimeout(() => setFx((f) => (f && f.n === n ? null : f)), (correct && bossCut(combo + 1) && bossCut(combo + 1).ult ? 2300 : correct && (bossCut(combo + 1) || combo + 1 >= 3) ? 1600 : 1000) + t * 1000);
     if (nb <= 0) { busy.current = true; addLog(`🎉 ${boss.name}を倒した！`); setTimeout(() => { setDying("boss"); SFX.play("victory"); }, t * 1000 + 250); setTimeout(() => finish(true, false), t * 1000 + 2100); return; }
     if (nh <= 0) { busy.current = true; addLog("💀 力尽きた…"); setTimeout(() => setDying("me"), t * 1000 + 250); setTimeout(() => finish(false, false), t * 1000 + 1700); return; }
     if (idx + 1 >= pool.length) { busy.current = true; addLog(`${boss.name}は逃げていった…`); setTimeout(() => finish(false, true), t * 1000 + 900); return; }
@@ -12256,7 +12256,7 @@ function BossArena({ state, boss, bossHp, hp, maxHp, fx, combo, dying, party = [
       </div>
       {/* 主人公（前衛） */}
       <div style={{ position: "absolute", left: "calc(40% - 86px)", bottom: -18, width: 214, height: 214, zIndex: 2 }}>
-        <LunaSprite size={214} pose={dying === "me" ? "down" : dying === "boss" ? "win" : fx ? (fx.side === "hero" ? (fx.cut ? "skill" : "attack") : "hurt") : "idle"} delay={fx && fx.side === "mon" ? t : fx && fx.cut ? 0.6 : 0} k={fx ? fx.n : dying ? 999 : 0} aura={auraOf(state)} />
+        <LunaSprite size={214} pose={dying === "me" ? "down" : dying === "boss" ? "win" : fx ? (fx.side === "hero" ? (fx.cut ? (fx.cut.ult ? "ult" : "skill") : "attack") : "hurt") : "idle"} delay={fx && fx.side === "mon" ? t : fx && fx.cut ? 0.6 : 0} k={fx ? fx.n : dying ? 999 : 0} aura={auraOf(state)} />
         {(() => { const pt = getPetInfo(state); return pt ? <span style={{ position: "absolute", left: 18, bottom: 22 }}><PetIcon pet={pt} size={26} /></span> : null; })()}
       </div>
       {/* 味方の HP・戦闘力（左上） */}
@@ -12541,14 +12541,18 @@ function AllyMedal({ p, size = 40, glow }) {
   return <span title={`${p.a.name}（${p.skill.name}）`} style={{ display: "inline-block", width: size, height: size, borderRadius: "50%", border: `2px solid ${glow ? "#f2c14e" : "#b08a3e"}`, boxShadow: glow ? "0 0 12px 3px rgba(242,193,78,0.9)" : "0 2px 5px rgba(0,0,0,0.35)", backgroundColor: "#e9e4d6", backgroundImage: `url(${p.art})`, backgroundSize: p.evo ? "cover" : "300% auto", backgroundPosition: p.evo ? "center 18%" : `${p.a.face[0]}% ${p.a.face[1]}%`, transition: "box-shadow .2s" }} />;
 }
 // ルナの動き：attack は攻撃モーション（10コマ）、ほかは1コマ目に動きを付ける
-const LUNA_SPRITE = `${ART_URL}sprite/luna-attack.webp`, LUNA_FRAMES = 10;
+const LUNA_SPRITE = `${ART_URL}sprite/luna-attack.webp`, LUNA_FRAMES = 16; // 通常攻撃（luna_normal_attack_assets の16コマ、0.9秒）
 // 攻撃モーションの帯（public/art/sprite/）：コマ数と、1回の長さ（秒）。セレナ・レイヴンは24コマから、本人が画面の外に出る3コマを除いた21コマ
 const SPRITES = {
-  luna: { url: LUNA_SPRITE, frames: LUNA_FRAMES, dur: 0.7 },
+  luna: { url: LUNA_SPRITE, frames: LUNA_FRAMES, dur: 0.9 },
   serena: { url: `${ART_URL}sprite/serena-attack.webp`, frames: 21, dur: 0.75 },
   raven: { url: `${ART_URL}sprite/raven-attack.webp`, frames: 21, dur: 0.75 },
   lunaNova: { url: `${ART_URL}sprite/luna-nova.webp`, frames: 24, dur: 1.2 },
+  // 必殺技の長尺版（luna_starlight_nova_long：溜め→斬撃→最大発光→余韻。元は6秒、学習のテンポのため半分の3秒）
+  lunaNovaLong: { url: `${ART_URL}sprite/luna-nova.webp`, frames: 24, dur: 3.0, kf: "sqlNovaLong" },
 };
+const NOVA_LONG_MS = [...Array(6).fill(150), ...Array(8).fill(75), ...Array(4).fill(150), ...Array(6).fill(150)];
+const NOVA_LONG_KF = (() => { const total = NOVA_LONG_MS.reduce((a, b) => a + b, 0); let acc = 0; return `@keyframes sqlNovaLong{${NOVA_LONG_MS.map((ms, i) => { const at = (acc / total) * 100; acc += ms; return `${at.toFixed(3)}%{background-position:${((i / 23) * 100).toFixed(3)}% 0}`; }).join("")}100%{background-position:100% 0}}`; })();
 function bringIntoView(el) {
   if (!el) return;
   const r = el.getBoundingClientRect();
@@ -12561,9 +12565,9 @@ const LUNA_CSS = `
 @keyframes sqlJump{0%,100%{transform:translateY(0)}30%{transform:translateY(-18px)}50%{transform:translateY(0)}68%{transform:translateY(-8px)}}
 @keyframes sqlDown{0%{transform:none;opacity:1}100%{transform:translateY(16px) rotate(-70deg);opacity:.7}}
 @keyframes sqlAura{0%,100%{opacity:.5;transform:scaleX(1)}50%{opacity:.9;transform:scaleX(1.12)}}
-`;
+` + NOVA_LONG_KF;
 // pose="skill" は必殺技のモーション（スターライトノヴァ。魔法陣から光の斬撃）
-function LunaSprite(props) { return props.pose === "skill" ? <CharSprite {...props} who="lunaNova" pose="attack" /> : <CharSprite {...props} who="luna" />; }
+function LunaSprite(props) { return props.pose === "ult" ? <CharSprite {...props} who="lunaNovaLong" pose="attack" /> : props.pose === "skill" ? <CharSprite {...props} who="lunaNova" pose="attack" /> : <CharSprite {...props} who="luna" />; }
 function CharSprite(props) {
   const { who = "luna", size = 120, pose = "idle", delay = 0, k = 0 } = props;
   if (pose !== "attack") return <CharSpriteLayer {...props} />;
@@ -12585,7 +12589,7 @@ function CharSpriteLayer({ who = "luna", size = 120, pose = "idle", delay = 0, k
   return (
     <div key={k} style={{ position: "relative", width: size, height: size, animation: wrap, "--dash": `${Math.round(size * (who === "luna" ? 0.5 : 0.18))}px`, zIndex: pose === "attack" ? 3 : undefined }}>
       {aura && <div style={{ position: "absolute", left: "12%", right: "40%", bottom: "6%", height: "16%", borderRadius: "50%", background: `radial-gradient(ellipse, ${aura} 0%, transparent 70%)`, animation: "sqlAura 2s ease-in-out infinite" }} />}
-      <div role="img" aria-label={who === "luna" ? HERO_NAME : who} style={{ position: "absolute", inset: 0, backgroundImage: `url(${sp.url})`, backgroundSize: `${sp.frames * 100}% 100%`, backgroundPosition: "0% 0", backgroundRepeat: "no-repeat", filter: "drop-shadow(0 3px 3px rgba(0,0,0,0.3))", animation: pose === "attack" ? `sqlAtk ${sp.dur}s steps(${sp.frames}, jump-none) ${delay}s 1 normal none` : undefined }} />
+      <div role="img" aria-label={who === "luna" ? HERO_NAME : who} style={{ position: "absolute", inset: 0, backgroundImage: `url(${sp.url})`, backgroundSize: `${sp.frames * 100}% 100%`, backgroundPosition: "0% 0", backgroundRepeat: "no-repeat", filter: "drop-shadow(0 3px 3px rgba(0,0,0,0.3))", animation: pose === "attack" ? (sp.kf ? `${sp.kf} ${sp.dur}s step-end ${delay}s 1 normal none` : `sqlAtk ${sp.dur}s steps(${sp.frames}, jump-none) ${delay}s 1 normal none`) : undefined }} />
     </div>
   );
 }
@@ -13117,12 +13121,12 @@ function BattleStage({ state, q, bankName, battleKey, boss = false, scene: scene
         emitReward({ mats, xp: xpBonus, stat: { elite: m.rank === "elite", fresh: m.rank === "unknown", crit, combo: BATTLE.combo, region: m.th && m.th.region } });
         // 技：装備中の武器・科目の属性・コンボで変わる（斬撃・魔法・弓）
         const atk = heroAttackFor({ weapon: equippedWeaponId(normRpg(stRef.current.rpg)), region: m.th && m.th.region, crit, combo: BATTLE.combo });
-        const t = impactOf(atk) + (cut ? 1.3 : 0); // カットイン → ルナの必殺技 → 命中
+        const t = impactOf(atk) + (cut ? (cut.ult ? 1.6 : 1.3) : 0); // カットイン → ルナの必殺技 → 命中
         hold += Math.round(t * 1000);
         const party = battleParty(stRef.current);
         const cameo = party.length && BATTLE.combo >= 3 && BATTLE.combo % 3 === 0 ? party[(BATTLE.combo / 3 - 1) % party.length] : null;
         const big = crit || !!cut || BATTLE.combo >= 3;
-        if (big) hold += cut ? 300 : 450;
+        if (big) hold += cut ? (cut.ult ? 1500 : 300) : 450;
         setFx({ n, ok: true, crit, dmg, cut, mon: m, drops: Object.keys(mats), side: "hero", atk, t, cameo, big, hits: big ? splitHits(dmg, cut ? 4 : 3) : [dmg] });
         if (atk.kind !== "slash") SFX.play(atk.sfx);
         setTimeout(() => SFX.play(crit ? "crit" : atk.kind === "slash" ? "hit" : "magicHit"), t * 1000);
@@ -13178,7 +13182,7 @@ function BattleStage({ state, q, bankName, battleKey, boss = false, scene: scene
       {/* 味方：後衛（仲間）と前衛（ルナ） */}
       <BackRowAllies slots={backRow(battleParty(state), 104)} actingId={fx && fx.cameo && !fx.cut ? fx.cameo.a.id : null} actN={fx ? fx.n : 0} />
       <div style={{ position: "absolute", left: "calc(40% - 74px)", bottom: -16, width: 180, height: 180, zIndex: 2 }}>
-        <LunaSprite size={180} pose={fx ? (fx.ok ? (fx.cut ? "skill" : "attack") : "hurt") : "idle"} delay={fx && !fx.ok ? fx.t || 0 : fx && fx.cut ? 0.6 : 0} k={fx ? fx.n : 0} aura={auraOf(state)} />
+        <LunaSprite size={180} pose={fx ? (fx.ok ? (fx.cut ? (fx.cut.ult ? "ult" : "skill") : "attack") : "hurt") : "idle"} delay={fx && !fx.ok ? fx.t || 0 : fx && fx.cut ? 0.6 : 0} k={fx ? fx.n : 0} aura={auraOf(state)} />
       </div>
       {/* ルナの HP（左下） */}
       <div style={{ position: "absolute", left: 6, bottom: 6, width: 108, zIndex: 3, padding: "2px 6px 4px", borderRadius: 6, background: "rgba(20,28,50,0.55)" }}>
