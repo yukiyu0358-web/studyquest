@@ -162,6 +162,14 @@ state の主なキー：`player` / `qualifications` / `tasks` / `studyPlans`（�
   - 学習の分析（周回の部屋 `StudyAnalysis`）：思い込み度 `overconfidence`（◎の次の回にまちがえた割合＋cwCnt）・条文マップ `lawMastery` `LawMastery`・年度別 `YearScores`（問題集の year。`yearNum` で R/H を西暦に）・法改正 `LawChangeList`
   - 本番形式の組合せ問題 `KumiaiDrill` `makeKumiai`（鍛錬。○×の問題を5つ選び「正しい／誤っているものの組合せ」5択。まちがえた肢は合図 sq-record-answer で✕として記録、rpg.kumiai）。仲間に教えるモード `TeachMode`（鍛錬。3つの答えから選んで教える、rpg.teach、絆）
   - 法改正のお知らせ：`scripts/fetch-laws.mjs` が前回の条文と比べ、変わった条文を `public/laws/changes.json`（{updatedAt, changes:{法令:{条:日付}}}）に記録。アプリは `useLawChanges` `lawChangeOf`（LawRefChips に ⚠、「確かめた」で問題の lawOk に日付）
+- 2026年10月15日の追加：
+  - 討伐依頼書 `BountyBoard` `bounties`（今日タブ。2回以上まちがえた問題が賞金首、ちがう日に `BOUNTY_DAYS`＝3回続けて正解 `correctDayStreak` で討伐。報酬 `claimBounty`［80G＋まちがい回数×10G・星霊石・EXP］、rpg.bounty.done[問題id]＝日付［その後まちがえると再掲］。挑戦は startSpecial の kind: bounty）
+  - 記憶の通知表 `memoryReport` `MemoryReportCard`（今日タブ。今日の正答率で秀・優・良・可、解いた・新しく覚えた・忘れかけを救った・明日の復習、明日あぶない3問）
+  - 時間配分トレーニング `PaceDrill`（鍛錬。1問 `PACE_SEC`＝150秒で `PACE_N`＝10問、迷ったら次へ［1問1回、最後に回す］、回答は sq-record-answer で FSRS に記録、rpg.pace.log）
+  - 条文の音読モード `LawListen`（鍛錬。よく出る条文を speechSynthesis で読み上げ→ `clozeFromArticle` の穴埋め1問×5、rpg.lawListen）
+  - 図鑑の討伐メダル `KILL_TIERS` `killTier`（BattleStage の emitReward の stat.kind で rpg.kills[種族] を数え、10・50・100体で銅・銀・金と50・150・300G。MonsterKinds のカードに表示）
+  - ボスの行動パターン（BossBattle）：溜め `CHARGE_EVERY`＝4問ごと［次にまちがえると2.5倍、正解で止めて1.3倍］`charging`、回復 `BOSS_HEALERS`［HP半分未満で1回、まちがえたとき15%］`healedRef`。BossArena に「溜め中」の札と紫の渦（sqyCharge）
+  - 連携技 `JOINT_SKILLS`（絆 `JOINT_BOND`＝3以上の仲間と `JOINT_EVERY`＝6連撃ごと、ダメージ+60%。assist.joint）
 - 試し表示：.claude/launch.json に demo（5174）と preview（公開版と同じビルドを 4173 で。本番の Firebase につながるのでログインはしない）
 - テーマ：`DISPLAY_DEFAULTS`（既定は white）`THEME_PAL`（classic/white の配色）`CLASSIC_CSS` `WHITE_CSS` `ClassicThemeStyle` `TitleScreen` `ClassicInfoBar` `MenuHome`（クラシック）`SignpostHome`（白金・道しるべ）`migrateDisplay`
 

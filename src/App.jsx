@@ -2113,6 +2113,14 @@ function StudyRPG({ user }) {
       if (ok) setTimeout(() => awardXp(ok * 5), 200);
       return ok ? `報酬：${ok * 10}G・絆+${ok * 2}・EXP${ok * 5}` : "";
     },
+    claimBounty: (qId, prize) => {
+      updateRpg((x) => { const m = { ...x.materials, "m-star": ((x.materials || {})["m-star"] || 0) + BOUNTY_REWARD.star }; return { ...x, gold: x.gold + prize, goldEarned: x.goldEarned + prize, materials: m, bounty: { done: { ...((x.bounty || {}).done || {}), [qId]: ymdCode(todayStr()) }, n: ((x.bounty || {}).n || 0) + 1 } }; });
+      setTimeout(() => awardXp(BOUNTY_REWARD.xp), 150);
+      SFX.play("victory");
+      showRpgToast(`💀 賞金首を討伐！ ${prize}G・星霊石×${BOUNTY_REWARD.star}・EXP${BOUNTY_REWARD.xp}`, "#b08a3e");
+    },
+    logPace: (rec) => updateRpg((x) => ({ ...x, pace: { log: [...(((x.pace || {}).log) || []), { d: todayStr(), ...rec }].slice(-40) } })),
+    logLawListen: (n, ok) => { updateRpg((x) => ({ ...x, lawListen: { n: ((x.lawListen || {}).n || 0) + n, ok: ((x.lawListen || {}).ok || 0) + ok } })); if (ok) setTimeout(() => awardXp(ok * 4), 150); },
     markArc: (region, key) => updateRpg((x) => ({ ...x, arcSeen: { ...x.arcSeen, [`${region}:${key}`]: todayStr() } })),
     // 試練の塔の結果：80%で突破。初突破でゴールド・欠片、試練の間（10の倍数の階）で星霊石と演出、50・100階で賢者の結晶
     towerFinish: ({ floor, acc }) => {
@@ -2574,7 +2582,15 @@ function StudyRPG({ user }) {
           }
           jn.log = jn.log.slice(-10);
         }
-        let out = { ...x, gold: x.gold + gold, goldEarned: x.goldEarned + gold, materials: m, daily: { ...d, k }, journey: jn };
+        // 種族ごとの討伐数（モンスター図鑑のメダル）
+        let kills = x.kills || {};
+        if (stat.kind) {
+          const before = kills[stat.kind] || 0, after = before + 1;
+          kills = { ...kills, [stat.kind]: after };
+          const tier = KILL_TIERS.find((t) => t.n === after);
+          if (tier) { gold += tier.gold; const sp = [...MON_PAINTED, ...MON_BOSS].find((z) => z.img === stat.kind); setTimeout(() => showRpgToast(`🏅 ${sp ? sp.name : "魔物"}を${after}体討伐！ 図鑑に${tier.name}メダル（${tier.gold}G）`, tier.color), 900); }
+        }
+        let out = { ...x, gold: x.gold + gold, goldEarned: x.goldEarned + gold, materials: m, daily: { ...d, k }, journey: jn, kills };
         ALLIES.filter((a) => stat.region && a.likes.includes(stat.region)).forEach((a) => { out = addBond(out, a.id, 1); });
         return out;
       });
@@ -8593,6 +8609,9 @@ function EvolutionRoad({ state }) {
 // ── モンスター図鑑：問題1問＝魔物1体。発見（解いた）→ 討伐（正解した）→ 制覇（しっかり覚えた） ──
 const DEX_PAGE = 48;
 const dexStatus = (q) => (q.excluded || (q.fs && q.fs.s >= MASTERED_STABILITY) ? 3 : (q.correct || 0) > 0 ? 2 : ((q.wrong || 0) > 0 || !!q.sr_nextReview) ? 1 : 0); // 0未発見 1発見 2討伐 3制覇
+// 種族ごとの討伐数のメダル（rpg.kills[種族] が 10・50・100 に届くと、そのときに報酬）
+const KILL_TIERS = [{ n: 10, name: "銅", color: "#b07a4a", gold: 50 }, { n: 50, name: "銀", color: "#8a96b0", gold: 150 }, { n: 100, name: "金", color: "#d6b56a", gold: 300 }];
+const killTier = (n) => [...KILL_TIERS].reverse().find((t) => (n || 0) >= t.n) || null;
 // 魔物の種族：出会った問題の魔物の種類を集める。強い魔物はボスを倒すごとに1体ずつ載る
 function MonsterKinds({ state }) {
   const [open, setOpen] = useState(false);
@@ -8607,13 +8626,15 @@ function MonsterKinds({ state }) {
   const wins = normRpg(state.rpg).bossWins || 0;
   const found = MON_PAINTED.filter((x) => cnt[x.img]).length + MON_BOSS.filter((_, k) => wins > k).length;
   const total = MON_PAINTED.length + MON_BOSS.length;
-  const cell = (x, ok, sub, strong) => (
-    <div key={x.img} className="jp text-center" style={{ padding: "4px 2px", borderRadius: 8, background: strong && ok ? "rgba(162,74,69,0.07)" : "var(--paper)", border: `1px solid ${strong && ok ? "#a24a45" : "var(--rule-soft)"}` }}>
+  const kills = normRpg(state.rpg).kills || {};
+  const cell = (x, ok, sub, strong) => { const kt = killTier(kills[x.img]); return (
+    <div key={x.img} className="jp text-center" style={{ position: "relative", padding: "4px 2px", borderRadius: 8, background: kt ? `linear-gradient(180deg, ${kt.color}22, var(--paper))` : strong && ok ? "rgba(162,74,69,0.07)" : "var(--paper)", border: `${kt ? 2 : 1}px solid ${kt ? kt.color : strong && ok ? "#a24a45" : "var(--rule-soft)"}` }}>
+      {kt && <span title={`${kt.name}メダル`} style={{ position: "absolute", right: 3, top: 3, width: 14, height: 14, borderRadius: "50%", background: `radial-gradient(circle at 35% 30%, #fff, ${kt.color})`, border: `1px solid ${kt.color}`, fontSize: 8, lineHeight: "12px", color: "#3a2a10", fontWeight: 800 }}>{kt.name}</span>}
       <div className="flex justify-center"><MonPic m={{ sp: x }} size={56} dim={ok ? 0 : 2} /></div>
       <div className="text-[9px] truncate" style={{ fontWeight: 700, color: ok ? "var(--ink)" : "var(--ink-mute)" }}>{ok ? x.name : "？？？"}</div>
-      <div className="text-[8px]" style={{ color: "var(--ink-mute)" }}>{sub}</div>
+      <div className="text-[8px]" style={{ color: "var(--ink-mute)" }}>{sub}{kills[x.img] ? `・倒した${kills[x.img]}` : ""}</div>
     </div>
-  );
+  ); };
   return (
     <div className="mb-3">
       <button onClick={() => setOpen(!open)} className="jp w-full flex items-center text-xs px-2 py-1.5" style={{ background: "var(--cream)", border: "1px solid var(--rule-soft)", borderRadius: 8, color: "var(--ink)", cursor: "pointer" }}>
@@ -8628,7 +8649,7 @@ function MonsterKinds({ state }) {
           <div className="grid grid-cols-4 sm:grid-cols-6 gap-1.5">
             {MON_BOSS.map((x, k) => cell(x, wins > k, wins > k ? "遭遇済み" : `ボス${k + 1}体目で`, true))}
           </div>
-          <p className="jp text-[10px] mt-1" style={{ color: "var(--ink-mute)" }}>問題1つ1つに魔物が宿っています。解いて出会うと、その種族が載ります。強い魔物は、ストーリーの最後の1問や試練の間にも現れます。</p>
+          <p className="jp text-[10px] mt-1" style={{ color: "var(--ink-mute)" }}>同じ種族を10・50・100体倒すと、銅・銀・金のメダルと報酬（50・150・300G）。問題1つ1つに魔物が宿っています。解いて出会うと、その種族が載ります。強い魔物は、ストーリーの最後の1問や試練の間にも現れます。</p>
         </div>
       )}
     </div>
@@ -11681,7 +11702,9 @@ function WorldView({ state, actions, todayCount, onWeekly, onDungeon, onGuardian
       </>)}
       {sec === "tower" && <TowerView state={state} pp={pp} onStart={onTower} />}
       {sec === "train" && (<>
+        <PaceDrill state={state} actions={actions} />
         <KumiaiDrill state={state} actions={actions} />
+        <LawListen state={state} actions={actions} />
         <TeachMode state={state} actions={actions} />
         <RehearsalCard state={state} pp={pp} actions={actions} onStart={onRehearsal} />
         <ShinseiDrill state={state} actions={actions} />
@@ -12006,7 +12029,9 @@ function BossBattle({ state, boss, pool, actions, recordAnswer, startTimer, stop
   const [maxHp] = useState(bonus.maxHp);
   const [log, setLog] = useState([`${boss.icon} ${boss.label}があらわれた！`]);
   const [fx, setFx] = useState(null); // 技の演出 { n, side: "hero"|"mon", atk, t, dmg, crit, assist }
-  const [assist, setAssist] = useState(null); // 仲間の加勢の演出 { n, p, val, heal }
+  const [assist, setAssist] = useState(null); // 仲間の加勢の演出 { n, p, val, heal, joint }
+  const [charging, setCharging] = useState(false); // ボスが力を溜めている
+  const healedRef = useRef(false); // 回復はボス1体につき1回
   const party = battleParty(state);
   const [combo, setCombo] = useState(0);
   const [dying, setDying] = useState(null); // "boss"（倒した）| "me"（力尽きた）
@@ -12054,13 +12079,17 @@ function BossBattle({ state, boss, pool, actions, recordAnswer, startTimer, stop
       const nc = combo + 1;
       // 連続で正解すると、2連目から少しずつ威力が上がる（最大+30%）
       const comboMul = 1 + Math.min(0.3, (nc - 1) * 0.06);
-      const dmg = Math.max(1, Math.round(base * mult * comboMul * (1 + bonus.bossDmgPct / 100) * (crit ? 2 : 1)));
+      const breakMul = charging ? 1.3 : 1; // 溜めを止めた一撃
+      const dmg = Math.max(1, Math.round(base * mult * comboMul * breakMul * (1 + bonus.bossDmgPct / 100) * (crit ? 2 : 1)));
       const atk = heroAttackFor({ weapon: equippedWeaponId(r), region: bossRegion, crit, combo: nc });
       t = impactOf(atk) + (bossCut(nc) ? (bossCut(nc).ult ? 1.6 : 1.3) : 0); // カットイン → ルナの必殺技 → 命中
       // 仲間の加勢：カイトなどは3連撃ごとに追撃、レイヴンなどは会心か2割で魔法
       const chase = party.find((p) => p.skill.kind === "chase"), magic = party.find((p) => p.skill.kind === "magic");
       let as = null;
-      if (chase && nc % 3 === 0) as = { p: chase, val: Math.max(1, Math.round(dmg * 0.4)) };
+      // 連携技（絆レベル3以上の仲間と、6連撃ごと）
+      const partner = nc % JOINT_EVERY === 0 ? party.find((p) => JOINT_SKILLS[p.a.id] && bondLevel(((r.bonds || {})[p.a.id]) || 0) >= JOINT_BOND) : null;
+      if (partner) as = { p: partner, val: Math.max(1, Math.round(dmg * 0.6)), joint: JOINT_SKILLS[partner.a.id] };
+      else if (chase && nc % 3 === 0) as = { p: chase, val: Math.max(1, Math.round(dmg * 0.4)) };
       else if (magic && (crit || Math.random() < 0.2)) as = { p: magic, val: Math.max(1, Math.round(dmg * 0.3)) };
       nb = Math.max(0, bossHp - dmg - (as ? as.val : 0));
       setCombo(nc);
@@ -12076,9 +12105,10 @@ function BossBattle({ state, boss, pool, actions, recordAnswer, startTimer, stop
       }
       const cutName = bossCut(nc);
       addLog(cutName ? `🌟 ${HERO_NAME}の${cutName.ult ? "必殺技" : "スキル"}「${cutName.name}」！ ${dmg}のダメージ（${nc}連撃）` : crit ? `💥 会心の一撃！ ${atk.name}で ${dmg}のダメージ！` : `⚔ ${HERO_NAME}の${atk.name}！ ${boss.name}に${dmg}のダメージ${nc >= 2 ? `（${nc}連撃）` : ""}`);
-      if (as) addLog(`✨ ${as.p.a.name}の${as.p.skill.name}！ さらに${as.val}のダメージ`);
+      if (as) addLog(as.joint ? `🤝 連携技「${as.joint}」！ ${HERO_NAME}と${as.p.a.name}の合体技で、さらに${as.val}のダメージ` : `✨ ${as.p.a.name}の${as.p.skill.name}！ さらに${as.val}のダメージ`);
+      if (charging) { setCharging(false); addLog(`🛡 溜めを止めた！ ${boss.name}の力が霧散した（ダメージ1.3倍）`); }
     } else {
-      const raw = boss.atk * (meta && meta.confident ? 1.3 : 1);
+      const raw = boss.atk * (meta && meta.confident ? 1.3 : 1) * (charging ? 2.5 : 1);
       const dmg = Math.max(1, Math.round(raw * (1 - bonus.dmgCutPct / 100)));
       const atk = monAttackFor(boss.art);
       t = impactOf(atk);
@@ -12096,9 +12126,22 @@ function BossBattle({ state, boss, pool, actions, recordAnswer, startTimer, stop
         setTimeout(() => { setAssist({ n, ...as }); setHp(nh); SFX.play("holy"); }, t * 1000 + 450);
         setTimeout(() => setAssist((x) => (x && x.n === n ? null : x)), t * 1000 + 1600);
       }
-      addLog(`${boss.icon} ${boss.name}の${atk.name}！ ${dmg}のダメージを受けた`);
+      addLog(charging ? `💢 ${boss.name}の溜めた大技・${atk.name}！ ${dmg}の大ダメージ！` : `${boss.icon} ${boss.name}の${atk.name}！ ${dmg}のダメージを受けた`);
       if (as) addLog(`✨ ${as.p.a.name}の${as.p.skill.name}！ HPが${as.val}回復した`);
+      if (charging) setCharging(false);
+      // ボスの回復（HPが半分を切っていたら1回だけ）
+      if (BOSS_HEALERS.has(boss.art) && !healedRef.current && nb > 0 && nb < boss.hp * 0.5) {
+        healedRef.current = true;
+        const hv = Math.round(boss.hp * 0.15);
+        nb = Math.min(boss.hp, nb + hv);
+        const nbv = nb;
+        setTimeout(() => { setBossHp(nbv); SFX.play("holy"); }, t * 1000 + 600);
+        addLog(`🌿 ${boss.name}は傷を癒やした！ HPが${hv}回復した`);
+      }
     }
+    // 次の問題で溜めるか（4問ごと。溜め中・決着のときは除く）
+    const willCharge = !charging && nb > 0 && nh > 0 && (idx + 1) % CHARGE_EVERY === 0 && idx + 1 < pool.length;
+    if (willCharge) { setTimeout(() => setCharging(true), t * 1000 + 700); addLog(`⚠ ${boss.name}は力を溜めている……！ 次の問題を正解して止めよう`); }
     setShowAnswer(false);
     setTimeout(() => setFx((f) => (f && f.n === n ? null : f)), (correct && bossCut(combo + 1) && bossCut(combo + 1).ult ? 2300 : correct && (bossCut(combo + 1) || combo + 1 >= 3) ? 1600 : 1000) + t * 1000);
     if (nb <= 0) { busy.current = true; addLog(`🎉 ${boss.name}を倒した！`); setTimeout(() => { setDying("boss"); SFX.play("victory"); }, t * 1000 + 250); setTimeout(() => finish(true, false), t * 1000 + 2100); return; }
@@ -12152,7 +12195,7 @@ function BossBattle({ state, boss, pool, actions, recordAnswer, startTimer, stop
         <button onClick={() => { if (confirm("戦いから逃げますか？（敗北として記録されます）")) finish(false, true); }} className="jp text-xs flex items-center gap-1" style={{ color: "var(--ink-soft)" }}><XIcon size={14} /> 逃げる</button>
         <div className="pixel text-xs" style={{ color: "var(--brick)" }}>⚔ {idx + 1}/{pool.length}</div>
       </div>
-      <BossArena state={state} boss={boss} bossHp={bossHp} hp={hp} maxHp={maxHp} fx={fx} combo={combo} dying={dying} party={party} assist={assist} />
+      <BossArena state={state} boss={boss} bossHp={bossHp} hp={hp} maxHp={maxHp} fx={fx} combo={combo} dying={dying} party={party} assist={assist} charging={charging} />
       <div className="flex items-stretch gap-2">
         <div className="jp text-[11px] p-1.5 flex-1" style={{ background: "var(--cream)", color: "var(--ink)", minHeight: 40, border: "1px solid var(--rule-soft)", borderRadius: 8 }}>
           {log.map((l, i) => <div key={i} style={{ opacity: i === log.length - 1 ? 1 : 0.55 }}>{l}</div>)}
@@ -12193,6 +12236,7 @@ const regionStageUrl = (region) => STAGE_URL(REGION_STAGE[region] || "meadow");
 const BOSS_STAGE = { slimeking: "meadow", wisp: "ruins", lunawolf: "snow", ghost: "crystal", magolem: "crystal", armor: "sunset", darkdragon: "lava", grimoire: "crystal", elderweed: "meadow" };
 const BOSS_SCENES = { slimeking: "tower/zone4.jpg", wisp: "tower/zone4.jpg", lunawolf: "tower/zone4.jpg", ghost: "tower/zone1.jpg", magolem: "tower/zone1.jpg", armor: "tower/zone1.jpg", darkdragon: "tower/zone2.jpg", grimoire: "tower/zone3.jpg", elderweed: "tower/layer01.jpg" };
 const BOSS_CSS = `
+@keyframes sqyCharge{to{transform:rotate(360deg)}}
 @keyframes sqyFloat{0%,100%{transform:translateY(0) scale(1)}50%{transform:translateY(-6px) scale(1.015)}}
 @keyframes sqyAura{0%,100%{opacity:.45;transform:scale(1)}50%{opacity:.9;transform:scale(1.07)}}
 @keyframes sqyDie{0%{opacity:1;filter:brightness(1)}20%{filter:brightness(3) saturate(.3)}100%{opacity:0;transform:scale(1.25) translateY(-10px);filter:brightness(4) blur(6px)}}
@@ -12200,7 +12244,7 @@ const BOSS_CSS = `
 @keyframes sqyRays{0%{opacity:0;transform:translate(-50%,-50%) rotate(0) scale(.4)}30%{opacity:.85}100%{opacity:.5;transform:translate(-50%,-50%) rotate(40deg) scale(1.2)}}
 @keyframes sqyDark{0%{opacity:0}100%{opacity:.75}}
 `;
-function BossArena({ state, boss, bossHp, hp, maxHp, fx, combo, dying, party = [], assist = null }) {
+function BossArena({ state, boss, bossHp, hp, maxHp, fx, combo, dying, party = [], assist = null, charging = false }) {
   const arenaRef = useRef(null);
   useEffect(() => { if (fx || dying) bringIntoView(arenaRef.current); }, [fx && fx.n, dying]);
   const theme = (state.displaySettings && state.displaySettings.theme) || "white";
@@ -12234,6 +12278,7 @@ function BossArena({ state, boss, bossHp, hp, maxHp, fx, combo, dying, party = [
         <div className="flex items-center gap-1.5" style={{ color: "#fdfbf5", textShadow: "0 1px 3px rgba(0,0,0,0.8)" }}>
           <span className="text-xs truncate flex-1" style={{ fontWeight: 800 }}>{boss.label}</span>
           {enraged && <span className="text-[9px] px-1.5" style={{ background: "#a02828", borderRadius: 999, fontWeight: 800, animation: "sqxPulse 1s ease-in-out infinite" }}>怒り</span>}
+          {charging && !dying && <span className="text-[9px] px-1.5" style={{ background: "#5a1d6e", borderRadius: 999, fontWeight: 800, animation: "sqxPulse .7s ease-in-out infinite" }}>溜め中</span>}
         </div>
         {bar(bossPct, enraged ? "linear-gradient(90deg, #7a1414, #e04848)" : "linear-gradient(90deg, #a24a45, #e0948a)")}
         <div className="text-[9px] text-right" style={{ color: "#fdfbf5", textShadow: "0 1px 2px rgba(0,0,0,0.8)" }}>HP {bossHp}/{boss.hp}</div>
@@ -12247,6 +12292,7 @@ function BossArena({ state, boss, bossHp, hp, maxHp, fx, combo, dying, party = [
       ))}
       <div style={{ position: "absolute", right: "8%", bottom: "6%", width: 214, height: 214, zIndex: 1 }}>
         <div style={{ position: "absolute", inset: -14, borderRadius: "50%", background: `radial-gradient(circle, ${enraged ? "rgba(220,50,50,0.6)" : "rgba(255,236,190,0.35)"} 0%, transparent 68%)`, animation: "sqyAura 2s ease-in-out infinite" }} />
+        {charging && !dying && <div style={{ position: "absolute", inset: -26, borderRadius: "50%", background: "repeating-conic-gradient(rgba(150,40,190,0.55) 0 12deg, transparent 12deg 30deg)", WebkitMaskImage: "radial-gradient(circle, transparent 30%, #000 45%, transparent 72%)", maskImage: "radial-gradient(circle, transparent 30%, #000 45%, transparent 72%)", animation: "sqyCharge 1.2s linear infinite" }} />}
         <div key={fx ? `b${fx.n}` : "b"} style={{ position: "absolute", inset: 0, animation: bossAnim }}>
           {boss.art
             ? MON_STAND.has(boss.art) ? <img src={monStandUrl(boss.art)} alt={boss.name} draggable={false} style={{ width: "100%", height: "100%", objectFit: "contain", filter: `drop-shadow(0 6px 6px rgba(0,0,0,0.4))${enraged ? " saturate(1.4) contrast(1.1)" : ""}` }} /> : <div role="img" aria-label={boss.name} style={{ width: "100%", height: "100%", borderRadius: "50%", backgroundImage: `url(${MON_ART_URL}${boss.art}.jpg)`, backgroundSize: "cover", backgroundPosition: "center", WebkitMaskImage: MON_MASK, maskImage: MON_MASK, filter: enraged ? "saturate(1.4) contrast(1.1)" : undefined }} />
@@ -12268,7 +12314,7 @@ function BossArena({ state, boss, bossHp, hp, maxHp, fx, combo, dying, party = [
       {/* 味方の後衛（仲間。加勢すると技を出す／光る） */}
       <BackRowAllies slots={slots} actingId={assist ? assist.p.a.id : null} actN={assist ? assist.n : 0} win={dying === "boss"} />
       {assist && (<>
-        <div key={`as${assist.n}`} className="jp" style={{ position: "absolute", left: 10, top: 78, zIndex: 4, fontSize: 12, fontWeight: 800, color: "#fdfbf5", background: assist.heal ? "rgba(46,120,90,0.88)" : "rgba(60,40,110,0.88)", padding: "2px 10px", borderRadius: 4, border: "1px solid #d6b56a", animation: "sqxBanner 1.1s ease-out both", whiteSpace: "nowrap" }}>{assist.p.a.name}：{assist.p.skill.name}！</div>
+        <div key={`as${assist.n}`} className="jp" style={{ position: "absolute", left: 10, top: 78, zIndex: 4, fontSize: 12, fontWeight: 800, color: "#fdfbf5", background: assist.heal ? "rgba(46,120,90,0.88)" : "rgba(60,40,110,0.88)", padding: "2px 10px", borderRadius: 4, border: "1px solid #d6b56a", animation: "sqxBanner 1.1s ease-out both", whiteSpace: "nowrap" }}>{assist.joint ? `🤝 ${HERO_NAME}＆${assist.p.a.name}「${assist.joint}」！` : `${assist.p.a.name}：${assist.p.skill.name}！`}</div>
         {assist.heal
           ? <><div key={`hl${assist.n}`} style={{ position: "absolute", left: H[0], top: H[1], width: 120, height: 120, marginLeft: -60, marginTop: -70, borderRadius: "50%", background: "radial-gradient(circle, rgba(170,255,200,0.7), rgba(120,220,160,0.25) 45%, transparent 70%)", animation: "sqxBoom .8s ease-out both", "--s": 1.4, pointerEvents: "none" }} />
               <div key={`hv${assist.n}`} style={{ position: "absolute", left: H[0], top: "calc(100% - 130px)", zIndex: 4, animation: "sqxNum 1s ease-out both", fontFamily: "'Cinzel', serif", fontWeight: 900, fontSize: 22, color: "#8ff0b4", textShadow: "0 2px 0 #1d4a32", pointerEvents: "none" }}>+{assist.val}</div></>
@@ -12525,6 +12571,12 @@ const heroEvoArt = (idx) => EVO_URL("luna", Math.min(6, Math.max(0, idx) + 1));
 // 仲間の進化：絆レベル1〜5で1〜5段階目、絆5で主人公が最後の姿になると6段階目
 const ALLY_EVO = { kaito: "kaito", serena: "serena", raven: "raven" };
 const allyEvoStage = (r, a, heroIdx) => { const lv = bondLevel(((r.bonds || {})[a.id]) || 0); return Math.min(6, Math.max(1, lv) + (lv >= 5 && heroIdx >= 5 ? 1 : 0)); };
+// ボスの行動パターン：溜め（4問ごとに力を溜め、次にまちがえると2.5倍。正解すると溜めを止めて+30%）・回復（HPが半分を切ったら1回だけ、まちがえたとき15%回復）
+const BOSS_HEALERS = new Set(["elderweed", "slimeking", "ghost", "wisp", "mandragora"]);
+const CHARGE_EVERY = 4;
+// 連携技：絆レベル3以上の仲間と、6連撃ごとに放つ合体技（ダメージ+60%）
+const JOINT_SKILLS = { serena: "光の加護斬り", raven: "星闇の双撃", kaito: "双剣・蒼閃", rine: "条文結界斬", kai: "測量陣・一閃", mira: "書式陣・星斬" };
+const JOINT_EVERY = 6, JOINT_BOND = 3;
 // 仲間の加勢（ボス戦）：追撃（3連撃ごと）・魔法（会心か2割）・回復（攻撃を受けたとき4割）
 const ALLY_SKILLS = {
   kaito: { kind: "chase", name: "ブレードラッシュ" }, serena: { kind: "heal", name: "ヒールライト" }, raven: { kind: "magic", name: "ダークバレット" },
@@ -13122,7 +13174,7 @@ function BattleStage({ state, q, bankName, battleKey, boss = false, scene: scene
         const xpBonus = cut && b.comboXp ? b.comboXp : 0;
         Object.entries(mats).forEach(([k, v]) => { BATTLE.mats[k] = (BATTLE.mats[k] || 0) + v; });
         // 戦利品と、デイリークエスト用の記録（倒した魔物の種類・会心・コンボ）
-        emitReward({ mats, xp: xpBonus, stat: { elite: m.rank === "elite", fresh: m.rank === "unknown", crit, combo: BATTLE.combo, region: m.th && m.th.region } });
+        emitReward({ mats, xp: xpBonus, stat: { elite: m.rank === "elite", fresh: m.rank === "unknown", crit, combo: BATTLE.combo, region: m.th && m.th.region, kind: m.sp && m.sp.img } });
         // 技：装備中の武器・科目の属性・コンボで変わる（斬撃・魔法・弓）
         const atk = heroAttackFor({ weapon: equippedWeaponId(normRpg(stRef.current.rpg)), region: m.th && m.th.region, crit, combo: BATTLE.combo });
         const t = impactOf(atk) + (cut ? (cut.ult ? 1.6 : 1.3) : 0); // カットイン → ルナの必殺技 → 命中
@@ -14427,6 +14479,8 @@ function TodayTab({ state, recordSRAnswer, updateSrSettings, startTimer, stopTim
             </>
           )}
         </Box>
+        <MemoryReportCard state={state} />
+        <BountyBoard state={state} actions={rpgActionsForPairs} onStart={startSpecial} />
         <SpecialQuizCards state={state} onStart={startSpecial} />
         <ListenMode state={state} due={due} toggleQuestionMark={toggleQuestionMark} />
         <ReviewForecast state={state} />
@@ -14445,7 +14499,7 @@ function TodayTab({ state, recordSRAnswer, updateSrSettings, startTimer, stopTim
         {pInfo && (
           <div className="jp text-center mb-2 px-2 py-2" style={{ background: "var(--cream)", border: "1px solid var(--gold)", borderRadius: 8 }}>
             <div style={{ fontFamily: "'Cinzel', serif", fontWeight: 900, fontSize: 28, color: "var(--gold)" }}>{okN} / {allN}</div>
-            <div className="text-[11px]" style={{ color: "var(--ink-soft)" }}>{pInfo.kind === "weekly" ? "今週の抜き打ちテストの点数として記録しました。" : pInfo.kind === "night" ? "おやすみなさい。明日の朝、同じ問題でもう一度確かめましょう。" : pInfo.kind === "morning" ? (result.wrong ? "まだ残っている所は、自分ルールやメモで補強しましょう。" : "ひと晩たっても覚えていました。記憶が定着しています！") : pInfo.kind === "pretest" ? "わからなくて大丈夫。先に「わからない」を体験すると、このあと学ぶ内容が頭に入りやすくなります。" : "おつかれさまでした。"}</div>
+            <div className="text-[11px]" style={{ color: "var(--ink-soft)" }}>{pInfo.kind === "bounty" ? "正解した賞金首は★が1つ増えます。ちがう日に3回続けて正解すると、依頼書から報酬を受け取れます。" : pInfo.kind === "weekly" ? "今週の抜き打ちテストの点数として記録しました。" : pInfo.kind === "night" ? "おやすみなさい。明日の朝、同じ問題でもう一度確かめましょう。" : pInfo.kind === "morning" ? (result.wrong ? "まだ残っている所は、自分ルールやメモで補強しましょう。" : "ひと晩たっても覚えていました。記憶が定着しています！") : pInfo.kind === "pretest" ? "わからなくて大丈夫。先に「わからない」を体験すると、このあと学ぶ内容が頭に入りやすくなります。" : "おつかれさまでした。"}</div>
           </div>
         )}
         <BattleResult state={state} battleKey={battleKey} />
@@ -14701,6 +14755,255 @@ function TeachMode({ state, actions }) {
         {done && <div className="text-center px-2 py-1.5" style={{ background: "var(--cream)", border: "1px solid var(--gold)", borderRadius: 8 }}><span style={{ fontFamily: "'Cinzel', serif", fontWeight: 900, fontSize: 22, color: "var(--gold)" }}>{done.ok} / {done.n}</span><div className="text-[11px]" style={{ color: "var(--ink-soft)" }}>{done.ally.name}「{done.ok >= done.n - 1 ? "すごくわかりやすかったです！ また教えてくださいね。" : "いっしょに覚えていきましょう！"}」　{done.msg}</div></div>}
         <button onClick={start} className="btn-primary w-full py-2">質問を受ける（5問）</button>
         <p className="text-[10px]" style={{ color: "var(--ink-mute)" }}>解いたことのある問題から出ます。正しく教えると、その仲間との絆が深まります。</p>
+      </div>
+    </Box>
+  );
+}
+
+// ── 討伐依頼書：2回以上まちがえた苦手を「賞金首」に。ちがう日に3回続けて正解すると討伐成功 ──
+const BOUNTY_DAYS = 3, BOUNTY_REWARD = { gold: 120, xp: 40, star: 1 };
+// 最後から数えて、ちがう日の正解がいくつ続いているか（まちがいがあればそこで止まる）
+const correctDayStreak = (q) => { const days = new Set(); const ah = q.ah || []; for (let i = ah.length - 1; i >= 0; i--) { const h = String(ah[i]); if (h.endsWith("w")) break; days.add(h.slice(0, 6)); } return days.size; };
+const lastWrongDay = (q) => { const ah = q.ah || []; for (let i = ah.length - 1; i >= 0; i--) { const h = String(ah[i]); if (h.endsWith("w")) return h.slice(0, 6); } return ""; };
+function bounties(state) {
+  const done = (normRpg(state.rpg).bounty || {}).done || {};
+  const out = [];
+  state.questionBanks.forEach((b) => (b.questions || []).forEach((q) => {
+    if (q.excluded || (q.wrong || 0) < 2) return;
+    const d = done[q.id];
+    if (d && !(lastWrongDay(q) > d)) return; // 討伐済み（その後まちがえていなければ）
+    const st = correctDayStreak(q);
+    out.push({ b, q, st, ready: st >= BOUNTY_DAYS, prize: 80 + Math.min(10, q.wrong || 0) * 10 });
+  }));
+  return out.sort((a, b) => (b.ready - a.ready) || ((b.q.wrong || 0) - (a.q.wrong || 0)));
+}
+function BountyBoard({ state, actions, onStart }) {
+  const list = bounties(state);
+  const [all, setAll] = useState(false);
+  if (!list.length) return null;
+  const shown = all ? list.slice(0, 30) : list.slice(0, 5);
+  const today = ymdCode(todayStr());
+  const todo = list.filter((x) => !x.ready && !(x.q.ah || []).some((h) => String(h).startsWith(today) && !String(h).endsWith("w"))).slice(0, 10);
+  return (
+    <Box title={`討伐依頼書（賞金首 ${list.length}）`} icon={<Skull size={18} />}>
+      <div className="jp space-y-1.5">
+        <p className="text-[11px]" style={{ color: "var(--ink-soft)" }}>2回以上まちがえた問題が「賞金首」として貼り出されます。<b>ちがう日に{BOUNTY_DAYS}回続けて正解</b>すると討伐成功です（途中でまちがえると、やり直し）。</p>
+        {shown.map(({ b, q, st, ready, prize }) => (
+          <div key={q.id} className="flex items-center gap-2 px-2 py-1.5" style={{ background: ready ? "rgba(214,181,106,0.15)" : "var(--paper)", border: `1px solid ${ready ? "var(--gold)" : "#c9a6a2"}`, borderRadius: 6 }}>
+            <span className="text-[10px] px-1" style={{ background: "#7a2b2b", color: "#fdfbf5", borderRadius: 3, fontWeight: 800, whiteSpace: "nowrap" }}>✕{q.wrong}</span>
+            <div className="flex-1 min-w-0">
+              <div className="text-[11px] truncate" style={{ color: "var(--ink)" }}>{q.q}</div>
+              <div className="flex items-center gap-1 text-[9px]" style={{ color: "var(--ink-mute)" }}>{b.name}　{Array.from({ length: BOUNTY_DAYS }, (_, i) => <span key={i} style={{ color: i < st ? "#b08a3e" : "var(--rule-soft)", fontSize: 11 }}>★</span>)}<span>賞金 {prize}G</span></div>
+            </div>
+            {ready ? <button onClick={() => actions.claimBounty(q.id, prize)} className="btn-primary text-[10px] px-2 py-1" style={{ whiteSpace: "nowrap" }}>討伐！</button> : null}
+          </div>
+        ))}
+        {list.length > 5 && <button onClick={() => setAll(!all)} className="text-[10px] underline" style={{ background: "none", border: "none", color: "var(--ink-mute)", cursor: "pointer" }}>{all ? "閉じる" : `ほか${list.length - 5}件も見る`}</button>}
+        {todo.length > 0 && <button onClick={() => onStart(todo.map(({ b, q }) => ({ bankId: b.id, bankName: b.name, year: b.year || "", qId: q.id })), { kind: "bounty", title: "賞金首の討伐" })} className="btn-danger w-full py-2 text-sm">今日の賞金首に挑む（{todo.length}問）</button>}
+        {!todo.length && <p className="text-[10px] text-center" style={{ color: "var(--ink-mute)" }}>今日の分は挑み済みです。また明日、正解を重ねましょう。</p>}
+      </div>
+    </Box>
+  );
+}
+// ── 記憶の通知表：今日の学習の成果を1枚に ──
+function memoryReport(state) {
+  const today = todayStr(), code = ymdCode(today), tmr = addDays(today, 1);
+  let ans = 0, ok = 0, fresh = 0, saved = 0, tomorrow = 0;
+  state.questionBanks.forEach((b) => (b.questions || []).forEach((q) => {
+    const ah = (q.ah || []).map(String);
+    const td = ah.filter((h) => h.startsWith(code));
+    if (q.sr_nextReview === tmr) tomorrow++;
+    if (!td.length) return;
+    ans += td.length; ok += td.filter((h) => !h.endsWith("w")).length;
+    const before = ah.filter((h) => !h.startsWith(code));
+    const lastOk = !td[td.length - 1].endsWith("w");
+    if (!before.length && lastOk) fresh++;
+    if (before.length && lastOk) saved++;
+  }));
+  const acc = ans ? ok / ans : 0;
+  const grade = !ans ? null : acc >= 0.9 ? ["秀", "#b08a3e"] : acc >= 0.8 ? ["優", "#4f8a72"] : acc >= 0.65 ? ["良", "#4f7fb8"] : ["可", "#8a6ca6"];
+  return { ans, ok, acc, fresh, saved, tomorrow, grade, risky: forgettingItems(state, 3) };
+}
+function MemoryReportCard({ state }) {
+  const m = memoryReport(state);
+  if (!m.ans) return null;
+  const qOf = (it) => { const b = state.questionBanks.find((x) => x.id === it.bankId); const q = b && (b.questions || []).find((x) => x.id === it.qId); return q ? String(q.q) : ""; };
+  return (
+    <Box title="記憶の通知表（今日）" icon={<Award size={18} />}>
+      <div className="jp flex items-center gap-3">
+        <div className="text-center" style={{ width: 64, flexShrink: 0 }}>
+          <div style={{ width: 56, height: 56, margin: "0 auto", borderRadius: "50%", border: `3px double ${m.grade[1]}`, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'Shippori Mincho B1', serif", fontWeight: 800, fontSize: 28, color: m.grade[1] }}>{m.grade[0]}</div>
+          <div className="text-[10px] mt-0.5" style={{ color: "var(--ink-soft)" }}>正答率 {Math.round(m.acc * 100)}%</div>
+        </div>
+        <div className="flex-1 grid grid-cols-2 gap-1 text-[11px]">
+          {[["解いた", `${m.ans}問`], ["新しく覚えた", `${m.fresh}問`], ["忘れかけを救った", `${m.saved}問`], ["明日の復習", `${m.tomorrow}問`]].map(([k, v]) => <div key={k} className="px-1.5 py-1" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)", borderRadius: 6 }}><div className="text-[9px]" style={{ color: "var(--ink-mute)" }}>{k}</div><div style={{ fontWeight: 800, color: "var(--ink)" }}>{v}</div></div>)}
+        </div>
+      </div>
+      {m.risky.length > 0 && <div className="jp text-[10px] mt-2" style={{ color: "var(--ink-soft)" }}>⚠ 明日あぶない問題：{m.risky.map((it, i) => <span key={it.qId}>{i ? "／" : ""}{qOf(it).slice(0, 18)}…</span>)}</div>}
+    </Box>
+  );
+}
+
+// ── 時間配分トレーニング：本番の択一と同じ「1問あたり約2分半」のペースで10問。時間を使いすぎた問題に印、「迷ったら次へ」 ──
+const PACE_SEC = 150, PACE_N = 10;
+function PaceDrill({ state, actions }) {
+  const [run, setRun] = useState(null); // { list:[{b,q}], i, t0, qt0, recs:[], skipped:Set, show }
+  const [now, setNow] = useState(Date.now());
+  const [done, setDone] = useState(null);
+  useEffect(() => { if (!run) return undefined; const id = setInterval(() => setNow(Date.now()), 500); return () => clearInterval(id); }, [!!run]);
+  const start = () => {
+    const pool = buildPoolFromBanks(state.questionBanks.filter((b) => (b.questions || []).length), PACE_N);
+    const list = pool.map((it) => { const b = state.questionBanks.find((x) => x.id === it.bankId); return { b, q: (b.questions || []).find((x) => x.id === it.qId) }; }).filter((x) => x.q);
+    if (!list.length) return;
+    setDone(null); setRun({ list, i: 0, t0: Date.now(), qt0: Date.now(), recs: [], skipped: [], show: false });
+  };
+  if (run) {
+    const cur = run.list[run.i];
+    const qs = Math.floor((now - run.qt0) / 1000), total = Math.floor((now - run.t0) / 1000);
+    const budget = run.list.length * PACE_SEC, ideal = Math.min(budget, (run.recs.length) * PACE_SEC);
+    const over = qs > PACE_SEC;
+    const finish = (recs) => {
+      const sec = Math.round((Date.now() - run.t0) / 1000);
+      const ok = recs.filter((r) => r.ok).length;
+      actions.logPace({ n: recs.length, ok, sec, over: recs.filter((r) => r.sec > PACE_SEC).length });
+      SFX.play("result");
+      setDone({ recs, sec, ok, budget }); setRun(null);
+    };
+    const answer = (correct, meta) => {
+      window.dispatchEvent(new CustomEvent("sq-record-answer", { detail: { bankId: cur.b.id, qId: cur.q.id, correct, meta } }));
+      const recs = [...run.recs, { b: cur.b, q: cur.q, sec: qs + (run.skipped.find((x) => x.id === cur.q.id) || { sec: 0 }).sec, ok: correct }];
+      if (run.i + 1 >= run.list.length) { finish(recs); return; }
+      setRun({ ...run, i: run.i + 1, qt0: Date.now(), recs, show: false });
+    };
+    const skip = () => { // 迷ったら次へ：最後にもう一度出す（1問1回まで）
+      if (run.skipped.some((x) => x.id === cur.q.id) || run.i + 1 >= run.list.length) return;
+      const list = [...run.list.slice(0, run.i), ...run.list.slice(run.i + 1), cur];
+      setRun({ ...run, list, qt0: Date.now(), skipped: [...run.skipped, { id: cur.q.id, sec: qs }], show: false });
+    };
+    const canSkip = !run.skipped.some((x) => x.id === cur.q.id) && run.i + 1 < run.list.length;
+    return (
+      <Box title={`時間配分トレーニング　${run.i + 1} / ${run.list.length}`} icon={<Clock size={18} />}>
+        <div className="jp space-y-2">
+          <div className="flex items-center gap-2 text-[11px]">
+            <span style={{ fontFamily: "'Cinzel', serif", fontWeight: 900, fontSize: 18, color: over ? "#c9564e" : "var(--ink)" }}>{Math.floor(qs / 60)}:{String(qs % 60).padStart(2, "0")}</span>
+            <span className="flex-1" style={{ color: "var(--ink-soft)" }}>この問題（目安 2:30）　合計 {Math.floor(total / 60)}:{String(total % 60).padStart(2, "0")} / 予定 {Math.floor(ideal / 60)}:{String(ideal % 60).padStart(2, "0")}{total > ideal + PACE_SEC ? <b style={{ color: "#c9564e" }}>　遅れ気味</b> : null}</span>
+            <button onClick={() => { if (confirm("やめますか？（解いた問題の記録は残ります）")) setRun(null); }} className="btn-ghost text-[10px] px-2 py-0.5">やめる</button>
+          </div>
+          <div style={{ height: 6, borderRadius: 3, background: "var(--beige)", overflow: "hidden" }}><div style={{ width: `${Math.min(100, (qs / PACE_SEC) * 100)}%`, height: "100%", background: over ? "#c9564e" : qs > PACE_SEC * 0.7 ? "#d6b56a" : "#6d8454", transition: "width .5s linear" }} /></div>
+          {over && <div className="text-[11px] text-center" style={{ color: "#c9564e", fontWeight: 800 }}>⏰ 2分半を過ぎました。本番なら「迷ったら次へ」の場面です</div>}
+          <div className="text-[10px]" style={{ color: "var(--ink-mute)" }}>{cur.b.name}{run.skipped.some((x) => x.id === cur.q.id) ? "　（あとまわしにした問題）" : ""}</div>
+          <div className="qtext text-base px-1" style={{ color: "var(--ink)", lineHeight: 1.8 }}>{renderQText(cur.q.q, cur.q.q_formats)}</div>
+          {run.show ? (<>
+            <div className="qtext text-base p-2" style={{ background: "var(--sky-pale)", border: "1px solid var(--gold)", color: "var(--ink)" }}>{renderFormattedText(cur.q.a, cur.q.a_formats)}</div>
+            <AnswerPanel onAnswer={answer} question={cur.q} srSettings={effectiveSr(state)} />
+          </>) : (
+            <div className="grid grid-cols-3 gap-2">
+              <button onClick={skip} disabled={!canSkip} className="btn-ghost py-2 text-xs" style={{ opacity: canSkip ? 1 : 0.4 }}>迷ったら次へ ⏭</button>
+              <button onClick={() => setRun({ ...run, show: true })} className="btn-info py-2 text-sm col-span-2"><Eye size={14} /> 答えを見る</button>
+            </div>
+          )}
+        </div>
+      </Box>
+    );
+  }
+  const log = ((normRpg(state.rpg).pace || {}).log || []).slice(-6);
+  return (
+    <Box title="時間配分トレーニング" icon={<Clock size={18} />}>
+      <div className="jp space-y-2">
+        <p className="text-[11px]" style={{ color: "var(--ink-soft)" }}>本番の択一は1問あたり約2分半。そのペースで{PACE_N}問を解きます。1問ごとの時間と、全体の遅れ・進みを見ながら、「迷ったら次へ」で後回しにする判断も練習します。</p>
+        {done && (
+          <div className="px-2 py-2" style={{ background: "var(--cream)", border: "1px solid var(--gold)", borderRadius: 8 }}>
+            <div className="flex items-baseline gap-2"><span style={{ fontFamily: "'Cinzel', serif", fontWeight: 900, fontSize: 22, color: "var(--gold)" }}>{done.ok} / {done.recs.length}</span><span className="text-[11px]" style={{ color: done.sec <= done.budget ? "var(--sage)" : "#c9564e", fontWeight: 800 }}>{Math.floor(done.sec / 60)}分{done.sec % 60}秒（予定 {Math.floor(done.budget / 60)}分）{done.sec <= done.budget ? "時間内！" : "時間オーバー"}</span></div>
+            {done.recs.map((r, i) => <div key={i} className="flex items-center gap-1.5 text-[10px] mt-0.5"><span style={{ width: 14, color: r.ok ? "var(--sage)" : "#c9564e" }}>{r.ok ? "○" : "✕"}</span><span style={{ flex: 1, height: 6, borderRadius: 3, background: "var(--beige)", overflow: "hidden" }}><span style={{ display: "block", width: `${Math.min(100, (r.sec / (PACE_SEC * 2)) * 100)}%`, height: "100%", background: r.sec > PACE_SEC ? "#c9564e" : "#6d8454" }} /></span><span style={{ width: 40, textAlign: "right", color: r.sec > PACE_SEC ? "#c9564e" : "var(--ink-soft)" }}>{Math.floor(r.sec / 60)}:{String(r.sec % 60).padStart(2, "0")}</span></div>)}
+            {done.recs.some((r) => r.sec > PACE_SEC) && <p className="text-[10px] mt-1" style={{ color: "var(--ink-soft)" }}>赤い問題は時間を使いすぎた問題です。本番では印を付けて後回しにし、最後に戻る練習をしましょう。</p>}
+          </div>
+        )}
+        <button onClick={start} className="btn-primary w-full py-2">{PACE_N}問に挑戦する（目安 {Math.round((PACE_N * PACE_SEC) / 60)}分）</button>
+        {log.length > 0 && <p className="text-[10px]" style={{ color: "var(--ink-mute)" }}>最近：{log.map((l) => `${l.ok}/${l.n}・${Math.round(l.sec / 60)}分`).join("　")}</p>}
+      </div>
+    </Box>
+  );
+}
+
+// ── 条文の音読モード：よく出る条文を読み上げ、聞き終わったら穴埋めを1問 ──
+function LawListen({ state, actions }) {
+  const counts = lawRefCounts(state);
+  const laws = LAWS.filter((l) => counts[l.key] && Object.keys(counts[l.key]).length);
+  const [law, setLaw] = useState(laws[0] ? laws[0].key : "fudosan-ho");
+  const [run, setRun] = useState(null); // { list:[{a, c}], i, phase: "read"|"quiz", pick:{}, checked, ok }
+  const [rate, setRate] = useState(1);
+  const can = typeof window !== "undefined" && "speechSynthesis" in window;
+  const stop = () => { try { window.speechSynthesis.cancel(); } catch (e) { /* 無視 */ } };
+  useEffect(() => () => stop(), []);
+  const speak = (art) => {
+    stop();
+    const text = [`${(LAW_BY_KEY[law] || {}).name || ""}、${art.t}`, art.c, ...(art.p || []).map((p) => [p.s, ...(p.i || []).map((it) => `${it.t}、${it.s}`)].join("。"))].filter(Boolean).join("。");
+    const u = new window.SpeechSynthesisUtterance(text); u.lang = "ja-JP"; u.rate = rate;
+    u.onend = () => setRun((r) => (r && r.phase === "read" ? { ...r, phase: "quiz" } : r));
+    window.speechSynthesis.speak(u);
+  };
+  const start = () => {
+    loadLaw(law).then((d) => {
+      if (!d) { alert("条文データを読み込めませんでした。"); return; }
+      const c = counts[law] || {};
+      const arts = shuffle((d.articles || []).filter((a) => c[a.n] && (a.p || []).length)).sort((x, y) => (c[y.n] || 0) - (c[x.n] || 0) + (Math.random() - 0.5) * 4);
+      const list = [];
+      for (const a of arts) { const cz = clozeFromArticle(law, a); if (cz) list.push({ a, c: cz }); if (list.length >= 5) break; }
+      if (!list.length) { alert("問題を作れませんでした。"); return; }
+      setRun({ list, i: 0, phase: "read", pick: {}, checked: null, ok: 0 });
+      speak(list[0].a);
+    });
+  };
+  if (!can) return null;
+  if (run) {
+    const it = run.list[run.i], c = it.c;
+    const next = () => {
+      if (run.i + 1 >= run.list.length) { actions.logLawListen(run.list.length, run.ok); SFX.play("result"); stop(); setRun({ ...run, phase: "done" }); return; }
+      const nr = { ...run, i: run.i + 1, phase: "read", pick: {}, checked: null };
+      setRun(nr); speak(run.list[run.i + 1].a);
+    };
+    if (run.phase === "done") return (
+      <Box title="条文の音読モード" icon={<ScrollIcon size={18} />}>
+        <div className="jp text-center py-2"><div style={{ fontFamily: "'Cinzel', serif", fontWeight: 900, fontSize: 26, color: "var(--gold)" }}>{run.ok} / {run.list.length}</div><p className="text-[11px]" style={{ color: "var(--ink-soft)" }}>耳で聞いた条文の穴埋め。おつかれさまでした！</p>
+          <button onClick={() => setRun(null)} className="btn-primary px-6 py-1.5 mt-2 text-sm">もどる</button></div>
+      </Box>
+    );
+    const allPicked = c.blanks.every((_, k) => run.pick[k] != null);
+    return (
+      <Box title={`条文の音読モード　${run.i + 1} / ${run.list.length}`} icon={<ScrollIcon size={18} />}>
+        <div className="jp space-y-2">
+          <div className="flex items-center gap-2 text-[11px]"><span className="flex-1" style={{ fontWeight: 800, color: "var(--ink)" }}>{c.head}</span><button onClick={() => { stop(); setRun(null); }} className="btn-ghost text-[10px] px-2 py-0.5">やめる</button></div>
+          {run.phase === "read" ? (
+            <div className="text-center py-4">
+              <div style={{ fontSize: 34, animation: "sqxPulse 1.2s ease-in-out infinite" }}>🔊</div>
+              <p className="text-sm mt-1" style={{ color: "var(--ink)" }}>条文を読み上げています。耳をすませて…</p>
+              <div className="flex justify-center gap-2 mt-2"><button onClick={() => speak(it.a)} className="btn-ghost text-[11px] px-2 py-1">もう一度</button><button onClick={() => { stop(); setRun({ ...run, phase: "quiz" }); }} className="btn-sky text-[11px] px-2 py-1">穴埋めへ ▶</button></div>
+            </div>
+          ) : (<>
+            <div className="text-sm px-3 py-2" style={{ background: "var(--cream)", border: "1px solid var(--rule-soft)", borderRadius: 8, lineHeight: 1.9, color: "var(--ink)", fontFamily: "'Shippori Mincho B1', serif" }}>
+              {c.parts.map((x, k) => { if (typeof x === "string") return <span key={k}>{x}</span>; const b = c.blanks[x.blank]; const ok = run.checked && run.checked[x.blank]; if (run.checked) return <span key={k} style={{ fontWeight: 800, color: ok ? "var(--sage)" : "#c9564e", borderBottom: `2px solid ${ok ? "var(--sage)" : "#c9564e"}` }}>{b.word}</span>; const sel = run.pick[x.blank]; return <span key={k} style={{ display: "inline-block", minWidth: 48, padding: "0 6px", margin: "0 2px", border: "1.5px solid var(--gold)", borderRadius: 4, background: "var(--paper)", color: sel ? "var(--ink)" : "var(--gold)", fontWeight: 800, textAlign: "center", lineHeight: 1.5 }}>{sel || `（${BLANK_LABELS[x.blank]}）`}</span>; })}
+            </div>
+            {c.blanks.map((b, k) => (
+              <div key={k} className="grid grid-cols-2 gap-1.5">
+                {b.options.map((o) => { const on = run.pick[k] === o; const right = run.checked && o === b.word; return <button key={o} disabled={!!run.checked} onClick={() => setRun((r) => ({ ...r, pick: { ...r.pick, [k]: o } }))} className="text-xs px-2 py-2" style={{ borderRadius: 8, border: `1.5px solid ${right ? "var(--sage)" : on ? "var(--gold)" : "var(--rule-soft)"}`, background: right ? "rgba(109,132,84,0.12)" : on ? "var(--cream)" : "var(--paper)", color: "var(--ink)", fontWeight: on ? 800 : 500 }}>{o}</button>; })}
+              </div>
+            ))}
+            {!run.checked ? <button disabled={!allPicked} onClick={() => { const good = c.blanks.map((b, k) => run.pick[k] === b.word); SFX.play(good.every(Boolean) ? "defeat" : "miss"); setRun({ ...run, checked: good, ok: run.ok + (good.every(Boolean) ? 1 : 0) }); }} className="btn-primary w-full py-2" style={{ opacity: allPicked ? 1 : 0.5 }}>答え合わせ</button>
+              : <button onClick={next} className="btn-primary w-full py-2">{run.i + 1 >= run.list.length ? "結果を見る" : "次の条文を聞く"}</button>}
+          </>)}
+        </div>
+      </Box>
+    );
+  }
+  const ll = normRpg(state.rpg).lawListen || {};
+  return (
+    <Box title="条文の音読モード" icon={<ScrollIcon size={18} />}>
+      <div className="jp space-y-2">
+        <p className="text-[11px]" style={{ color: "var(--ink-soft)" }}>問題によく出る条文を読み上げます。聞き終わったら、その条文の穴埋めを1問。移動中や家事の合間に、耳で条文に触れられます（5条文）。</p>
+        <div className="flex flex-wrap gap-1.5 text-[11px]">{laws.map((l) => <button key={l.key} onClick={() => setLaw(l.key)} className="px-2.5 py-0.5" style={{ borderRadius: 999, border: `1px solid ${law === l.key ? "var(--gold)" : "var(--rule-soft)"}`, background: law === l.key ? "var(--cream)" : "var(--paper)", color: "var(--ink)", fontWeight: law === l.key ? 800 : 500 }}>{l.short}</button>)}</div>
+        <div className="flex items-center gap-1.5 text-[11px]" style={{ color: "var(--ink-soft)" }}>読む速さ {[0.8, 1, 1.2, 1.5].map((v) => <button key={v} onClick={() => setRate(v)} className="px-2 py-0.5" style={{ borderRadius: 999, border: `1px solid ${rate === v ? "var(--gold)" : "var(--rule-soft)"}`, background: rate === v ? "var(--cream)" : "var(--paper)", color: "var(--ink)" }}>{v}倍</button>)}</div>
+        <button onClick={start} disabled={!laws.length} className="btn-primary w-full py-2">🔊 聞きはじめる</button>
+        {ll.n ? <p className="text-[10px]" style={{ color: "var(--ink-mute)" }}>これまで {ll.n}条を聞いて、{ll.ok}問正解</p> : null}
       </div>
     </Box>
   );
