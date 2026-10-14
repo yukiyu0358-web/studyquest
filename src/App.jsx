@@ -12171,7 +12171,7 @@ function BossArena({ state, boss, bossHp, hp, maxHp, fx, combo, dying, party = [
   const bossPct = Math.max(0, Math.min(1, bossHp / boss.hp)), myPct = Math.max(0, Math.min(1, hp / maxHp));
   const enraged = bossHp > 0 && bossPct < 0.3;
   const t = (fx && fx.t) || 0;
-  const H = ["34%", "calc(100% - 96px)"], M = ["calc(97% - 108px)", "calc(94% - 108px)"];
+  const H = ["40%", "calc(100% - 96px)"], M = ["calc(92% - 108px)", "calc(94% - 108px)"];
   const cp = combatPower(state);
   // 味方の後衛（仲間）と、敵の後衛（ボスの手下。見た目だけ）
   const slots = backRow(party, 128);
@@ -12200,11 +12200,11 @@ function BossArena({ state, boss, bossHp, hp, maxHp, fx, combo, dying, party = [
       {/* ボス */}
       {/* 敵の後衛（手下） */}
       {minions.map((mn, k) => (
-        <div key={mn.img + k} style={{ position: "absolute", right: k ? "1%" : "38%", bottom: k ? "58%" : "50%", width: 74, height: 74, zIndex: 0, filter: "brightness(0.85) saturate(0.9)", animation: dying === "boss" ? "sqyDie 1.2s ease-in forwards" : fx && fx.side === "hero" && fx.crit ? `sqxKnock .3s ease-out ${t}s` : `sqyFloat ${2.6 + k * 0.5}s ease-in-out infinite` }}>
+        <div key={mn.img + k} style={{ position: "absolute", right: k ? "2%" : "44%", bottom: k ? "58%" : "52%", width: 74, height: 74, zIndex: 0, filter: "brightness(0.85) saturate(0.9)", animation: dying === "boss" ? "sqyDie 1.2s ease-in forwards" : fx && fx.side === "hero" && fx.crit ? `sqxKnock .3s ease-out ${t}s` : `sqyFloat ${2.6 + k * 0.5}s ease-in-out infinite` }}>
           <MonPic m={{ sp: mn }} size={74} />
         </div>
       ))}
-      <div style={{ position: "absolute", right: "3%", bottom: "6%", width: 214, height: 214, zIndex: 1 }}>
+      <div style={{ position: "absolute", right: "8%", bottom: "6%", width: 214, height: 214, zIndex: 1 }}>
         <div style={{ position: "absolute", inset: -14, borderRadius: "50%", background: `radial-gradient(circle, ${enraged ? "rgba(220,50,50,0.6)" : "rgba(255,236,190,0.35)"} 0%, transparent 68%)`, animation: "sqyAura 2s ease-in-out infinite" }} />
         <div key={fx ? `b${fx.n}` : "b"} style={{ position: "absolute", inset: 0, animation: bossAnim }}>
           {boss.art
@@ -12214,7 +12214,7 @@ function BossArena({ state, boss, bossHp, hp, maxHp, fx, combo, dying, party = [
         <div style={{ position: "absolute", left: "15%", right: "15%", bottom: -8, height: 12, borderRadius: "50%", background: "rgba(0,0,0,0.35)", filter: "blur(2px)" }} />
       </div>
       {/* 主人公（前衛） */}
-      <div style={{ position: "absolute", left: "calc(34% - 86px)", bottom: -18, width: 214, height: 214, zIndex: 2 }}>
+      <div style={{ position: "absolute", left: "calc(40% - 86px)", bottom: -18, width: 214, height: 214, zIndex: 2 }}>
         <LunaSprite size={214} pose={dying === "me" ? "down" : dying === "boss" ? "win" : fx ? (fx.side === "hero" ? "attack" : "hurt") : "idle"} delay={fx && fx.side === "mon" ? t : 0} k={fx ? fx.n : dying ? 999 : 0} aura={auraOf(state)} />
         {(() => { const pt = getPetInfo(state); return pt ? <span style={{ position: "absolute", left: 18, bottom: 22 }}><PetIcon pet={pt} size={26} /></span> : null; })()}
       </div>
@@ -12235,7 +12235,7 @@ function BossArena({ state, boss, bossHp, hp, maxHp, fx, combo, dying, party = [
               <div key={`av${assist.n}`} style={{ position: "absolute", left: M[0], top: "22%", zIndex: 4, animation: `sqxNum 1s ease-out ${assist.p.skill.kind === "chase" ? 0.05 : 0.3}s both`, fontFamily: "'Cinzel', serif", fontWeight: 900, fontSize: 22, color: "#d9c6ff", textShadow: "0 2px 0 #2a1d4a", pointerEvents: "none" }}>{assist.val}</div></>}
       </>)}
       {/* 連撃 */}
-      {combo >= 2 && !dying && <div key={`c${combo}`} style={{ position: "absolute", left: "calc(34% + 34px)", top: "30%", zIndex: 3, animation: "sqbPop .28s ease-out both", fontFamily: "'Cinzel', serif", fontWeight: 900, fontSize: 20, color: "#f2c14e", textShadow: "0 0 10px rgba(242,193,78,0.8), 0 2px 0 #3a2a10" }}>{combo}<span style={{ fontSize: 11, marginLeft: 3 }}>HIT</span></div>}
+      {combo >= 2 && !dying && <div key={`c${combo}`} style={{ position: "absolute", left: "calc(40% + 34px)", top: "30%", zIndex: 3, animation: "sqbPop .28s ease-out both", fontFamily: "'Cinzel', serif", fontWeight: 900, fontSize: 20, color: "#f2c14e", textShadow: "0 0 10px rgba(242,193,78,0.8), 0 2px 0 #3a2a10" }}>{combo}<span style={{ fontSize: 11, marginLeft: 3 }}>HIT</span></div>}
       {/* 技の演出・名前・ダメージ */}
       {fx && <AttackFx key={`fx${fx.n}`} fx={fx} H={H} M={M} />}
       {fx && <SkillBanner fx={fx} top={52} />}
@@ -12535,7 +12535,7 @@ function backRow(party, size) {
   let k = 0;
   return party.map((p) => {
     const i = k++;
-    return p.sprite ? { p, l: 1 + i * 17, b: 40 + (i % 2) * 5, size } : { p, l: 3 + i * 17, b: 66, size: 34 };
+    return p.sprite ? { p, l: 6 + i * 16, b: 40 + (i % 2) * 5, size } : { p, l: 8 + i * 16, b: 66, size: 34 };
   });
 }
 function BackRowAllies({ slots, actingId, actN, win }) {
@@ -13086,7 +13086,7 @@ function BattleStage({ state, q, bankName, battleKey, boss = false, scene: scene
       )}
       {/* 味方：後衛（仲間）と前衛（ルナ） */}
       <BackRowAllies slots={backRow(battleParty(state), 104)} actingId={fx && fx.cameo && !fx.cut ? fx.cameo.a.id : null} actN={fx ? fx.n : 0} />
-      <div style={{ position: "absolute", left: "calc(34% - 74px)", bottom: -16, width: 180, height: 180, zIndex: 2 }}>
+      <div style={{ position: "absolute", left: "calc(40% - 74px)", bottom: -16, width: 180, height: 180, zIndex: 2 }}>
         <LunaSprite size={180} pose={fx ? (fx.ok ? "attack" : "hurt") : "idle"} delay={fx && !fx.ok ? fx.t || 0 : 0} k={fx ? fx.n : 0} aura={auraOf(state)} />
       </div>
       {/* ルナの HP（左下） */}
@@ -13099,7 +13099,7 @@ function BattleStage({ state, q, bankName, battleKey, boss = false, scene: scene
         {fx && fx.faint && <div className="jp" style={{ position: "absolute", left: 0, top: -38, fontSize: 11, fontWeight: 800, color: "#ffc2bc", whiteSpace: "nowrap", textShadow: "0 1px 3px rgba(0,0,0,0.8)" }}>ふんばった！</div>}
       </div>
       {/* 魔物 */}
-      <div style={{ position: "absolute", right: "3%", bottom: 4, width: 170, height: 214, zIndex: 1 }}>
+      <div style={{ position: "absolute", right: "10%", bottom: 4, width: 170, height: 214, zIndex: 1 }}>
         {fx && <MonsterView key={`leave${fx.n}`} m={fx.mon} anim={fx.ok ? "defeat" : "escape"} hitAt={fx.t || 0} lunge={!fx.ok && fx.atk && ["tackle", "bite", "claw"].includes(fx.atk.kind)} size={152} />}
         {showCur && <MonsterView key={`m${mon.key}`} m={mon} anim="enter" delay={fx ? 0.45 + (fx.t || 0) : 0} size={152} />}
         {fx && fx.ok && (
@@ -13125,7 +13125,7 @@ function BattleStage({ state, q, bankName, battleKey, boss = false, scene: scene
         </div>
       )}
       {/* 技の演出と名前 */}
-      {fx && <AttackFx key={`fx${fx.n}`} fx={fx} H={["34%", "calc(100% - 80px)"]} M={["calc(97% - 85px)", "calc(100% - 100px)"]} />}
+      {fx && <AttackFx key={`fx${fx.n}`} fx={fx} H={["40%", "calc(100% - 80px)"]} M={["calc(90% - 85px)", "calc(100% - 100px)"]} />}
       {fx && <SkillBanner fx={fx} />}
       {/* 被ダメージの赤いふち */}
       {fx && !fx.ok && <div key={`r${fx.n}`} style={{ position: "absolute", inset: 0, pointerEvents: "none", boxShadow: "inset 0 0 40px rgba(201,74,74,0.55)", animation: `sqbRed .5s ease-out ${fx.t || 0}s both` }} />}
