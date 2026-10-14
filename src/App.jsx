@@ -12249,7 +12249,7 @@ function BossArena({ state, boss, bossHp, hp, maxHp, fx, combo, dying, party = [
         <div style={{ position: "absolute", inset: -14, borderRadius: "50%", background: `radial-gradient(circle, ${enraged ? "rgba(220,50,50,0.6)" : "rgba(255,236,190,0.35)"} 0%, transparent 68%)`, animation: "sqyAura 2s ease-in-out infinite" }} />
         <div key={fx ? `b${fx.n}` : "b"} style={{ position: "absolute", inset: 0, animation: bossAnim }}>
           {boss.art
-            ? <div role="img" aria-label={boss.name} style={{ width: "100%", height: "100%", borderRadius: "50%", backgroundImage: `url(${MON_ART_URL}${boss.art}.jpg)`, backgroundSize: "cover", backgroundPosition: "center", WebkitMaskImage: MON_MASK, maskImage: MON_MASK, filter: enraged ? "saturate(1.4) contrast(1.1)" : undefined }} />
+            ? MON_STAND.has(boss.art) ? <img src={monStandUrl(boss.art)} alt={boss.name} draggable={false} style={{ width: "100%", height: "100%", objectFit: "contain", filter: `drop-shadow(0 6px 6px rgba(0,0,0,0.4))${enraged ? " saturate(1.4) contrast(1.1)" : ""}` }} /> : <div role="img" aria-label={boss.name} style={{ width: "100%", height: "100%", borderRadius: "50%", backgroundImage: `url(${MON_ART_URL}${boss.art}.jpg)`, backgroundSize: "cover", backgroundPosition: "center", WebkitMaskImage: MON_MASK, maskImage: MON_MASK, filter: enraged ? "saturate(1.4) contrast(1.1)" : undefined }} />
             : <div className="flex items-center justify-center" style={{ width: "100%", height: "100%" }}><GameIcon ch={boss.icon} id={boss.id} size={130} boss /></div>}
         </div>
         <div style={{ position: "absolute", left: "15%", right: "15%", bottom: -8, height: 12, borderRadius: "50%", background: "rgba(0,0,0,0.35)", filter: "blur(2px)" }} />
@@ -13002,12 +13002,16 @@ const MON_PAINTED = [
   ["slime", "スライム"], ["wolf", "ウルフ"], ["magician", "マジシャン"], ["stonegolem", "ストーンゴーレム"], ["harpy", "ハーピー"],
   ["mandrake", "マンドレイク"], ["lizard", "リザードマン"], ["mimic", "ミミック"], ["sprite", "マジック・スプライト"], ["lunawolf", "ルナウルフ"],
   ["wisp", "ウィスプ"], ["kelpie", "グリーンケルピー"], ["goblin", "ゴブリン"], ["skeleton", "スケルトンウォリアー"], ["spider", "スパイダー"],
-  ["armor", "リビングアーマー"], ["mandragora", "マンドラゴラ"], ["rockgolem", "ロックゴーレム"], ["ghost", "ゴースト"],
+  ["armor", "リビングアーマー"], ["mandragora", "マンドラゴラ"], ["rockgolem", "ロックゴーレム"], ["ghost", "ゴースト"], ["flamebird", "フレイムバード"],
 ].map(([img, name]) => ({ img, name }));
+// 背景が透明な全身の立ち絵（public/art/mon2/。イラストフォルダの studyquest_monster_standing、左向き）。あれば丸い絵のかわりに使う
+const MON_STAND = new Set(["slime", "wolf", "magician", "stonegolem", "harpy", "mandrake", "lizard", "mimic", "sprite", "lunawolf", "wisp", "kelpie", "goblin", "skeleton", "spider", "armor", "mandragora", "rockgolem", "ghost", "flamebird", "slimeking", "magolem", "darkdragon", "elderweed", "grimoire"]);
+const monStandUrl = (img) => `${ART_URL}mon2/${img}.webp`;
 const MON_BOSS = [["slimeking", "スライムキング"], ["magolem", "古代の魔導ゴーレム"], ["darkdragon", "ダークドラゴン"], ["elderweed", "エルダーウィード"], ["grimoire", "魔導書の番人"]].map(([img, name]) => ({ img, name }));
 const MON_MASK = "radial-gradient(circle at 50% 50%, #000 55%, rgba(0,0,0,0.55) 63%, transparent 70.5%)";
 // 魔物の絵：dim 0＝ふつう、1＝うすく（発見だけ）、2＝影（まだ出会っていない）
 function MonPic({ m, size, dim = 0 }) {
+  if (m.sp.img && MON_STAND.has(m.sp.img)) return <img src={monStandUrl(m.sp.img)} alt={dim === 2 ? "まだ見ぬ魔物" : m.sp.name} width={size} height={size} draggable={false} style={{ display: "block", width: size, height: size, objectFit: "contain", filter: dim === 2 ? "brightness(0) opacity(0.55)" : "drop-shadow(0 4px 4px rgba(0,0,0,0.3))", opacity: dim === 1 ? 0.6 : 1 }} />;
   if (!m.sp.img) return <svg viewBox="0 0 100 100" width={size} height={size} style={{ display: "block", overflow: "visible", opacity: dim === 1 ? 0.6 : 1 }}>{m.sp.draw(dim === 2 ? MON_UNKNOWN : m.th)}</svg>;
   return <div role="img" aria-label={dim === 2 ? "まだ見ぬ魔物" : m.sp.name} style={{ width: size, height: size, borderRadius: "50%", backgroundImage: `url(${MON_ART_URL}${m.sp.img}.jpg)`, backgroundSize: "cover", backgroundPosition: "center", WebkitMaskImage: MON_MASK, maskImage: MON_MASK, filter: dim === 2 ? "brightness(0.18) saturate(0) contrast(1.2)" : undefined, opacity: dim === 1 ? 0.6 : 1 }} />;
 }
