@@ -20,6 +20,12 @@ export const BATTLE_FX_CSS = `
 @keyframes sqxUp{0%{opacity:0;transform:translateY(0)}20%{opacity:var(--o,.8)}100%{opacity:0;transform:translate(var(--dx,0px),-70px)}}
 @keyframes sqxDown{0%{opacity:0;transform:translateY(-20px)}20%{opacity:var(--o,.8)}100%{opacity:0;transform:translate(var(--dx,0px),120px)}}
 @keyframes sqxPulse{0%,100%{opacity:.35}50%{opacity:.85}}
+@keyframes sqxDim{0%{opacity:0}14%{opacity:1}72%{opacity:1}100%{opacity:0}}
+@keyframes sqxCam{0%{transform:scale(1)}18%{transform:scale(1.08)}62%{transform:scale(1.08)}100%{transform:scale(1)}}
+@keyframes sqxLines{0%{opacity:0}8%{opacity:.95}35%{opacity:.6}100%{opacity:0}}
+@keyframes sqxTrail{0%{opacity:0;stroke-dashoffset:var(--len,300)}18%{opacity:1;stroke-dashoffset:0}70%{opacity:.85;stroke-dashoffset:0}100%{opacity:0;stroke-dashoffset:0}}
+@keyframes sqxCutBg{0%{transform:translateX(-105%) skewX(-12deg);opacity:1}12%{transform:translateX(0) skewX(-12deg)}84%{transform:translateX(0) skewX(-12deg);opacity:1}100%{transform:translateX(35%) skewX(-12deg);opacity:0}}
+@keyframes sqxCutImg{0%{transform:scale(1.3) translateX(10%)}100%{transform:scale(1.06) translateX(-4%)}}
 @keyframes sqxNum{0%{opacity:0;transform:translate(-50%,0) scale(.4)}18%{opacity:1;transform:translate(-50%,-22px) scale(1.35)}35%{transform:translate(-50%,-18px) scale(1)}80%{opacity:1;transform:translate(-50%,-30px)}100%{opacity:0;transform:translate(-50%,-40px)}}
 `;
 
@@ -114,6 +120,12 @@ export function AttackFx({ fx, H, M }) {
         {ls.map((d, i) => <path key={i} d={d} stroke={big ? "#f2c14e" : a.color} strokeWidth={big ? 8 : 5.5} strokeLinecap="round" fill="none" strokeDasharray="160" style={{ "--len": 160, animation: `sqxDash .36s ease-out ${i * 0.09}s both`, filter: `drop-shadow(0 0 5px ${a.glow})` }} />)}
       </svg>);
       els.push(<Sparks key="k" at={to} n={big ? 14 : 9} seed={seed} colors={["#fff3c4", big ? "#f2c14e" : "#ffffff", "#cfe3ff"]} delay={0.06} />);
+      // 剣の通った跡：大きな三日月の光が、しばらく残る
+      els.push(<svg key="tr" viewBox="0 0 200 120" style={{ position: "absolute", left: `calc(${to[0]} - 150px)`, top: `calc(${to[1]} - 95px)`, width: 230, height: 140, overflow: "visible" }}>
+        <defs><linearGradient id={`trg${seed}`} x1="0" y1="0" x2="1" y2="0"><stop offset="0" stopColor="#ffffff" stopOpacity="0" /><stop offset=".55" stopColor="#bfe3ff" /><stop offset="1" stopColor="#ffffff" /></linearGradient></defs>
+        <path d="M10 110 Q 90 -20 195 30" stroke={`url(#trg${seed})`} strokeWidth={big ? 14 : 9} strokeLinecap="round" fill="none" strokeDasharray="300" style={{ "--len": 300, animation: "sqxTrail .95s ease-out both", filter: "drop-shadow(0 0 8px #7fb6ff)" }} />
+        {(a.n || 1) >= 2 && <path d="M30 20 Q 110 130 195 90" stroke={`url(#trg${seed})`} strokeWidth={big ? 10 : 7} strokeLinecap="round" fill="none" strokeDasharray="300" style={{ "--len": 300, animation: "sqxTrail .95s ease-out .12s both", filter: "drop-shadow(0 0 6px #7fb6ff)" }} />}
+      </svg>);
       break;
     }
     case "magic": // 炎の玉
@@ -192,6 +204,8 @@ export function AttackFx({ fx, H, M }) {
       break;
     default: break;
   }
+  // 大技（会心）のときは、当たった所へ集中線
+  if (big && fx.side === "hero") els.push(<span key="ln" style={{ position: "absolute", left: to[0], top: to[1], width: 520, height: 520, marginLeft: -260, marginTop: -260, borderRadius: "50%", background: "repeating-conic-gradient(rgba(255,255,255,0.75) 0 2deg, transparent 2deg 9deg)", WebkitMaskImage: "radial-gradient(circle, transparent 18%, #000 30%, transparent 70%)", maskImage: "radial-gradient(circle, transparent 18%, #000 30%, transparent 70%)", animation: `sqxLines .45s ease-out ${t}s both` }} />);
   return <div style={box} aria-hidden="true">{els}</div>;
 }
 

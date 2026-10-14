@@ -10159,6 +10159,69 @@ const SQ_BIOMES = [["草原", "#b5d69a"], ["森", "#7fae6a"], ["丘", "#d6c48e"]
 const SQ_MARKS = ["🏠", "🌲", "⛰", "🌉", "🗼", "⛲", "🏯", "⛪", "🌾", "🗿", "🏛", "🌋"];
 
 let lastStoryRegion = null; // ストーリーで最後に見ていた地域（戦いから戻ったときに同じ地域を開く）
+// 地図の絵（public/art/storymap.webp＝イラストフォルダの「不動産登記法の王都クエストマップ」）の上の、クエストの場所（絵の座標）
+// 1枚の地図に25話。はじまりの町から、左の道 → 右の道 → 中央の道を通って魔王の城へ
+const SMAP = { w: 1464, h: 675, x0: 36, y0: 100 };
+const SMAP_NODES = [[768, 604], [768, 530], [768, 455], [768, 380], [768, 293], [667, 530], [514, 563], [556, 470], [413, 523], [610, 405], [378, 445], [444, 365], [676, 345], [518, 320], [596, 280], [870, 520], [1022, 562], [980, 470], [1124, 522], [929, 402], [1160, 445], [1093, 365], [863, 345], [1018, 320], [940, 280]];
+const SMAP_ORDER = [0, 1, 5, 6, 8, 10, 11, 13, 14, 7, 9, 12, 15, 16, 18, 20, 21, 23, 24, 17, 19, 22, 2, 3, 4];
+const SMAP_PER = SMAP_ORDER.length;
+const HEX_CLIP = "polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%)";
+function StoryRoadMap({ quests, r, sel, setSel, nextQ, regionName }) {
+  const pages = Math.max(1, Math.ceil(quests.length / SMAP_PER));
+  const nextIdx = nextQ ? quests.indexOf(nextQ) : quests.length - 1;
+  const [page, setPage] = useState(() => Math.min(pages - 1, Math.max(0, Math.floor(nextIdx / SMAP_PER))));
+  const pg = Math.min(page, pages - 1);
+  const wrapRef = useRef(null);
+  useEffect(() => { setPage(Math.min(pages - 1, Math.max(0, Math.floor(nextIdx / SMAP_PER)))); }, [regionName]);
+  // スマホでは地図を横に動かせる。いまのクエストが見える所まで寄せる
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el || el.scrollWidth <= el.clientWidth) return;
+    const k = nextIdx - pg * SMAP_PER;
+    const node = SMAP_NODES[SMAP_ORDER[k >= 0 && k < SMAP_PER ? k : 0]];
+    el.scrollLeft = Math.max(0, ((node[0] - SMAP.x0) / SMAP.w) * el.scrollWidth - el.clientWidth / 2);
+  }, [pg, regionName]);
+  const pct = ([x, y]) => ({ left: `${((x - SMAP.x0) / SMAP.w) * 100}%`, top: `${((y - SMAP.y0) / SMAP.h) * 100}%` });
+  const cleared = quests.slice(pg * SMAP_PER, (pg + 1) * SMAP_PER).filter((q) => sqStars(r, q.key) >= 1).length;
+  return (
+    <div>
+      {pages > 1 && (
+        <div className="jp flex items-center gap-2 mb-1 text-[11px]" style={{ color: "var(--ink-soft)" }}>
+          <button onClick={() => setPage(Math.max(0, pg - 1))} disabled={pg === 0} className="btn-ghost px-2 py-0.5 text-[11px]">◀</button>
+          <span className="flex-1 text-center" style={{ fontWeight: 800, color: "var(--ink)" }}>第{pg + 1}の地図（第{pg * SMAP_PER + 1}〜{Math.min(quests.length, (pg + 1) * SMAP_PER)}話）<span className="ml-1" style={{ fontWeight: 500, color: "var(--ink-soft)" }}>{cleared}/{Math.min(SMAP_PER, quests.length - pg * SMAP_PER)}</span></span>
+          <button onClick={() => setPage(Math.min(pages - 1, pg + 1))} disabled={pg >= pages - 1} className="btn-ghost px-2 py-0.5 text-[11px]">▶</button>
+        </div>
+      )}
+      <div ref={wrapRef} style={{ overflowX: "auto", borderRadius: 10, WebkitOverflowScrolling: "touch" }}>
+        <div style={{ position: "relative", width: "max(100%, 680px)", aspectRatio: `${SMAP.w} / ${SMAP.h}`, backgroundImage: `url(${ART_URL}storymap.webp)`, backgroundSize: "100% 100%", backgroundColor: "#fbf8f0" }}>
+          {SMAP_ORDER.map((ni, k) => {
+            const q = quests[pg * SMAP_PER + k];
+            const at = pct(SMAP_NODES[ni]);
+            const base = { position: "absolute", ...at, width: "4%", aspectRatio: "1 / 1.12", transform: "translate(-50%, -50%)" };
+            if (!q) return <div key={k} style={{ ...base, clipPath: HEX_CLIP, background: "radial-gradient(circle, #ece2c6 0%, #e2d5b2 100%)", opacity: 0.96 }} />; // この地域にない場所（絵の印を消す）
+            const st = sqStars(r, q.key), open = sqOpen(r, q), isSel = sel === q.key, isNext = nextQ && q.key === nextQ.key;
+            if (st < 1 && !open) return (
+              <div key={k} title="まだ見えない道" style={base}>
+                <span style={{ position: "absolute", inset: 0, clipPath: HEX_CLIP, background: "#c9b78f" }} />
+                <span style={{ position: "absolute", inset: "8%", clipPath: HEX_CLIP, background: "#efe6cf", display: "flex", alignItems: "center", justifyContent: "center", color: "#b8a77c", fontSize: 9, fontWeight: 800 }}>？</span>
+              </div>
+            );
+            const ring = isSel ? "#e0a92e" : st >= 1 ? "#2f5d9e" : "#b08a3e";
+            return (
+              <button key={k} onClick={() => setSel(isSel ? null : q.key)} title={`第${pg * SMAP_PER + k + 1}話`} style={{ ...base, width: "4.6%", padding: 0, border: "none", background: "none", cursor: "pointer", filter: isNext || isSel ? "drop-shadow(0 0 6px rgba(255,214,110,0.95))" : "drop-shadow(0 2px 2px rgba(0,0,0,0.25))", animation: isNext ? "sqxPulse 1.6s ease-in-out infinite" : undefined, zIndex: isSel ? 3 : 2 }}>
+                <span style={{ position: "absolute", inset: 0, clipPath: HEX_CLIP, background: ring }} />
+                <span style={{ position: "absolute", inset: "7%", clipPath: HEX_CLIP, background: st >= 1 ? "linear-gradient(180deg, #6f9fe0, #2f5d9e)" : "#fdfbf5", display: "flex", alignItems: "center", justifyContent: "center", color: st >= 1 ? "#fff" : "#c9433f", fontWeight: 900, fontSize: "clamp(10px, 1.7vw, 16px)", lineHeight: 1 }}>{st >= 1 ? "✓" : "!"}</span>
+                {st >= 1 && <span style={{ position: "absolute", left: "50%", top: "100%", transform: "translateX(-50%)", fontSize: 8, color: "#b08a3e", whiteSpace: "nowrap", textShadow: "0 0 2px #fff, 0 0 2px #fff" }}>{"★".repeat(st)}</span>}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      <p className="jp text-[10px] mt-1 text-center" style={{ color: "var(--ink-mute)" }}>光っている「！」が、いま挑めるクエストです。はじまりの町から道をたどり、魔王の城をめざしましょう。{pages > 1 ? "1枚の地図に25話。◀▶で地図を切りかえられます。" : ""}</p>
+    </div>
+  );
+}
+
 function StoryQuestView({ state, pp, onStart, actions, onGuardian, onSecBoss }) {
   const r = normRpg(state.rpg);
   const regs = [...pp.regions].filter((g) => g.total > 0).sort((a, b) => REGION_ORDER.indexOf(a.name) - REGION_ORDER.indexOf(b.name));
@@ -10223,36 +10286,8 @@ function StoryQuestView({ state, pp, onStart, actions, onGuardian, onSecBoss }) 
           <span style={{ fontFamily: "'Shippori Mincho B1', serif", fontWeight: 800, fontSize: 17, color: g.th.dark }}>{g.name}の地図</span>
           <span className="text-[11px]" style={{ color: "var(--ink-soft)" }}>描いた土地 {cleared} / {quests.length}</span>
         </div>
-        {/* 六角形の地図 */}
-        <svg viewBox={vb.join(" ")} width="100%" style={{ display: "block", maxWidth: 560, maxHeight: 420, margin: "0 auto", borderRadius: 8, background: "radial-gradient(ellipse at 50% 45%, #f8f1de 0%, #ecdfbd 75%, #dcc89c 100%)", border: "1px solid #b08a3e" }}>
-          {/* 中心の町 */}
-          <polygon points={hex(pts[0][0], pts[0][1])} fill="#fdfbf5" stroke="#b08a3e" strokeWidth="1.5" />
-          <text x={pts[0][0]} y={pts[0][1] + 5} textAnchor="middle" fontSize="15" style={{ fontFamily: "'Noto Emoji', sans-serif", fontWeight: 500 }} fill="#22335c">🏰</text>
-          {quests.map((q, i) => {
-            const [x, y] = pts[i + 1];
-            const st = sqStars(r, q.key);
-            const open = sqOpen(r, q);
-            if (st < 1 && !open) return null; // まだ見えない土地
-            const biome = SQ_BIOMES[(bankIdx.get(q.bank.id) || 0) % SQ_BIOMES.length];
-            const mark = SQ_MARKS[hashStr(q.key) % SQ_MARKS.length];
-            const isSel = sel === q.key;
-            return (
-              <g key={q.key} onClick={() => setSel(isSel ? null : q.key)} style={{ cursor: "pointer" }}>
-                {st >= 1 ? (<>
-                  <polygon points={hex(x, y)} fill={biome[1]} stroke={isSel || (r.secBoss[q.bank.id] && r.secBoss[q.bank.id].won) ? "#b08a3e" : "rgba(34,51,92,0.35)"} strokeWidth={isSel ? 2.5 : r.secBoss[q.bank.id] && r.secBoss[q.bank.id].won ? 2 : 1} />
-                  <text x={x} y={y + 4} textAnchor="middle" fontSize="12" style={{ fontFamily: "'Noto Emoji', sans-serif", fontWeight: 500 }} fill="rgba(34,51,92,0.85)">{mark}</text>
-                  <text x={x} y={y + 13} textAnchor="middle" fontSize="6" fill="#b08a3e">{"★".repeat(st)}</text>
-                </>) : (<>
-                  <polygon points={hex(x, y)} fill="rgba(233,228,214,0.95)" stroke="#b08a3e" strokeWidth={isSel ? 2.5 : 1.2} strokeDasharray="3 2">
-                    <animate attributeName="opacity" values="1;.6;1" dur="1.8s" repeatCount="indefinite" />
-                  </polygon>
-                  <text x={x} y={y + 5} textAnchor="middle" fontSize="14" fontWeight="800" fill="#a24a45">!</text>
-                </>)}
-              </g>
-            );
-          })}
-        </svg>
-        <p className="jp text-[10px] mt-1 text-center" style={{ color: "var(--ink-mute)" }}>点線の「！」が、いま挑めるクエストです。クリアするたびに土地が描かれ、次のクエストが現れます。</p>
+        {/* はじまりの町から魔王の城への地図 */}
+        <StoryRoadMap quests={quests} r={r} sel={sel} setSel={setSel} nextQ={nextQ} regionName={g.name} />
         {/* 選んだクエスト／つづきから */}
         {(sq || nextQ) && (() => {
           const q = sq || nextQ;
@@ -12021,7 +12056,7 @@ function BossBattle({ state, boss, pool, actions, recordAnswer, startTimer, stop
       const comboMul = 1 + Math.min(0.3, (nc - 1) * 0.06);
       const dmg = Math.max(1, Math.round(base * mult * comboMul * (1 + bonus.bossDmgPct / 100) * (crit ? 2 : 1)));
       const atk = heroAttackFor({ weapon: equippedWeaponId(r), region: bossRegion, crit, combo: nc });
-      t = impactOf(atk);
+      t = impactOf(atk) + (bossCut(nc) ? 1.3 : 0); // カットイン → ルナの必殺技 → 命中
       // 仲間の加勢：カイトなどは3連撃ごとに追撃、レイヴンなどは会心か2割で魔法
       const chase = party.find((p) => p.skill.kind === "chase"), magic = party.find((p) => p.skill.kind === "magic");
       let as = null;
@@ -12029,14 +12064,18 @@ function BossBattle({ state, boss, pool, actions, recordAnswer, startTimer, stop
       else if (magic && (crit || Math.random() < 0.2)) as = { p: magic, val: Math.max(1, Math.round(dmg * 0.3)) };
       nb = Math.max(0, bossHp - dmg - (as ? as.val : 0));
       setCombo(nc);
-      setFx({ n, side: "hero", atk, t, dmg, crit });
+      const cut = bossCut(nc);
+      const big = crit || !!cut || nc >= 3;
+      if (cut) setTimeout(() => SFX.play("combo"), 120);
+      setFx({ n, side: "hero", atk, t, dmg, crit, cut, big, hits: big ? splitHits(dmg, cut ? 4 : 3) : [dmg] });
       if (atk.kind !== "slash") SFX.play(atk.sfx);
       setTimeout(() => { setBossHp(Math.max(0, bossHp - dmg)); SFX.play(crit ? "crit" : atk.kind === "slash" ? "hit" : "magicHit"); }, t * 1000);
       if (as) {
         setTimeout(() => { setAssist({ n, ...as }); setBossHp(nb); SFX.play(as.p.skill.kind === "chase" ? "hit" : "magicHit"); }, t * 1000 + 380);
         setTimeout(() => setAssist((x) => (x && x.n === n ? null : x)), t * 1000 + 1500);
       }
-      addLog(crit ? `💥 会心の一撃！ ${atk.name}で ${dmg}のダメージ！` : `⚔ ${HERO_NAME}の${atk.name}！ ${boss.name}に${dmg}のダメージ${nc >= 2 ? `（${nc}連撃）` : ""}`);
+      const cutName = bossCut(nc);
+      addLog(cutName ? `🌟 ${HERO_NAME}の${cutName.ult ? "必殺技" : "スキル"}「${cutName.name}」！ ${dmg}のダメージ（${nc}連撃）` : crit ? `💥 会心の一撃！ ${atk.name}で ${dmg}のダメージ！` : `⚔ ${HERO_NAME}の${atk.name}！ ${boss.name}に${dmg}のダメージ${nc >= 2 ? `（${nc}連撃）` : ""}`);
       if (as) addLog(`✨ ${as.p.a.name}の${as.p.skill.name}！ さらに${as.val}のダメージ`);
     } else {
       const raw = boss.atk * (meta && meta.confident ? 1.3 : 1);
@@ -12061,7 +12100,7 @@ function BossBattle({ state, boss, pool, actions, recordAnswer, startTimer, stop
       if (as) addLog(`✨ ${as.p.a.name}の${as.p.skill.name}！ HPが${as.val}回復した`);
     }
     setShowAnswer(false);
-    setTimeout(() => setFx((f) => (f && f.n === n ? null : f)), 1000 + t * 1000);
+    setTimeout(() => setFx((f) => (f && f.n === n ? null : f)), (correct && (bossCut(combo + 1) || combo + 1 >= 3) ? 1600 : 1000) + t * 1000);
     if (nb <= 0) { busy.current = true; addLog(`🎉 ${boss.name}を倒した！`); setTimeout(() => { setDying("boss"); SFX.play("victory"); }, t * 1000 + 250); setTimeout(() => finish(true, false), t * 1000 + 2100); return; }
     if (nh <= 0) { busy.current = true; addLog("💀 力尽きた…"); setTimeout(() => setDying("me"), t * 1000 + 250); setTimeout(() => finish(false, false), t * 1000 + 1700); return; }
     if (idx + 1 >= pool.length) { busy.current = true; addLog(`${boss.name}は逃げていった…`); setTimeout(() => finish(false, true), t * 1000 + 900); return; }
@@ -12186,6 +12225,8 @@ function BossArena({ state, boss, bossHp, hp, maxHp, fx, combo, dying, party = [
   return (
     <div ref={arenaRef} className="relative overflow-hidden select-none" style={{ height: 310, borderRadius: 10, border: "1px solid #b08a3e", background: `linear-gradient(0deg, rgba(10,16,32,0.6) 0%, rgba(10,16,32,0.05) 45%, rgba(10,16,32,0.3) 100%), url(${bg}) center/cover no-repeat`, boxShadow: "0 8px 22px rgba(20,28,50,0.25)", animation: fx ? (fx.side === "mon" ? `sqxQuake .42s ease-out ${t}s` : fx.crit ? `sqxPunch .3s ease-out ${t}s` : undefined) : undefined }}>
       <style>{BATTLE_CSS + BATTLE_FX_CSS + BOSS_CSS + LUNA_CSS}</style>
+      <div style={{ position: "absolute", inset: 0, background: "inherit", transformOrigin: "70% 60%", animation: fx && fx.side === "hero" && fx.big ? `sqxCam ${fx.cut ? 1.5 : 1}s ease-out ${t}s` : undefined }}>
+      {fx && fx.side === "hero" && fx.big && <div key={`dim${fx.n}`} style={{ position: "absolute", inset: 0, background: "rgba(6,10,28,0.45)", animation: `sqxDim ${fx.cut ? 1.6 : 1.05}s ease-out both`, pointerEvents: "none" }} />}
       <Ambient region={region} kind={boss.id === "maou" || boss.art === "darkdragon" ? "fire" : ["grimoire", "ghost", "magolem"].includes(boss.art) ? "dark" : null} n={18} seed={hashStr(boss.id + (boss.art || ""))} />
       <div aria-hidden="true" style={{ position: "absolute", inset: 0, pointerEvents: "none", background: enraged ? "radial-gradient(ellipse at 70% 45%, transparent 40%, rgba(160,30,30,0.35) 100%)" : "radial-gradient(ellipse at 50% 50%, transparent 50%, rgba(10,16,32,0.35) 100%)", animation: enraged ? "sqxPulse 1.4s ease-in-out infinite" : undefined }} />
       {/* ボスの名前と HP */}
@@ -12215,7 +12256,7 @@ function BossArena({ state, boss, bossHp, hp, maxHp, fx, combo, dying, party = [
       </div>
       {/* 主人公（前衛） */}
       <div style={{ position: "absolute", left: "calc(40% - 86px)", bottom: -18, width: 214, height: 214, zIndex: 2 }}>
-        <LunaSprite size={214} pose={dying === "me" ? "down" : dying === "boss" ? "win" : fx ? (fx.side === "hero" ? "attack" : "hurt") : "idle"} delay={fx && fx.side === "mon" ? t : 0} k={fx ? fx.n : dying ? 999 : 0} aura={auraOf(state)} />
+        <LunaSprite size={214} pose={dying === "me" ? "down" : dying === "boss" ? "win" : fx ? (fx.side === "hero" ? (fx.cut ? "skill" : "attack") : "hurt") : "idle"} delay={fx && fx.side === "mon" ? t : fx && fx.cut ? 0.6 : 0} k={fx ? fx.n : dying ? 999 : 0} aura={auraOf(state)} />
         {(() => { const pt = getPetInfo(state); return pt ? <span style={{ position: "absolute", left: 18, bottom: 22 }}><PetIcon pet={pt} size={26} /></span> : null; })()}
       </div>
       {/* 味方の HP・戦闘力（左上） */}
@@ -12239,11 +12280,12 @@ function BossArena({ state, boss, bossHp, hp, maxHp, fx, combo, dying, party = [
       {/* 技の演出・名前・ダメージ */}
       {fx && <AttackFx key={`fx${fx.n}`} fx={fx} H={H} M={M} />}
       {fx && <SkillBanner fx={fx} top={52} />}
-      {fx && <div key={`d${fx.n}`} style={{ position: "absolute", left: fx.side === "hero" ? M[0] : H[0], top: fx.side === "hero" ? "34%" : "calc(100% - 110px)", zIndex: 4, animation: `sqxNum 1s ease-out ${t}s both`, fontFamily: "'Cinzel', serif", fontWeight: 900, fontSize: fx.crit ? 34 : 26, color: fx.side === "mon" ? "#ff8a80" : fx.crit ? "#f2c14e" : "#ffffff", textShadow: "0 2px 0 #22335c, 0 0 8px rgba(0,0,0,0.6)", whiteSpace: "nowrap", pointerEvents: "none" }}>
-        {fx.crit && <div className="jp" style={{ fontSize: 11, letterSpacing: 2, textAlign: "center" }}>CRITICAL!</div>}{fx.side === "mon" ? "-" : ""}{fx.dmg}
-      </div>}
+      {fx && fx.side === "hero" && <HitNumbers fx={fx} left={M[0]} top="30%" />}
+      {fx && fx.side === "mon" && <div key={`d${fx.n}`} style={{ position: "absolute", left: H[0], top: "calc(100% - 130px)", zIndex: 4, animation: `sqxNum 1s ease-out ${t}s both`, fontFamily: "'Cinzel', serif", fontWeight: 900, fontSize: 26, color: "#ff8a80", textShadow: "0 2px 0 #22335c, 0 0 8px rgba(0,0,0,0.6)", whiteSpace: "nowrap", pointerEvents: "none" }}>-{fx.dmg}</div>}
       {fx && fx.side === "mon" && <div key={`r${fx.n}`} style={{ position: "absolute", inset: 0, pointerEvents: "none", boxShadow: "inset 0 0 60px rgba(201,40,40,0.7)", animation: `sqbRed .55s ease-out ${t}s both` }} />}
       {fx && fx.crit && <div key={`w${fx.n}`} style={{ position: "absolute", inset: 0, pointerEvents: "none", background: "rgba(255,248,220,0.75)", animation: `sqbFlash .3s ease-out ${t}s both` }} />}
+      </div>
+      {fx && fx.cut && <SkillCutIn key={`cut${fx.n}`} skill={fx.cut} combo={combo} />}
       {/* 決着 */}
       {dying === "boss" && (<>
         <div style={{ position: "absolute", left: M[0], top: M[1], width: 360, height: 360, background: "repeating-conic-gradient(rgba(255,240,200,0.55) 0 8deg, transparent 8deg 22deg)", borderRadius: "50%", WebkitMaskImage: "radial-gradient(circle, #000 20%, transparent 70%)", maskImage: "radial-gradient(circle, #000 20%, transparent 70%)", animation: "sqyRays 1.6s ease-out both", pointerEvents: "none" }} />
@@ -12505,6 +12547,7 @@ const SPRITES = {
   luna: { url: LUNA_SPRITE, frames: LUNA_FRAMES, dur: 0.7 },
   serena: { url: `${ART_URL}sprite/serena-attack.webp`, frames: 21, dur: 0.75 },
   raven: { url: `${ART_URL}sprite/raven-attack.webp`, frames: 21, dur: 0.75 },
+  lunaNova: { url: `${ART_URL}sprite/luna-nova.webp`, frames: 24, dur: 1.2 },
 };
 function bringIntoView(el) {
   if (!el) return;
@@ -12519,8 +12562,24 @@ const LUNA_CSS = `
 @keyframes sqlDown{0%{transform:none;opacity:1}100%{transform:translateY(16px) rotate(-70deg);opacity:.7}}
 @keyframes sqlAura{0%,100%{opacity:.5;transform:scaleX(1)}50%{opacity:.9;transform:scaleX(1.12)}}
 `;
-function LunaSprite(props) { return <CharSprite who="luna" {...props} />; }
-function CharSprite({ who = "luna", size = 120, pose = "idle", delay = 0, k = 0, aura = null }) {
+// pose="skill" は必殺技のモーション（スターライトノヴァ。魔法陣から光の斬撃）
+function LunaSprite(props) { return props.pose === "skill" ? <CharSprite {...props} who="lunaNova" pose="attack" /> : <CharSprite {...props} who="luna" />; }
+function CharSprite(props) {
+  const { who = "luna", size = 120, pose = "idle", delay = 0, k = 0 } = props;
+  if (pose !== "attack") return <CharSpriteLayer {...props} />;
+  // 攻撃のときは、少し遅れてついてくる残像を2つ重ねる
+  return (
+    <div style={{ position: "relative", width: size, height: size }}>
+      {[0.1, 0.05].map((d, i) => (
+        <div key={`g${k}-${i}`} style={{ position: "absolute", inset: 0, opacity: i ? 0.35 : 0.2, filter: "brightness(1.7) saturate(0.4) hue-rotate(185deg) blur(0.5px)", mixBlendMode: "screen", pointerEvents: "none" }}>
+          <CharSpriteLayer who={who} size={size} pose="attack" delay={delay + d} k={k} />
+        </div>
+      ))}
+      <div style={{ position: "absolute", inset: 0 }}><CharSpriteLayer {...props} /></div>
+    </div>
+  );
+}
+function CharSpriteLayer({ who = "luna", size = 120, pose = "idle", delay = 0, k = 0, aura = null }) {
   const sp = SPRITES[who] || SPRITES.luna;
   const wrap = pose === "hurt" ? `sqbHurt .45s ease-out ${delay}s` : pose === "win" ? "sqlJump 1s ease-out" : pose === "down" ? `sqlDown .7s ease-in ${delay}s forwards` : pose === "attack" ? `sqlDash ${sp.dur + 0.25}s ease-out ${delay}s` : "sqlBob 2.2s ease-in-out infinite";
   return (
@@ -12822,12 +12881,40 @@ function resetBattle(state) {
   Object.assign(BATTLE, { hp: b.maxHp, maxHp: b.maxHp, combo: 0, maxCombo: 0, defeated: 0, crits: 0, escaped: 0, faints: 0, mats: {}, start: { xp: xpTotalOf(state.player), level: state.player.level, gold: normRpg(state.rpg).gold } });
 }
 // コンボの節目で出る必殺技（カットイン）
-const COMBO_CUTS = [
-  { n: 5, name: "連撃・星屑の矢" },
-  { n: 10, name: "閃光・叡智の剣" },
-  { n: 20, name: "秘奥義・大賢者の審判" },
-  { n: 30, name: "極意・天地開闢" },
+// ルナの技（イラストフォルダの「ルナの魔法剣士キャラクター図鑑」のスキルモーション例から）。必殺技のモーションの絵ができたら差し替える
+const LUNA_SKILLS = [
+  { name: "ルミナススラッシュ", sub: "光の力を纏った斬撃", img: "luna-1" },
+  { name: "アイスエッジ", sub: "氷の刃で連続斬り", img: "luna-2" },
+  { name: "セイクリッドブレード", sub: "巨大な魔法陣から放つ光の剣", img: "luna-3" },
+  { name: "スターライトノヴァ", sub: "星の力を込めた、広範囲の光斬撃", img: "luna-4", ult: true },
 ];
+const COMBO_CUTS = [5, 10, 20, 30].map((n, i) => ({ n, ...LUNA_SKILLS[i] }));
+// ボス戦は連撃の 3・5・8・12 回目（12回目より後は4回ごとに必殺技）
+const bossCut = (nc) => { const i = { 3: 0, 5: 1, 8: 2, 12: 3 }[nc]; return i !== undefined ? LUNA_SKILLS[i] : nc > 12 && nc % 4 === 0 ? LUNA_SKILLS[3] : null; };
+// 技のカットイン：斜めの帯に技の場面の絵が流れ込み、技の名前が出る（約1.5秒）
+function SkillCutIn({ skill, combo }) {
+  return (
+    <div style={{ position: "absolute", left: "-8%", right: "-8%", top: "50%", height: skill.ult ? 136 : 112, marginTop: skill.ult ? -68 : -56, zIndex: 6, pointerEvents: "none", overflow: "hidden", animation: "sqxCutBg 1.1s cubic-bezier(.2,.8,.2,1) both", borderTop: "2px solid #d6b56a", borderBottom: "2px solid #d6b56a", boxShadow: "0 0 26px rgba(127,182,255,0.7)" }}>
+      <div style={{ position: "absolute", inset: 0, backgroundImage: `url(${ART_URL}skill/${skill.img}.jpg)`, backgroundSize: "cover", backgroundPosition: "center 35%", animation: "sqxCutImg 1.1s ease-out both" }} />
+      <div style={{ position: "absolute", inset: 0, background: "linear-gradient(90deg, rgba(8,14,38,0.94) 0%, rgba(8,14,38,0.7) 34%, rgba(8,14,38,0) 68%)" }} />
+      <div className="jp" style={{ position: "absolute", left: "12%", top: "50%", transform: "translateY(-50%) skewX(12deg)" }}>
+        <div style={{ fontFamily: "'Cinzel', serif", fontWeight: 900, fontSize: 11, letterSpacing: 3, color: "#d6b56a" }}>{combo ? `${combo} COMBO ・ ` : ""}{skill.ult ? "必殺技" : "スキル"}</div>
+        <div style={{ fontFamily: "'Shippori Mincho B1', serif", fontWeight: 800, fontSize: skill.ult ? 26 : 22, letterSpacing: "0.06em", color: "#fdfbf5", textShadow: "0 0 12px rgba(127,182,255,0.9), 0 2px 0 #0a1028", whiteSpace: "nowrap" }}>{skill.name}</div>
+        <div style={{ fontSize: 10, color: "#c9d8f0" }}>{HERO_NAME}：{skill.sub}</div>
+      </div>
+    </div>
+  );
+}
+// 大技の数字：何回かに分けて当たる（合計はダメージと同じ）
+const splitHits = (dmg, n) => { const out = []; let left = dmg; for (let i = 0; i < n; i++) { const v = i === n - 1 ? left : Math.max(1, Math.round((dmg / n) * (0.8 + Math.random() * 0.4))); out.push(v); left -= v; } return out.filter((v) => v > 0); };
+function HitNumbers({ fx, left, top }) {
+  const hits = fx.hits || [fx.dmg];
+  return hits.map((v, i) => (
+    <div key={`hn${fx.n}-${i}`} style={{ position: "absolute", left: `calc(${left} + ${(i - (hits.length - 1) / 2) * 26}px)`, top: `calc(${top} + ${i * 12}px)`, zIndex: 5, animation: `sqxNum .95s ease-out ${(fx.t || 0) + i * 0.16}s both`, fontFamily: "'Cinzel', serif", fontWeight: 900, fontSize: fx.crit ? 30 - i * 2 : 24, color: fx.crit ? "#f2c14e" : "#ffffff", textShadow: "0 2px 0 #22335c, 0 0 6px rgba(34,51,92,0.7)", whiteSpace: "nowrap", pointerEvents: "none" }}>
+      {fx.crit && i === 0 && <div className="jp" style={{ fontSize: 11, letterSpacing: 2, textAlign: "center" }}>CRITICAL!</div>}{v}
+    </div>
+  ));
+}
 const comboCut = (n) => COMBO_CUTS.find((c) => c.n === n) || (n > 30 && n % 10 === 0 ? COMBO_CUTS[COMBO_CUTS.length - 1] : null);
 
 // ── 魔物：問題ごとに種族（形）は固定、色と名前は科目（問題集の名前）で決まる ──
@@ -13030,11 +13117,13 @@ function BattleStage({ state, q, bankName, battleKey, boss = false, scene: scene
         emitReward({ mats, xp: xpBonus, stat: { elite: m.rank === "elite", fresh: m.rank === "unknown", crit, combo: BATTLE.combo, region: m.th && m.th.region } });
         // 技：装備中の武器・科目の属性・コンボで変わる（斬撃・魔法・弓）
         const atk = heroAttackFor({ weapon: equippedWeaponId(normRpg(stRef.current.rpg)), region: m.th && m.th.region, crit, combo: BATTLE.combo });
-        const t = impactOf(atk);
+        const t = impactOf(atk) + (cut ? 1.3 : 0); // カットイン → ルナの必殺技 → 命中
         hold += Math.round(t * 1000);
         const party = battleParty(stRef.current);
         const cameo = party.length && BATTLE.combo >= 3 && BATTLE.combo % 3 === 0 ? party[(BATTLE.combo / 3 - 1) % party.length] : null;
-        setFx({ n, ok: true, crit, dmg, cut, mon: m, drops: Object.keys(mats), side: "hero", atk, t, cameo });
+        const big = crit || !!cut || BATTLE.combo >= 3;
+        if (big) hold += cut ? 300 : 450;
+        setFx({ n, ok: true, crit, dmg, cut, mon: m, drops: Object.keys(mats), side: "hero", atk, t, cameo, big, hits: big ? splitHits(dmg, cut ? 4 : 3) : [dmg] });
         if (atk.kind !== "slash") SFX.play(atk.sfx);
         setTimeout(() => SFX.play(crit ? "crit" : atk.kind === "slash" ? "hit" : "magicHit"), t * 1000);
         if (Object.keys(mats).length) setTimeout(() => SFX.play("drop"), 320 + t * 1000);
@@ -13068,6 +13157,8 @@ function BattleStage({ state, q, bankName, battleKey, boss = false, scene: scene
   return (
     <div ref={stageRef} className="relative overflow-hidden select-none" style={{ height: 232, borderRadius: 8, background: scene ? `${theme === "classic" ? "linear-gradient(0deg, rgba(10,18,38,0.7) 0%, rgba(10,18,38,0.15) 40%, rgba(10,18,38,0.05) 100%)" : "linear-gradient(0deg, rgba(253,251,245,0.55) 0%, rgba(253,251,245,0.08) 30%, rgba(253,251,245,0) 60%)"}, url(${scene}) center 68%/cover no-repeat` : P.bg, border: P.border, color: P.text, boxShadow: "0 6px 18px rgba(40,50,80,0.12)", animation: fx ? (!fx.ok ? `sqbShake .38s ease-in-out ${fx.t || 0}s` : fx.crit ? `sqxPunch .3s ease-out ${fx.t || 0}s` : undefined) : undefined }}>
       <style>{BATTLE_CSS + BATTLE_FX_CSS + LUNA_CSS}</style>
+      <div style={{ position: "absolute", inset: 0, background: "inherit", transformOrigin: "72% 66%", animation: fx && fx.ok && fx.big ? `sqxCam ${fx.cut ? 1.5 : 1}s ease-out ${fx.t || 0}s` : undefined }}>
+      {fx && fx.ok && fx.big && <div key={`dim${fx.n}`} style={{ position: "absolute", inset: 0, background: "rgba(6,10,28,0.5)", animation: `sqxDim ${fx.cut ? 1.6 : 1.05}s ease-out both`, pointerEvents: "none" }} />}
       <Ambient region={mon.th && mon.th.region} n={10} seed={hashStr(String(mon.th && mon.th.region))} />
       <div aria-hidden="true" style={{ position: "absolute", inset: 0, pointerEvents: "none", background: "radial-gradient(ellipse at 50% 55%, transparent 55%, rgba(20,28,50,0.16) 100%)" }} />
       {/* 遠景（山並みと城）。景色の絵があるときは出さない */}
@@ -13087,7 +13178,7 @@ function BattleStage({ state, q, bankName, battleKey, boss = false, scene: scene
       {/* 味方：後衛（仲間）と前衛（ルナ） */}
       <BackRowAllies slots={backRow(battleParty(state), 104)} actingId={fx && fx.cameo && !fx.cut ? fx.cameo.a.id : null} actN={fx ? fx.n : 0} />
       <div style={{ position: "absolute", left: "calc(40% - 74px)", bottom: -16, width: 180, height: 180, zIndex: 2 }}>
-        <LunaSprite size={180} pose={fx ? (fx.ok ? "attack" : "hurt") : "idle"} delay={fx && !fx.ok ? fx.t || 0 : 0} k={fx ? fx.n : 0} aura={auraOf(state)} />
+        <LunaSprite size={180} pose={fx ? (fx.ok ? (fx.cut ? "skill" : "attack") : "hurt") : "idle"} delay={fx && !fx.ok ? fx.t || 0 : fx && fx.cut ? 0.6 : 0} k={fx ? fx.n : 0} aura={auraOf(state)} />
       </div>
       {/* ルナの HP（左下） */}
       <div style={{ position: "absolute", left: 6, bottom: 6, width: 108, zIndex: 3, padding: "2px 6px 4px", borderRadius: 6, background: "rgba(20,28,50,0.55)" }}>
@@ -13104,9 +13195,7 @@ function BattleStage({ state, q, bankName, battleKey, boss = false, scene: scene
         {showCur && <MonsterView key={`m${mon.key}`} m={mon} anim="enter" delay={fx ? 0.45 + (fx.t || 0) : 0} size={152} />}
         {fx && fx.ok && (
           <>
-            <div key={`d${fx.n}`} style={{ position: "absolute", left: "50%", top: "30%", animation: `sqxNum .9s ease-out ${fx.t || 0}s both`, zIndex: 4, fontFamily: "'Cinzel', serif", fontWeight: 900, fontSize: fx.crit ? 30 : 24, color: fx.crit ? "#f2c14e" : "#ffffff", textShadow: "0 2px 0 #22335c, 0 0 6px rgba(34,51,92,0.7)", whiteSpace: "nowrap", pointerEvents: "none" }}>
-              {fx.crit && <div className="jp" style={{ fontSize: 11, letterSpacing: 2, textAlign: "center" }}>CRITICAL!</div>}{fx.dmg}
-            </div>
+            <HitNumbers fx={fx} left="50%" top="24%" />
           </>
         )}
         {fx && !fx.ok && <div key={`e${fx.n}`} className="jp" style={{ position: "absolute", left: "50%", top: "18%", transform: "translateX(-50%)", fontSize: 11, fontWeight: 800, color: P.sub, whiteSpace: "nowrap", animation: `sqbRed .9s ease-out ${(fx.t || 0) + 0.3}s both` }}>逃げられた…</div>}
@@ -13130,16 +13219,9 @@ function BattleStage({ state, q, bankName, battleKey, boss = false, scene: scene
       {/* 被ダメージの赤いふち */}
       {fx && !fx.ok && <div key={`r${fx.n}`} style={{ position: "absolute", inset: 0, pointerEvents: "none", boxShadow: "inset 0 0 40px rgba(201,74,74,0.55)", animation: `sqbRed .5s ease-out ${fx.t || 0}s both` }} />}
       {fx && fx.crit && <div key={`w${fx.n}`} style={{ position: "absolute", inset: 0, pointerEvents: "none", background: "rgba(255,248,220,0.7)", animation: `sqbFlash .25s ease-out ${fx.t || 0}s both` }} />}
+      </div>
       {/* コンボの必殺技（カットイン） */}
-      {fx && fx.cut && (
-        <div key={`cut${fx.n}`} style={{ position: "absolute", left: 0, right: 0, top: "50%", height: 74, marginTop: -37, pointerEvents: "none", animation: "sqbCut 1.05s cubic-bezier(.2,.8,.2,1) forwards", background: "linear-gradient(90deg, rgba(34,51,92,0.92) 0%, rgba(34,51,92,0.85) 55%, rgba(34,51,92,0) 100%)", borderTop: "2px solid #d6b56a", borderBottom: "2px solid #d6b56a", display: "flex", alignItems: "center", gap: 12, paddingLeft: 12 }}>
-          <div style={{ width: 62, height: 62, borderRadius: "50%", flexShrink: 0, backgroundImage: `url(${P.avatar})`, backgroundSize: "300% auto", backgroundPosition: `${P.face[0]}% ${P.face[1]}%`, border: "2px solid #d6b56a", boxShadow: "0 0 14px rgba(214,181,106,0.8)" }} />
-          <div>
-            <div style={{ fontFamily: "'Cinzel', serif", fontWeight: 900, fontSize: 12, letterSpacing: 2, color: "#d6b56a" }}>{BATTLE.combo} COMBO</div>
-            <div style={{ fontFamily: "'Shippori Mincho B1', serif", fontWeight: 800, fontSize: 20, letterSpacing: "0.08em", color: "#fdfbf5", textShadow: "0 0 10px rgba(214,181,106,0.8)" }}>{fx.cut.name}</div>
-          </div>
-        </div>
-      )}
+      {fx && fx.cut && <SkillCutIn key={`cut${fx.n}`} skill={fx.cut} combo={BATTLE.combo} />}
     </div>
   );
 }
@@ -13531,14 +13613,8 @@ function LapRoom({ state, actions }) {
   const stamps = state.questionBanks.reduce((a, b) => a + (b.clears || 0), 0);
   return (
     <div className="space-y-4">
-      <div className="relative overflow-hidden" style={{ borderRadius: 12, height: 130, border: "1px solid #b08a3e", boxShadow: "inset 0 0 0 3px #fdfbf5, inset 0 0 0 4px rgba(176,138,62,.45)" }}>
-        <img src={`${ART_URL}book-tools.jpg`} alt="" className="w-full h-full" style={{ objectFit: "cover", objectPosition: "center 40%" }} />
-        <div className="absolute inset-0" style={{ background: "linear-gradient(90deg, rgba(253,251,245,0.94) 0%, rgba(253,251,245,0.75) 45%, rgba(253,251,245,0) 75%)" }} />
-        <div className="absolute inset-y-0 left-0 flex flex-col justify-center px-4 jp">
-          <div className="text-[10px]" style={{ color: "#b08a3e", letterSpacing: "0.3em", fontWeight: 800 }}>LAP ROOM</div>
-          <div style={{ fontSize: 24, fontWeight: 800, color: "#22335c", fontFamily: "'Shippori Mincho B1', serif" }}>周回の部屋</div>
-          <div className="text-[11px]" style={{ color: "#5b6b8c" }}>決めた日までに、決めた回数を。</div>
-        </div>
+      <div className="relative overflow-hidden" style={{ borderRadius: 12, border: "1px solid #b08a3e", boxShadow: "inset 0 0 0 3px #fdfbf5, inset 0 0 0 4px rgba(176,138,62,.45)", aspectRatio: "16 / 9", maxHeight: 300 }}>
+        <img src={`${ART_URL}laproom.webp`} alt="周回の部屋 ― くり返し解いて、知識を定着" className="w-full h-full" style={{ objectFit: "cover", objectPosition: "center 40%" }} />
       </div>
       <div className="jp grid grid-cols-3 gap-2">
         {[["今日のタスク", active.length ? `あと${left}項目` : "－"], ["進行中の計画", `${active.length}つ`], ["周回スタンプ", `${stamps}個`]].map(([k, v]) => (
