@@ -1215,6 +1215,7 @@ function StudyRPG({ user }) {
   const [loaded, setLoaded] = useState(false);
   const [tab, setTab] = useState("home");
   const [quickPreset, setQuickPreset] = useState(null); // 忘れかけの3問（ホーム → 今日タブ）
+  const [openBankReq, setOpenBankReq] = useState(null); // 今日のタスクの「解く」→ 問題タブでその問題集の開始画面を開く
   const lastNoteTab = useRef("task"); // 「手帳」タブで最後に開いていた画面（資格・タスク・時間・メモ）
   useEffect(() => { if (NOTE_TABS.includes(tab)) lastNoteTab.current = tab; }, [tab]);
   const [showDisplaySettings, setShowDisplaySettings] = useState(false); // 「Aa 文字」パネル
@@ -2454,7 +2455,46 @@ function StudyRPG({ user }) {
     addQuestionBank(newBank);
     return questions.length;
   };
+  // ── 学習計画（今日のタスク）の操作 ──
+  const addPlan = (plan) => setState((s) => ({ ...s, studyPlans: [...(s.studyPlans || []), { ...plan, id: uid(), done: {}, createdAt: todayStr() }] }));
+  const removePlan = (id) => setState((s) => ({ ...s, studyPlans: (s.studyPlans || []).filter((p) => p.id !== id) }));
+  const finishPlanIfDone = (before, after, wait = 1200) => {
+    after.forEach((p) => {
+      const was = before.find((x) => x.id === p.id);
+      if (p.finishedAt && was && !was.finishedAt) setTimeout(() => { SFX.play("levelup"); showEvolution({ big: "計画達成", from: null, to: p.name, sub: `${planTotal(p)}項目をやりとげました！`, stage: heroStage(stateRef.current.player.level) }); }, wait);
+    });
+  };
+  const togglePlanItem = (planId, k) => {
+    const before = stateRef.current.studyPlans || [];
+    const after = before.map((p) => {
+      if (p.id !== planId) return p;
+      const done = { ...(p.done || {}) };
+      if (done[k]) delete done[k]; else done[k] = todayStr();
+      const full = Object.keys(done).length >= planTotal(p);
+      return { ...p, done, finishedAt: full ? (p.finishedAt || todayStr()) : null };
+    });
+    setState((s) => ({ ...s, studyPlans: after }));
+    finishPlanIfDone(before, after);
+  };
+  // 問題集を最後まで解いたら、計画の中でいちばん早い「まだの回」を済みにする
+  const markPlanBank = (bankId) => {
+    const before = stateRef.current.studyPlans || [];
+    if (!before.length) return;
+    const after = before.map((p) => {
+      if (p.finishedAt || !p.bankIds.includes(bankId)) return p;
+      const done = { ...(p.done || {}) };
+      const n = p.bankIds.length;
+      for (let k = 0; k < planTotal(p); k++) if (p.bankIds[k % n] === bankId && !done[k]) { done[k] = todayStr(); break; }
+      const full = Object.keys(done).length >= planTotal(p);
+      return { ...p, done, finishedAt: full ? todayStr() : null };
+    });
+    setState((s) => ({ ...s, studyPlans: after }));
+    finishPlanIfDone(before, after, 6000); // 周回スタンプの演出（約5秒）が終わってから
+  };
+  const planActions = { addPlan, removePlan, togglePlanItem, openBank: (bankId) => { setOpenBankReq(bankId); setTab("qbank"); }, goRoom: () => setTab("laps") };
+
   const incrementBankClears = (id) => {
+    markPlanBank(id);
     setState((s) => ({ ...s, questionBanks: s.questionBanks.map((b) => b.id === id ? { ...b, clears: (b.clears || 0) + 1 } : b) }));
     // 周回スタンプを押す演出（完全制覇のたび）
     const b = stateRef.current.questionBanks.find((x) => x.id === id);
@@ -2921,9 +2961,9 @@ function StudyRPG({ user }) {
         <div className="mb-4">
           {tab === "home" && classic && <MenuHome state={state} todayCount={getTodayReviewItems().length} onCommand={homeCommand} />}
           {tab === "home" && isWhite && <SignpostHome state={state} todayCount={getTodayReviewItems().length} onCommand={homeCommand} />}
-          {tab === "home" && <HomeDashboard state={state} actions={rpgActions} todayCount={getTodayReviewItems().length} liveSeconds={liveSeconds} onGo={(t) => setTab(t)} onQuick={() => { const list = forgettingItems(state, 3); if (list.length) { setQuickPreset(list); setTab("today"); } }} />}
+          {tab === "home" && <HomeDashboard state={state} actions={rpgActions} todayCount={getTodayReviewItems().length} liveSeconds={liveSeconds} onGo={(t) => setTab(t)} planActions={planActions} onQuick={() => { const list = forgettingItems(state, 3); if (list.length) { setQuickPreset(list); setTab("today"); } }} />}
           {tab === "home" && <HomeTab state={state} liveSeconds={liveSeconds} setMainTitle={setMainTitle} setTab={setTab} todayCount={getTodayReviewItems().length} hideBanner dashboard />}
-          {tab === "today" && <TodayTab state={state} recordSRAnswer={recordSRAnswer} updateSrSettings={updateSrSettings} startTimer={startTimer} stopTimer={stopTimer} toggleQuestionMark={toggleQuestionMark} rpgActionsForPairs={rpgActions} preset={quickPreset} onPresetUsed={() => setQuickPreset(null)} />}
+          {tab === "today" && <TodayTab state={state} recordSRAnswer={recordSRAnswer} updateSrSettings={updateSrSettings} startTimer={startTimer} stopTimer={stopTimer} toggleQuestionMark={toggleQuestionMark} rpgActionsForPairs={rpgActions} preset={quickPreset} onPresetUsed={() => setQuickPreset(null)} planActions={planActions} />}
           {tab === "status" && <StatusTab state={state} setMainTitle={setMainTitle} uid={user.uid} />}
           {tab === "adventure" && <AdventureTab state={state} actions={rpgActions} recordAnswer={recordAnswer} startTimer={startTimer} stopTimer={stopTimer} todayCount={getTodayReviewItems().length} />}
           {NOTE_TABS.includes(tab) && (
@@ -2937,21 +2977,23 @@ function StudyRPG({ user }) {
           {tab === "task" && <TaskTab state={state} addTask={addTask} completeTask={completeTask} deleteTask={deleteTask} addPreset={addPreset} deletePreset={deletePreset} updatePreset={updatePreset} />}
           {tab === "timer" && <TimerTab state={state} liveSeconds={liveSeconds} startTimer={startTimer} stopTimer={stopTimer} cancelTimer={cancelTimer} addManualLog={addManualLog} deleteLog={deleteLog} />}
           {tab === "memo" && <MemoTab state={state} addStudyNote={addStudyNote} updateStudyNote={updateStudyNote} deleteStudyNote={deleteStudyNote} addFolder={addFolder} deleteFolder={deleteFolder} renameFolder={renameFolder} reorderFolders={reorderFolders} />}
-          {tab === "qbank" && <QBankTab state={state} addBank={addQuestionBank} deleteBank={deleteBank} recordAnswer={recordAnswer} recordRevengeAnswer={recordRevengeAnswer} awardXp={awardXp} startTimer={startTimer} stopTimer={stopTimer} incrementBankClears={incrementBankClears} updateBestStreak={updateBestStreak} moveBank={moveBank} addCloze={addCloze} deleteCloze={deleteCloze} recordClozeAnswer={recordClozeAnswer} recordClozeRevengeAnswer={recordClozeRevengeAnswer} toggleQuestionMark={toggleQuestionMark} toggleClozeMark={toggleClozeMark} recordClearSnapshot={recordClearSnapshot} createClozeBank={createClozeBank} updateQuestionFormats={updateQuestionFormats} addQuestionToBank={addQuestionToBank} editQuestion={editQuestion} deleteQuestion={deleteQuestion} moveQuestions={moveQuestions} editBankMeta={editBankMeta} addFolder={addFolder} deleteFolder={deleteFolder} renameFolder={renameFolder} reorderFolders={reorderFolders} addStudyNote={addStudyNote} updateStudyNote={updateStudyNote} deleteStudyNote={deleteStudyNote} moveBankToFolder={moveBankToFolder} saveSessionResume={saveSessionResume} clearSessionResume={clearSessionResume} editBankClears={editBankClears} updateQuestionMemo={updateQuestionMemo} toggleQuestionExclude={toggleQuestionExclude} />}
+          {tab === "laps" && <LapRoom state={state} actions={planActions} />}
+          {tab === "qbank" && <QBankTab openBankReq={openBankReq} onOpenedBank={() => setOpenBankReq(null)} state={state} addBank={addQuestionBank} deleteBank={deleteBank} recordAnswer={recordAnswer} recordRevengeAnswer={recordRevengeAnswer} awardXp={awardXp} startTimer={startTimer} stopTimer={stopTimer} incrementBankClears={incrementBankClears} updateBestStreak={updateBestStreak} moveBank={moveBank} addCloze={addCloze} deleteCloze={deleteCloze} recordClozeAnswer={recordClozeAnswer} recordClozeRevengeAnswer={recordClozeRevengeAnswer} toggleQuestionMark={toggleQuestionMark} toggleClozeMark={toggleClozeMark} recordClearSnapshot={recordClearSnapshot} createClozeBank={createClozeBank} updateQuestionFormats={updateQuestionFormats} addQuestionToBank={addQuestionToBank} editQuestion={editQuestion} deleteQuestion={deleteQuestion} moveQuestions={moveQuestions} editBankMeta={editBankMeta} addFolder={addFolder} deleteFolder={deleteFolder} renameFolder={renameFolder} reorderFolders={reorderFolders} addStudyNote={addStudyNote} updateStudyNote={updateStudyNote} deleteStudyNote={deleteStudyNote} moveBankToFolder={moveBankToFolder} saveSessionResume={saveSessionResume} clearSessionResume={clearSessionResume} editBankClears={editBankClears} updateQuestionMemo={updateQuestionMemo} toggleQuestionExclude={toggleQuestionExclude} />}
         </div>
       </div>
 
       <nav className="fixed bottom-0 left-0 right-0 z-40" style={{ background: classic ? "linear-gradient(180deg, rgba(39,63,120,0.97), rgba(23,37,72,0.98))" : isWhite ? "linear-gradient(180deg, rgba(253,251,245,0.97), rgba(246,240,226,0.98))" : "var(--paper)", borderTop: isWhite ? "1px solid #b08a3e" : "2px solid var(--rule)", boxShadow: classic ? "inset 0 2px 0 #0a1226, inset 0 3px 0 rgba(160,185,215,0.5)" : isWhite ? "inset 0 3px 0 #fdfbf5, inset 0 4px 0 rgba(176,138,62,0.45), 0 -4px 14px rgba(40,50,80,0.08)" : "none", paddingBottom: "env(safe-area-inset-bottom)" }}>
-        <div className="max-w-3xl mx-auto grid grid-cols-6">
+        <div className="max-w-3xl mx-auto grid grid-cols-7">
           {[
             { id: "home",   label: "ホーム",     icon: <Home size={18} /> },
             { id: "today",  label: "今日",        icon: <Calendar size={18} /> },
             { id: "qbank",  label: "問題",        icon: <FileQuestion size={18} /> },
+            { id: "laps",   label: "周回",        icon: <Shuffle size={18} /> }, // 周回の部屋（学習計画・今日のタスク）
             { id: "adventure", label: "冒険",     icon: <Castle size={18} /> },
             { id: "status", label: "ステータス",  icon: <StatusIcon size={18} /> },
             { id: "notebook", label: "手帳",      icon: <Bookmark size={18} /> }, // 資格・タスク・時間・メモをまとめたタブ
           ].map((t) => {
-            const badge = t.id === "today" ? getTodayReviewItems().length : 0;
+            const badge = t.id === "today" ? getTodayReviewItems().length : t.id === "laps" ? (state.studyPlans || []).filter((p) => !p.finishedAt).reduce((a, p) => a + planToday(p).pending.length, 0) : 0;
             const on = t.id === "notebook" ? NOTE_TABS.includes(tab) : tab === t.id;
             return (
               <button key={t.id} onClick={() => setTab(t.id === "notebook" ? lastNoteTab.current : t.id)} className="jp flex flex-col items-center gap-0.5 py-2 transition relative"
@@ -3047,6 +3089,7 @@ function applyDefaults(s) {
     tasks: s.tasks || [],
     taskPresets: s.taskPresets || [],
     taskClears: s.taskClears || {},
+    studyPlans: Array.isArray(s.studyPlans) ? s.studyPlans : [],
     studyLog: (s.studyLog || []).filter((l) => typeof l.minutes === "number" && l.minutes > 0 && l.minutes <= 360),
     folders: (s.folders || []).map((f, i) => ({ ...f, order: typeof f.order === "number" ? f.order : i })),
     sessionResume: s.sessionResume || null,
@@ -4322,6 +4365,8 @@ function QBankTab(props) {
   const [renamingValue, setRenamingValue] = useState("");
   const [collapsedFolders, setCollapsedFolders] = useState({});  // フォルダの折り畳み状態
   const [searchQuery, setSearchQuery] = useState("");              // キーワード検索
+  // 今日のタスクの「解く」から来たときは、その問題集の開始画面を開く
+  useEffect(() => { if (props.openBankReq) { setPendingBankId(props.openBankReq); if (props.onOpenedBank) props.onOpenedBank(); } }, [props.openBankReq]);
 
 
   const activeBank = state.questionBanks.find((b) => b.id === activeBankId);
@@ -10037,7 +10082,7 @@ function storyNextInfo(state) {
 }
 
 // ── ホームの「今日の道しるべ」：今日やること（復習 → ストーリー → 最終決戦）と今日の記録を1枚にまとめる ──
-function HomeDashboard({ state, actions, todayCount, liveSeconds, onGo, onQuick }) {
+function HomeDashboard({ state, actions, todayCount, liveSeconds, onGo, onQuick, planActions }) {
   const status = calculateStatus(state);
   const today = todayStr();
   const todayMin = state.studyLog.filter((l) => l.date === today).reduce((a, b) => a + b.minutes, 0) + (state.timer.startMs ? liveSeconds / 60 : 0);
@@ -10083,6 +10128,7 @@ function HomeDashboard({ state, actions, todayCount, liveSeconds, onGo, onQuick 
     <div className="grid gap-3 md:grid-cols-2 items-start mb-4">
       <Box title="今日の道しるべ" icon={<Calendar size={18} />}>
         <div className="space-y-2">
+          {(() => { const tp = (state.studyPlans || []).filter((p) => !p.finishedAt).map((p) => ({ p, t: planToday(p) })).filter((x) => x.t.started); if (!tp.length) return null; const left = tp.reduce((a, x) => a + x.t.pending.length, 0); const first = tp.flatMap((x) => x.t.pending.map((k) => planBankName(state, x.p, k)))[0]; return <Row no="◆" icon={<Check size={18} />} label="今日のタスク（学習計画）" title={left ? `あと ${left}項目` : "今日のタスクは完了です"} sub={left ? `次は「${first}」` : "おつかれさまでした！ 明日の分も先に進められます"} gauge={tp.reduce((a, x) => a + x.t.doneToday.length, 0) / Math.max(1, tp.reduce((a, x) => a + x.t.doneToday.length + x.t.pending.length, 0))} mark={false} action={left ? "解く" : "ひらく"} onClick={() => onGo("laps")} />; })()}
           <Row no="一" icon={<Calendar size={18} />} label="今日の復習" title={todayCount > 0 ? `あと ${todayCount}問` : "今日の復習は完了です"} sub={todayCount > 0 ? "期限が来た問題と、まだ解いていない問題" : "おつかれさまでした。余力があればストーリーへ"} action={todayCount > 0 ? "はじめる" : "ひらく"} onClick={() => onGo("today")} />
           {sn.all > 0 && <Row no="二" icon={<BookOpen size={18} />} label={`ストーリーのつづき（描いた土地 ${sn.done}/${sn.all}）`} title={sn.next ? `${sn.reg.name}` : "すべての地図が完成"} sub={sn.next ? `${sn.next.bank.name}　第${sn.next.idx + 1}話` : "★を集め直すこともできます"} action="進む" onClick={() => onGo("adventure")} />}
           {plan && plan.perDay > 0 && <Row no="三" icon={<TrendingUp size={18} />} label="今日の目標（試験日から逆算）" title={`新しい問題 ${plan.perDay}問`} sub={plan.done >= plan.perDay ? `今日 ${plan.done}問 ― 達成しました！` : `今日 ${plan.done}問 ・ あと${plan.perDay - plan.done}問（未学習 ${plan.unseen}問を試験日までに）`} gauge={Math.min(1, plan.done / plan.perDay)} mark={false} action="解く" onClick={() => onGo("today")} />}
@@ -11766,6 +11812,181 @@ function AnswerPanel({ onAnswer: onAnswerRaw, wrongLabel = "不正解", correctL
 // ============ 今日の復習（間隔反復） ============
 // 復習期限が来た問題を優先し、足りない分を未学習の問題から出題する。
 // 1セットの問題数を選べるので、未学習が大量にあっても無理なく進められる。
+// ── 学習計画（今日のタスク）：期日までに、選んだ問題集（項目）を決めた回数だけ順番に解く ──
+// state.studyPlans = [{ id, name, folderId, bankIds:[順番], laps, start, end, perDay, done:{[通し番号]: 済みにした日}, createdAt, finishedAt }]
+// ・通し番号 k の項目は bankIds[k % 項目数]、k / 項目数 + 1 周目
+// ・1日の数（perDay）は最初に決めて固定。今日までに済ませる数＝perDay ×（始めた日からの日数）。できなかった分は翌日に繰り越される
+const planTotal = (p) => p.bankIds.length * (p.laps || 1);
+const daysBetween = (a, b) => Math.round((parseLocalDate(b) - parseLocalDate(a)) / 86400000);
+function planToday(p, today = todayStr()) {
+  const total = planTotal(p);
+  const idx = daysBetween(p.start, today);
+  const done = p.done || {};
+  if (idx < 0) return { started: false, pending: [], doneToday: [], carried: 0, total, doneN: Object.keys(done).length, daysLeft: daysBetween(today, p.end) + 1 };
+  const dueBy = Math.min(total, p.perDay * (idx + 1));
+  const pending = [];
+  for (let k = 0; k < dueBy; k++) if (!done[k]) pending.push(k);
+  const carried = pending.filter((k) => k < p.perDay * idx).length;
+  const doneToday = Object.keys(done).filter((k) => done[k] === today).map(Number).sort((a, b) => a - b);
+  const next = [];
+  for (let k = dueBy; k < total && next.length < p.perDay; k++) if (!done[k]) next.push(k);
+  return { started: true, pending, doneToday, carried, next, total, dueBy, doneN: Object.keys(done).length, daysLeft: daysBetween(today, p.end) + 1, overdue: today > p.end };
+}
+const planBankOf = (state, p, k) => state.questionBanks.find((b) => b.id === p.bankIds[k % p.bankIds.length]) || null;
+const planBankName = (state, p, k) => { const b = planBankOf(state, p, k); return b ? b.name : "（消えた問題集）"; };
+function PlanMaker({ state, onSave, onCancel }) {
+  const folders = (state.folders || []).slice().sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+  const [folderId, setFolderId] = useState(folders[0] ? folders[0].id : "");
+  const banksIn = (fid) => state.questionBanks.filter((b) => (fid ? b.folderId === fid : !b.folderId)).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+  const [picked, setPicked] = useState(() => banksIn(folders[0] ? folders[0].id : "").map((b) => b.id));
+  const [laps, setLaps] = useState(1);
+  const [end, setEnd] = useState(addDays(todayStr(), 10));
+  const [name, setName] = useState("");
+  const list = banksIn(folderId);
+  const ids = list.filter((b) => picked.includes(b.id)).map((b) => b.id);
+  const days = Math.max(1, daysBetween(todayStr(), end) + 1);
+  const total = ids.length * laps;
+  const perDay = total ? Math.ceil(total / days) : 0;
+  const fName = (folders.find((f) => f.id === folderId) || {}).name || "フォルダなし";
+  const chip = (on) => ({ borderRadius: 999, border: `1px solid ${on ? "var(--gold)" : "var(--rule-soft)"}`, background: on ? "var(--cream)" : "var(--paper)", color: "var(--ink)", fontWeight: on ? 800 : 500, cursor: "pointer" });
+  return (
+    <div className="jp space-y-2 p-2" style={{ background: "var(--cream)", border: "1px solid var(--gold)", borderRadius: 10 }}>
+      <div className="text-xs" style={{ fontWeight: 800, color: "var(--ink)" }}>学習計画をつくる</div>
+      <label className="block text-[10px]" style={{ color: "var(--ink-soft)" }}>フォルダ
+        <select className="rpg-input text-xs mt-0.5" value={folderId} onChange={(e) => { setFolderId(e.target.value); setPicked(banksIn(e.target.value).map((b) => b.id)); }}>
+          {folders.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
+          <option value="">（フォルダなしの問題集）</option>
+        </select>
+      </label>
+      <div className="text-[10px]" style={{ color: "var(--ink-soft)" }}>項目（問題集）：この順番で出ます（{ids.length}/{list.length}項目を選択）</div>
+      <div className="max-h-48 overflow-y-auto space-y-1">
+        {list.map((b, i) => { const on = picked.includes(b.id); return (
+          <button key={b.id} onClick={() => setPicked(on ? picked.filter((x) => x !== b.id) : [...picked, b.id])} className="w-full flex items-center gap-2 px-2 py-1 text-left text-xs" style={{ background: "var(--paper)", border: `1px solid ${on ? "var(--gold)" : "var(--rule-soft)"}`, borderRadius: 6, color: "var(--ink)", cursor: "pointer" }}>
+            <span>{on ? "☑" : "☐"}</span><span className="text-[10px]" style={{ color: "var(--ink-mute)", minWidth: 16 }}>{i + 1}</span><span className="flex-1 truncate">{b.name}</span><span className="text-[10px]" style={{ color: "var(--ink-mute)" }}>{(b.questions || []).length}問</span>
+          </button>); })}
+        {!list.length && <p className="text-[11px]" style={{ color: "var(--ink-mute)" }}>このフォルダには問題集がありません。</p>}
+      </div>
+      <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+        <span style={{ color: "var(--ink-soft)" }}>周回</span>
+        {[1, 2, 3, 5].map((n) => <button key={n} onClick={() => setLaps(n)} className="px-2.5 py-0.5" style={chip(laps === n)}>{n}周</button>)}
+      </div>
+      <label className="block text-[10px]" style={{ color: "var(--ink-soft)" }}>いつまでに（期日）
+        <input type="date" className="rpg-input text-xs mt-0.5" value={end} min={todayStr()} onChange={(e) => setEnd(e.target.value || todayStr())} />
+      </label>
+      <input className="rpg-input text-xs" value={name} onChange={(e) => setName(e.target.value)} placeholder={`計画の名前（例：${fName}を${laps}周）`} />
+      <div className="text-xs px-2 py-1.5" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)", borderRadius: 6, color: "var(--ink)" }}>
+        {total ? <>{ids.length}項目 × {laps}周 ＝ <b>{total}項目</b>　／　今日から{Number(end.slice(5, 7))}月{Number(end.slice(8, 10))}日まで <b>{days}日</b><br />→ <b style={{ color: "var(--gold)", fontSize: 15 }}>1日 {perDay}項目</b> ずつ解きます{perDay * days > total ? `（最後の日は少なめ）` : ""}</> : "項目を1つ以上選んでください"}
+      </div>
+      <div className="grid grid-cols-2 gap-1.5">
+        <button disabled={!total} onClick={() => onSave({ name: name.trim() || `${fName}を${laps}周`, folderId, bankIds: ids, laps, start: todayStr(), end, perDay })} className="btn-primary py-2 text-xs" style={{ opacity: total ? 1 : 0.5 }}>この計画で始める</button>
+        <button onClick={onCancel} className="btn-ghost py-2 text-xs">やめる</button>
+      </div>
+    </div>
+  );
+}
+// ── 周回の部屋（下のタブ「周回」）：学習計画・今日のタスク・これまでの周回の記録 ──
+function LapRoom({ state, actions }) {
+  const plans = state.studyPlans || [];
+  const active = plans.filter((p) => !p.finishedAt);
+  const left = active.reduce((a, p) => a + planToday(p).pending.length, 0);
+  const stamps = state.questionBanks.reduce((a, b) => a + (b.clears || 0), 0);
+  return (
+    <div className="space-y-4">
+      <div className="relative overflow-hidden" style={{ borderRadius: 12, height: 130, border: "1px solid #b08a3e", boxShadow: "inset 0 0 0 3px #fdfbf5, inset 0 0 0 4px rgba(176,138,62,.45)" }}>
+        <img src={`${ART_URL}book-tools.jpg`} alt="" className="w-full h-full" style={{ objectFit: "cover", objectPosition: "center 40%" }} />
+        <div className="absolute inset-0" style={{ background: "linear-gradient(90deg, rgba(253,251,245,0.94) 0%, rgba(253,251,245,0.75) 45%, rgba(253,251,245,0) 75%)" }} />
+        <div className="absolute inset-y-0 left-0 flex flex-col justify-center px-4 jp">
+          <div className="text-[10px]" style={{ color: "#b08a3e", letterSpacing: "0.3em", fontWeight: 800 }}>LAP ROOM</div>
+          <div style={{ fontSize: 24, fontWeight: 800, color: "#22335c", fontFamily: "'Shippori Mincho B1', serif" }}>周回の部屋</div>
+          <div className="text-[11px]" style={{ color: "#5b6b8c" }}>決めた日までに、決めた回数を。</div>
+        </div>
+      </div>
+      <div className="jp grid grid-cols-3 gap-2">
+        {[["今日のタスク", active.length ? `あと${left}項目` : "－"], ["進行中の計画", `${active.length}つ`], ["周回スタンプ", `${stamps}個`]].map(([k, v]) => (
+          <div key={k} className="text-center" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)", borderRadius: 8, padding: "6px 2px" }}><div className="text-[10px]" style={{ color: "var(--ink-mute)" }}>{k}</div><div className="text-sm" style={{ fontWeight: 800, color: "var(--ink)" }}>{v}</div></div>
+        ))}
+      </div>
+      <PlanTasks state={state} actions={actions} />
+      <LapRecordsPanel state={state} />
+    </div>
+  );
+}
+// 今日タブの短いお知らせ（くわしくは周回の部屋で）
+function PlanSummary({ state, onOpen }) {
+  const active = (state.studyPlans || []).filter((p) => !p.finishedAt);
+  const items = active.flatMap((p) => planToday(p).pending.map((k) => planBankName(state, p, k)));
+  return (
+    <button onClick={onOpen} className="jp w-full flex items-center gap-3 px-3 py-2.5 text-left" style={{ background: "linear-gradient(90deg, rgba(214,181,106,0.18), rgba(214,181,106,0.04))", border: "1px solid #b08a3e", borderRadius: 10, cursor: "pointer" }}>
+      <span style={{ width: 36, height: 36, flexShrink: 0, borderRadius: "50%", display: "inline-flex", alignItems: "center", justifyContent: "center", background: "var(--cream)", border: "1px solid var(--gold)", color: "var(--gold)" }}><Shuffle size={18} /></span>
+      <span className="flex-1 min-w-0">
+        <span className="block text-[10px]" style={{ color: "var(--ink-mute)" }}>周回の部屋　今日のタスク</span>
+        <span className="block text-sm truncate" style={{ fontWeight: 800, color: "var(--ink)" }}>{!active.length ? "学習計画をつくる" : items.length ? `あと ${items.length}項目：${items[0]}${items.length > 1 ? " ほか" : ""}` : "今日のタスクは完了です"}</span>
+      </span>
+      <span className="text-xs" style={{ color: "var(--gold)", fontWeight: 800 }}>ひらく ▶</span>
+    </button>
+  );
+}
+function PlanTasks({ state, actions }) {
+  const plans = state.studyPlans || [];
+  const [making, setMaking] = useState(false);
+  const [ahead, setAhead] = useState({});
+  const active = plans.filter((p) => !p.finishedAt);
+  const finished = plans.filter((p) => p.finishedAt);
+  const md = (d) => `${Number(d.slice(5, 7))}/${Number(d.slice(8, 10))}`;
+  const row = (p, k, { done, carried, onToggle }) => {
+    const b = planBankOf(state, p, k);
+    const lap = Math.floor(k / p.bankIds.length) + 1;
+    return (
+      <div key={k} className="flex items-center gap-2 px-2 py-1.5" style={{ background: done ? "var(--cream)" : "var(--paper)", border: `1px solid ${done ? "var(--gold)" : carried ? "#c9564e" : "var(--rule-soft)"}`, borderRadius: 8 }}>
+        <button onClick={onToggle} aria-label={done ? "済みを取り消す" : "済みにする"} style={{ width: 22, height: 22, flexShrink: 0, borderRadius: 6, border: `1.5px solid ${done ? "var(--gold)" : "var(--rule-soft)"}`, background: done ? "var(--gold)" : "var(--paper)", color: "#fff", fontWeight: 800, cursor: "pointer", lineHeight: 1 }}>{done ? "✓" : ""}</button>
+        <span className="flex-1 min-w-0">
+          <span className="block text-sm truncate" style={{ fontWeight: 700, color: done ? "var(--ink-mute)" : "var(--ink)", textDecoration: done ? "line-through" : "none" }}>{b ? b.name : "（消えた問題集）"}</span>
+          <span className="block text-[10px]" style={{ color: "var(--ink-mute)" }}>{p.laps > 1 ? `${lap}周目・` : ""}{b ? `${(b.questions || []).length}問` : ""}{carried ? <span style={{ color: "#c9564e", fontWeight: 700 }}>　繰り越し</span> : ""}</span>
+        </span>
+        {!done && b && <button onClick={() => actions.openBank(b.id)} className="btn-primary text-xs px-3 py-1.5">解く</button>}
+      </div>
+    );
+  };
+  return (
+    <Box title="今日のタスク（学習計画）" icon={<Check size={18} />}>
+      <div className="jp space-y-3">
+        {!active.length && !making && <p className="text-[11px]" style={{ color: "var(--ink-soft)" }}>「○月○日までに、この問題集たちを○周する」と決めると、1日に解く項目を計算して、毎日ここに「今日のタスク」として順番に出します。終わらなかった分は、翌日に繰り越されます。</p>}
+        {active.map((p) => {
+          const t = planToday(p);
+          const doneAll = t.started && !t.pending.length;
+          return (
+            <div key={p.id} className="space-y-1.5">
+              <div className="flex items-center gap-2">
+                <span className="flex-1 min-w-0 text-sm truncate" style={{ fontWeight: 800, color: "var(--ink)" }}>{p.name}</span>
+                <button onClick={() => { if (confirm(`計画「${p.name}」を消しますか？（問題集や解いた記録は消えません）`)) actions.removePlan(p.id); }} className="text-[10px]" style={{ background: "none", border: "none", color: "var(--ink-mute)", cursor: "pointer" }}>✕ 消す</button>
+              </div>
+              <div style={{ height: 6, borderRadius: 3, background: "var(--beige)", overflow: "hidden" }}><div style={{ width: `${(t.doneN / t.total) * 100}%`, height: "100%", background: "linear-gradient(90deg, #d6b56a, #b08a3e)" }} /></div>
+              <div className="text-[10px]" style={{ color: t.overdue ? "#c9564e" : "var(--ink-soft)" }}>{t.doneN} / {t.total}項目　・　{md(p.end)}まで{t.overdue ? "（期日を過ぎています）" : `（あと${t.daysLeft}日）`}　・　1日 {p.perDay}項目{t.carried ? `　・　繰り越し ${t.carried}項目` : ""}</div>
+              {t.doneToday.map((k) => row(p, k, { done: true, onToggle: () => actions.togglePlanItem(p.id, k) }))}
+              {t.pending.map((k) => row(p, k, { done: false, carried: k < p.perDay * daysBetween(p.start, todayStr()), onToggle: () => actions.togglePlanItem(p.id, k) }))}
+              {doneAll && (
+                <div className="text-center text-xs py-1" style={{ color: "var(--gold)", fontWeight: 800 }}>今日のタスクは完了です！ おつかれさまでした
+                  {t.next && t.next.length > 0 && !ahead[p.id] && <button onClick={() => setAhead({ ...ahead, [p.id]: true })} className="btn-ghost text-[11px] px-3 py-1 ml-2">明日の分を先に解く</button>}
+                </div>
+              )}
+              {doneAll && ahead[p.id] && t.next.map((k) => row(p, k, { done: false, onToggle: () => actions.togglePlanItem(p.id, k) }))}
+            </div>
+          );
+        })}
+        {making ? <PlanMaker state={state} onSave={(plan) => { actions.addPlan(plan); setMaking(false); }} onCancel={() => setMaking(false)} />
+          : <button onClick={() => setMaking(true)} className="btn-ghost w-full py-2 text-xs">＋ 学習計画をつくる</button>}
+        {finished.length > 0 && (
+          <details className="text-[11px]" style={{ color: "var(--ink-soft)" }}>
+            <summary style={{ cursor: "pointer" }}>達成した計画（{finished.length}）</summary>
+            {finished.map((p) => <div key={p.id} className="flex items-center gap-2 py-0.5"><span style={{ color: "var(--gold)" }}>★</span><span className="flex-1 truncate">{p.name}（{planTotal(p)}項目・{md(p.finishedAt)}達成）</span><button onClick={() => actions.removePlan(p.id)} style={{ background: "none", border: "none", color: "var(--ink-mute)", cursor: "pointer" }}>✕</button></div>)}
+          </details>
+        )}
+        <p className="text-[10px]" style={{ color: "var(--ink-mute)" }}>問題集を最後まで解くと自動で✓が付きます。ほかの方法で解いたときは、左の□を押して✓を付けてください。</p>
+      </div>
+    </Box>
+  );
+}
+
 // ── 復習の予報：これから14日間、毎日いくつ復習が来るか（sr_nextReview の日付で数える）。今日の分には期限切れも含む ──
 const FORECAST_DAYS = 14;
 function reviewForecast(state) {
@@ -12078,7 +12299,7 @@ function ConfusionPairs({ state, actions }) {
   );
 }
 
-function TodayTab({ state, recordSRAnswer, updateSrSettings, startTimer, stopTimer, toggleQuestionMark, rpgActionsForPairs, preset, onPresetUsed }) {
+function TodayTab({ state, recordSRAnswer, updateSrSettings, startTimer, stopTimer, toggleQuestionMark, rpgActionsForPairs, preset, onPresetUsed, planActions }) {
   const today = todayStr();
   const due = [];
   const fresh = [];
@@ -12149,6 +12370,7 @@ function TodayTab({ state, recordSRAnswer, updateSrSettings, startTimer, stopTim
     const available = due.length + (includeNew ? fresh.length : 0);
     return (
       <div className="space-y-3">
+        {planActions && <PlanSummary state={state} onOpen={planActions.goRoom} />}
         <Box title="今日の復習" icon={<Calendar size={18} />}>
           <div className="grid grid-cols-2 gap-2 mb-3">
             <Mini label="復習期限が来た問題" value={`${due.length}問`} highlight={due.length > 0} />
