@@ -196,11 +196,11 @@ export function AttackFx({ fx, H, M }) {
 }
 
 // 技の名前（左上に流れる帯）
-export function SkillBanner({ fx, gold = "#d6b56a" }) {
+export function SkillBanner({ fx, gold = "#d6b56a", top = 32 }) {
   if (!fx || !fx.atk) return null;
   const hero = fx.side === "hero";
   return (
-    <div key={`bn${fx.n}`} className="jp" style={{ position: "absolute", left: hero ? 8 : "auto", right: hero ? "auto" : 8, top: 32, padding: "2px 10px", borderRadius: 4, fontSize: fx.crit ? 13 : 11, fontWeight: 800, letterSpacing: "0.06em", color: "#fdfbf5", background: hero ? (fx.crit ? "linear-gradient(90deg, #a8833a, #d6b56a)" : "rgba(34,51,92,0.85)") : "rgba(140,40,40,0.85)", border: `1px solid ${hero ? gold : "#e0948a"}`, boxShadow: "0 2px 6px rgba(0,0,0,0.25)", animation: "sqxBanner 1s ease-out both", pointerEvents: "none", whiteSpace: "nowrap", zIndex: 3 }}>
+    <div key={`bn${fx.n}`} className="jp" style={{ position: "absolute", left: hero ? 8 : "auto", right: hero ? "auto" : 8, top, padding: "2px 10px", borderRadius: 4, fontSize: fx.crit ? 13 : 11, fontWeight: 800, letterSpacing: "0.06em", color: "#fdfbf5", background: hero ? (fx.crit ? "linear-gradient(90deg, #a8833a, #d6b56a)" : "rgba(34,51,92,0.85)") : "rgba(140,40,40,0.85)", border: `1px solid ${hero ? gold : "#e0948a"}`, boxShadow: "0 2px 6px rgba(0,0,0,0.25)", animation: "sqxBanner 1s ease-out both", pointerEvents: "none", whiteSpace: "nowrap", zIndex: 3 }}>
       {hero ? "▶ " : "◀ "}{fx.atk.name}
     </div>
   );
