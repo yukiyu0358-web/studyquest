@@ -133,6 +133,12 @@ state の主なキー：`player` / `qualifications` / `tasks` / `studyPlans`（�
 - 学習記録の控え（自動バックアップ）：userdata/{uid}/backups/{日付}（＋parts サブコレクションに小分け。書出と同じ中身）。`makeBackup` `readBackup` `BackupPanel`（ステータス画面のいちばん下。ファイルに書き出して「読込」で戻す）。7日ごとに自動（起動20秒後。`cloudLoadFailed` 中・問題10問未満のときは取らない）、新しい4回分を残す（`BACKUP_KEEP`）
 - 主人公の進化の絵の指示文：`docs/進化の絵の指示文.md`（絵ができたら public/white-hero-s1〜s5.jpg に入れる）
 - 学習計画（今日のタスク）：state.studyPlans = [{id, name, folderId, bankIds（順番）, laps, start, end, perDay（固定）, done:{通し番号: 日付}, finishedAt}]。項目＝問題集1つ。通し番号 k は bankIds[k % 項目数]。`planToday`（今日までに済ませる数＝perDay×日数、できなかった分は翌日に繰り越し）`PlanTasks` `PlanMaker`（フォルダごとの☑・すべて選ぶ／外す。いくつかのフォルダにまたがって選べる。下のタブ「周回の部屋」 `LapRoom` に置く。今日タブには短いお知らせ `PlanSummary` だけ）、操作 `planActions`（addPlan・removePlan・togglePlanItem・openBank）。問題集を最後まで解くと `incrementBankClears` → `markPlanBank` で自動✓。「解く」は `openBankReq` → QBankTab の開始画面。ホームの道しるべにも「今日のタスク」の行
+- 2周目からは苦手だけ：計画の `weakOnly`（2周以上で選べる）。2周目以降の行は「苦手を解く」→ `openBank(id, "revenge")` → QBankTab がリベンジ（RevengeSession）で開く。リベンジを最後まで解くと `onComplete` → `markPlanBank(id, true)`（weakOnly の計画の2周目以降だけ✓）。苦手が0問なら「苦手なし・済みにする」
+- 周回の分析：`PlanChart`（計画ごとの予定と実際の線。比べるのは前の日までの予定）`LapGrowth`（問題集の clearHistory の正解率から、伸びている／伸び悩み［前の周以下か70%未満］を分ける。伸び悩みは「苦手を解く」）
+- 今日のふりかえり：`reflectionTalk`（今日の回答・学習時間・連続日数・今日のタスク・影の受験生・明日のタスク・相棒）。20時以降・学習していないときに1日1回自動（rpg.reflectDay、1分ごとに確認）、ホームの「今日のふりかえり」ボタンでいつでも
+- 集中タイマー（手帳の「時間」）：`FocusTimer` `FOCUS_MIN`25・`FOCUS_BREAK_MIN`5、`focusChime`（効果音の設定に関係なく鳴らす）。状態は rpg.focusRun = {phase: focus|break|ready, endAt, own}（StudyRPG の useEffect が時間で切り替え。ほかの画面でも止まらない）、rpg.focus = {day, n, total}。集中中は学習タイマーを動かして時間を記録
+- 直前見直しノート（問題タブ「🖨 直前見直しノート」）：`PrintNoteButton` `PrintNote`（苦手／まちがえたことがある／⭐、フォルダの選択、最大問題数、答えを最後にまとめる。window.print、印刷時は body.sq-printing でほかを隠す）
+- 仲間の勉強会（クエストの欄）：`StudyGroupCard` `studyGroupHost`（加入している仲間が週ごとに順番）`studyGroupPool`（その仲間の likes の地域から10問）、戦いは TrialRun（7割＝`STUDY_GROUP_PASS`）、結果 `studyGroupFinish`（その週はじめてのクリアで絆+30・80G・EXP30、src/data/story.js の `STUDY_GROUP_TALK`。rpg.studyGroup）
 - 試し表示：.claude/launch.json に demo（5174）と preview（公開版と同じビルドを 4173 で。本番の Firebase につながるのでログインはしない）
 - テーマ：`DISPLAY_DEFAULTS`（既定は white）`THEME_PAL`（classic/white の配色）`CLASSIC_CSS` `WHITE_CSS` `ClassicThemeStyle` `TitleScreen` `ClassicInfoBar` `MenuHome`（クラシック）`SignpostHome`（白金・道しるべ）`migrateDisplay`
 
