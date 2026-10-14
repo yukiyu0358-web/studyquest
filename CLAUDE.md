@@ -56,7 +56,7 @@ RPG風の資格学習Webアプリ。利用者本人（Yuki）が、土地家屋�
 - `src/firebase.js`：Firebase初期化。`src/main.jsx`：起動。
 - `public/hero.jpg`：クラシックテーマの立ち絵（少年）。`public/sprites/tier1〜6.png`：ドット絵の主人公（以前は App.jsx に埋め込み）。
 - `public/white-title.jpg`／`public/white-hero.jpg`：白金テーマのタイトル・背景の絵と、メニューの立ち絵（白髪の少女）。`public/white-hero-s1〜s5.jpg` を置くと、Lv10/20/30/40/50 の姿の立ち絵に自動で切り替わる（無ければ前の姿→基本の絵）。
-- `public/art/`：描きおろしの絵（元の大きな絵は利用者の「イラスト」フォルダ。アプリ用に縮小済み）。`title-wide.jpg`（PCのタイトル・背景）`title-tall.jpg`（スマホのタイトル）`scene.jpg`（会話・ログインボーナスの背景）`forge.jpg`（鍛冶場・ショップ）`party.jpg`（仲間の欄）`ally-registrar/surveyor/explorer.jpg`（仲間の立ち絵）。2026年10月13日の追加：`hero-sky.jpg`（天空の主人公の立ち絵）`hero-face-normal/smile/surprise/serious.jpg`（主人公の表情）`ally-kaito/serena/raven.jpg`（魔法学院の三人の立ち絵。設定画から切り出し、説明の文字は背景色でならした）`trio.jpg`（三人の看板）`academy.jpg`（試練の塔の見出し）`book-tools.jpg`（冒険の記録書の表紙）。`art/items/a01〜a16・b01〜b10.png`：道具の絵（白背景を透明にして切り出し）。装備・道具との対応は icons.jsx の `PAINTED_BY_ID` `PAINTED_BY_CH`
+- `public/art/`：描きおろしの絵（元の大きな絵は利用者の「イラスト」フォルダ。アプリ用に縮小済み）。`title-wide.jpg`（PCのタイトル・背景）`title-tall.jpg`（スマホのタイトル）`scene.jpg`（会話・ログインボーナスの背景）`forge.jpg`（鍛冶場・ショップ）`party.jpg`（仲間の欄）`ally-registrar/surveyor/explorer.jpg`（仲間の立ち絵）。2026年10月13日の追加：`hero-sky.jpg`（天空の主人公の立ち絵）`pet-lumi*.jpg`（相棒の星獣ルミ）`hero-face-normal/smile/surprise/serious.jpg`（主人公の表情）`ally-kaito/serena/raven.jpg`（魔法学院の三人の立ち絵。設定画から切り出し、説明の文字は背景色でならした）`trio.jpg`（三人の看板）`academy.jpg`（試練の塔の見出し）`book-tools.jpg`（冒険の記録書の表紙）。`art/items/a01〜a16・b01〜b10.png`：道具の絵（白背景を透明にして切り出し）。装備・道具との対応は icons.jsx の `PAINTED_BY_ID` `PAINTED_BY_CH`
 - `public/laws/*.json`：条文データ（不動産登記法・令・規則、民法、区分所有法、土地家屋調査士法）。
 - `scripts/fetch-laws.mjs`：e-Gov法令API v2 から条文を取得するスクリプト。
 
@@ -126,6 +126,12 @@ state の主なキー：`player` / `qualifications` / `tasks` / `studyLog` / `fo
 - 毎日のお知らせ（通知）：アプリ側は `PushSettings`（設定画面。端末ごとに userdata/{uid}/push/{端末id} = {token, enabled, hours}）、`src/firebase.js` の `getPushToken` `FCM_VAPID_KEY`（Firebase の Cloud Messaging の「ウェブプッシュ証明書」の公開鍵。空のあいだは通知の欄が「準備がまだ」）。表示は `public/sw.js` の push・notificationclick。送り手は `.github/workflows/notify.yml`（日本時間 7・12・20・22時ごろ）→ `scripts/notify/notify.mjs`（firebase-admin。鍵は GitHub の Secrets「FIREBASE_SERVICE_ACCOUNT」。鍵のファイルは .gitignore で除外）。Actions の「Run workflow」でためし送信
 - 主人公の表情：`HERO_FACES`（通常・笑顔・驚き・真剣）。吹き出し `MentorBubble` の faces（ホームのキャラクターが expr: true のとき）と、会話 `StoryTalk` の主人公の顔（白金テーマ。せりふから `exprOfLine` で選ぶ）
 - 魔法学院の三人（カイト・セレナ・レイヴン）：`ALLIES` に group: "academy"・`towerNeed`（試練の塔 第5・15・30階で出会う。`towerFinish` で出会いの会話 `ACADEMY_MEET`）。絆の物語は `BOND_TALKS` の kaito/serena/raven。`alliesJoined` は towerNeed があれば塔の階で判定。仲間の立ち絵のふちは `ALLY_MASK` でぼかす
+- 「いま試験なら」合格確率（魔王城の欄・ホームの最終決戦の行）：`passChance` `ExamChance` `binomTail` `examMean`（科目の重み `EXAM_MIX`＝不動産登記法16・民法3・調査士法1。1問の正答率＝記憶率^1.5＋勘20%。基準点は本番リハーサルの設定 `rehearsalCfg` を使う）
+- 忘れかけの3問：`forgettingItems`（解いたことのある問題で記憶率が最も低い3問）。ホームのボタン → StudyRPG の `quickPreset` → 今日タブ（TodayTab の preset）ですぐ始める
+- 相棒の星獣ルミ：`PET_TYPES.lumi`（art：段階ごとの絵 `pet-lumi-small.jpg` `pet-lumi.jpg`、happy：今日学習したときの笑顔 `pet-lumi-happy.jpg`）、表示は `PetIcon`（絵が無い相棒は絵文字）。`changePetType`（育ち具合はそのままで姿を変える）
+- 科目ごとのジョブ（ステータス画面）：`subjectJobs` `SubjectJobs` `JOB_RANKS`（見習い・修行者・術士・魔導士・大魔導士・賢者＝Lv1/5/10/20/35/50）`jobLevelOf`（経験値＝正解の回数＋定着した問題×5）。称号が上がると演出（rpg.jobRank、学習中は待つ）
+- 学習記録の控え（自動バックアップ）：userdata/{uid}/backups/{日付}（＋parts サブコレクションに小分け。書出と同じ中身）。`makeBackup` `readBackup` `BackupPanel`（ステータス画面のいちばん下。ファイルに書き出して「読込」で戻す）。7日ごとに自動（起動20秒後。`cloudLoadFailed` 中・問題10問未満のときは取らない）、新しい4回分を残す（`BACKUP_KEEP`）
+- 主人公の進化の絵の指示文：`docs/進化の絵の指示文.md`（絵ができたら public/white-hero-s1〜s5.jpg に入れる）
 - 試し表示：.claude/launch.json に demo（5174）と preview（公開版と同じビルドを 4173 で。本番の Firebase につながるのでログインはしない）
 - テーマ：`DISPLAY_DEFAULTS`（既定は white）`THEME_PAL`（classic/white の配色）`CLASSIC_CSS` `WHITE_CSS` `ClassicThemeStyle` `TitleScreen` `ClassicInfoBar` `MenuHome`（クラシック）`SignpostHome`（白金・道しるべ）`migrateDisplay`
 
@@ -148,6 +154,6 @@ state の主なキー：`player` / `qualifications` / `tasks` / `studyLog` / `fo
 ## 今後の候補
 
 - App.jsx のファイル分割（components/ などへ）
-- 科目ごとのジョブレベル、知識の城、モンスター図鑑
-- 白金テーマの主人公（少女）の進化段階の絵（冒険・ステータスの進化キャラは今は少年のドット絵）
+- 知識の城
+- 白金テーマの主人公（少女）の進化段階の絵（指示文は docs/進化の絵の指示文.md。絵ができたら入れる）
 - 弱点リストの「論点分析（AI）」は api.anthropic.com を直接呼ぶため GitHub Pages では動かない → 代替が必要

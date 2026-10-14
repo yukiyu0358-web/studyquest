@@ -1214,6 +1214,7 @@ function StudyRPG({ user }) {
   const [state, setState] = useState(INIT);
   const [loaded, setLoaded] = useState(false);
   const [tab, setTab] = useState("home");
+  const [quickPreset, setQuickPreset] = useState(null); // 忘れかけの3問（ホーム → 今日タブ）
   const lastNoteTab = useRef("task"); // 「手帳」タブで最後に開いていた画面（資格・タスク・時間・メモ）
   useEffect(() => { if (NOTE_TABS.includes(tab)) lastNoteTab.current = tab; }, [tab]);
   const [showDisplaySettings, setShowDisplaySettings] = useState(false); // 「Aa 文字」パネル
@@ -1581,6 +1582,8 @@ function StudyRPG({ user }) {
       return `🥚 ${name}を迎えた！ 勉強を続けると生まれます`;
     },
     renamePet: (name) => updateRpg((x) => (x.pet ? { ...x, pet: { ...x.pet, name } } : x)),
+    // 相棒の種類（姿）を変える。育成ポイントの元（迎えた日・正解数）はそのまま
+    changePetType: (type) => { if (PET_TYPES[type]) updateRpg((x) => (x.pet ? { ...x, pet: { ...x.pet, type } } : x)); },
     bossFinish: ({ won, bossId, loop, gold, xp, itemId }) => {
       updateRpg((x) => ({
         ...x, gold: x.gold + gold, goldEarned: x.goldEarned + gold,
@@ -2058,6 +2061,39 @@ function StudyRPG({ user }) {
       }
     }
   }, [loaded, examDateOfMain]);
+
+  // 科目ごとのジョブ：称号が上がったら演出（初めて記録するときは今の称号を覚えるだけ）
+  useEffect(() => {
+    if (!loaded || state.timer.startMs) return;
+    const r = normRpg(state.rpg);
+    const jr = r.jobRank || {};
+    const jobs = subjectJobs(state);
+    if (!jobs.length) return;
+    const first = Object.keys(jr).length === 0;
+    const ups = jobs.filter((j) => jr[j.region] !== undefined && j.rankLv > jr[j.region]);
+    const changed = jobs.some((j) => jr[j.region] !== j.rankLv);
+    if (changed) updateRpg((x) => ({ ...x, jobRank: Object.fromEntries(jobs.map((j) => [j.region, j.rankLv])) }));
+    if (!first) ups.forEach((j, i) => setTimeout(() => showEvolution({ big: "ジョブ昇格", from: null, to: j.title, sub: `${j.region}　Lv${j.lv}`, stage: heroStage(stateRef.current.player.level) }), 1200 + i * 300));
+  }, [state.questionBanks, loaded, !!state.timer.startMs]);
+
+  // 学習記録の自動バックアップ：アプリを開いて20秒後、前の控えから7日以上たっていたら控えを取る
+  const backupTried = useRef(false);
+  useEffect(() => {
+    if (!loaded || backupTried.current) return undefined;
+    backupTried.current = true;
+    const t = setTimeout(async () => {
+      try {
+        const cur = stateRef.current;
+        const nQ = cur.questionBanks.reduce((n, b) => n + (b.questions || []).length, 0);
+        if (cloudLoadFailed.current || nQ < 10) return; // 読み込み失敗中・空っぽのときは控えを取らない
+        const ids = (await backupCol(user.uid).get()).docs.map((d) => d.id).sort();
+        const last = ids[ids.length - 1];
+        if (last && (parseLocalDate(todayStr()) - parseLocalDate(last)) / 86400000 < 7) return;
+        await makeBackup(user.uid, stateRef.current);
+      } catch (e) { console.warn("自動バックアップ:", e); }
+    }, 20000);
+    return () => clearTimeout(t);
+  }, [loaded]);
 
   // 仲間との絆が深まったら、その仲間の物語を1話ひらく（学習の途中＝時間を計っている間は待ち、終わってから出す）
   useEffect(() => {
@@ -2885,10 +2921,10 @@ function StudyRPG({ user }) {
         <div className="mb-4">
           {tab === "home" && classic && <MenuHome state={state} todayCount={getTodayReviewItems().length} onCommand={homeCommand} />}
           {tab === "home" && isWhite && <SignpostHome state={state} todayCount={getTodayReviewItems().length} onCommand={homeCommand} />}
-          {tab === "home" && <HomeDashboard state={state} actions={rpgActions} todayCount={getTodayReviewItems().length} liveSeconds={liveSeconds} onGo={(t) => setTab(t)} />}
+          {tab === "home" && <HomeDashboard state={state} actions={rpgActions} todayCount={getTodayReviewItems().length} liveSeconds={liveSeconds} onGo={(t) => setTab(t)} onQuick={() => { const list = forgettingItems(state, 3); if (list.length) { setQuickPreset(list); setTab("today"); } }} />}
           {tab === "home" && <HomeTab state={state} liveSeconds={liveSeconds} setMainTitle={setMainTitle} setTab={setTab} todayCount={getTodayReviewItems().length} hideBanner dashboard />}
-          {tab === "today" && <TodayTab state={state} recordSRAnswer={recordSRAnswer} updateSrSettings={updateSrSettings} startTimer={startTimer} stopTimer={stopTimer} toggleQuestionMark={toggleQuestionMark} rpgActionsForPairs={rpgActions} />}
-          {tab === "status" && <StatusTab state={state} setMainTitle={setMainTitle} />}
+          {tab === "today" && <TodayTab state={state} recordSRAnswer={recordSRAnswer} updateSrSettings={updateSrSettings} startTimer={startTimer} stopTimer={stopTimer} toggleQuestionMark={toggleQuestionMark} rpgActionsForPairs={rpgActions} preset={quickPreset} onPresetUsed={() => setQuickPreset(null)} />}
+          {tab === "status" && <StatusTab state={state} setMainTitle={setMainTitle} uid={user.uid} />}
           {tab === "adventure" && <AdventureTab state={state} actions={rpgActions} recordAnswer={recordAnswer} startTimer={startTimer} stopTimer={stopTimer} todayCount={getTodayReviewItems().length} />}
           {NOTE_TABS.includes(tab) && (
             <div className="grid grid-cols-4 gap-1 p-1 mb-3" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)", borderRadius: 999 }}>
@@ -3124,6 +3160,86 @@ function StudyCalendar({ data, title, emptyColor = "var(--rule-soft)", colorFn, 
   );
 }
 
+// ── 学習記録の控え（自動バックアップ）：userdata/{uid}/backups/{日付} に、書出と同じ中身を小分けにして保存 ──
+// ・7日ごとに自動（アプリを開いて20秒後）。新しい4回分を残す。読み込みに失敗しているとき（cloudLoadFailed）は取らない
+// ・戻すときは「ファイルに書き出す」→ 画面上の「読込」でそのファイルを選ぶ（いつもの読み込みと同じ）
+const BACKUP_KEEP = 4;
+const BACKUP_CHUNK = 250000; // 1つの保存単位の文字数（日本語でも1MBの上限に収まる大きさ）
+const backupCol = (uid) => fbDb.collection("userdata").doc(uid).collection("backups");
+async function makeBackup(uid, state) {
+  const { questionBanks, ...mainState } = state;
+  const date = todayStr();
+  const ref = backupCol(uid).doc(date);
+  const pieces = [["main", JSON.stringify(mainState)], ...questionBanks.map((b) => [b.id, JSON.stringify(b)])];
+  const old = await ref.collection("parts").get();
+  for (const d of old.docs) await d.ref.delete();
+  let n = 0;
+  for (const [k, str] of pieces) for (let i = 0; i * BACKUP_CHUNK < str.length || i === 0; i++) { await ref.collection("parts").doc(`${n++}`).set({ k, i, s: str.slice(i * BACKUP_CHUNK, (i + 1) * BACKUP_CHUNK) }); }
+  await ref.set({ createdAt: new Date().toISOString(), banks: questionBanks.map((b) => ({ id: b.id, name: b.name, n: (b.questions || []).length })), nQ: questionBanks.reduce((t, b) => t + (b.questions || []).length, 0), parts: n });
+  // 古い控えを片付ける
+  const all = (await backupCol(uid).get()).docs.map((d) => d.id).sort().reverse();
+  for (const id of all.slice(BACKUP_KEEP)) {
+    const r = backupCol(uid).doc(id);
+    const ps = await r.collection("parts").get();
+    for (const d of ps.docs) await d.ref.delete();
+    await r.delete();
+  }
+  return date;
+}
+async function readBackup(uid, id) {
+  const ref = backupCol(uid).doc(id);
+  const meta = (await ref.get()).data() || {};
+  const ps = (await ref.collection("parts").get()).docs.map((d) => d.data());
+  const by = {};
+  ps.forEach((x) => { (by[x.k] = by[x.k] || []).push(x); });
+  const join = (k) => (by[k] || []).sort((a, b) => a.i - b.i).map((x) => x.s).join("");
+  const mainState = JSON.parse(join("main") || "null");
+  const questionBanks = (meta.banks || []).map((b) => (by[b.id] ? JSON.parse(join(b.id)) : null)).filter(Boolean);
+  if (!mainState || questionBanks.length !== (meta.banks || []).length) throw new Error("控えの一部が読めませんでした");
+  return { version: 1, exportedAt: meta.createdAt, mainState, questionBanks };
+}
+function BackupPanel({ state, uid }) {
+  const [list, setList] = useState(null);
+  const [busy, setBusy] = useState("");
+  const [msg, setMsg] = useState("");
+  const load = () => backupCol(uid).get().then((sn) => setList(sn.docs.map((d) => ({ id: d.id, ...d.data() })).filter((x) => x.createdAt).sort((a, b) => (a.id < b.id ? 1 : -1)))).catch(() => setList([]));
+  useEffect(() => { if (uid) load(); }, [uid]);
+  const now = async () => {
+    setBusy("now"); setMsg("");
+    try { await makeBackup(uid, state); setMsg("控えを取りました。"); await load(); } catch (e) { setMsg("控えを取れませんでした。通信状態を確かめてください。"); }
+    setBusy("");
+  };
+  const download = async (id) => {
+    setBusy(id); setMsg("");
+    try {
+      const data = await readBackup(uid, id);
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a"); a.href = url; a.download = `studyquest_backup_${id}.json`;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+      setMsg(`${id} の控えをファイルに書き出しました。戻すときは、画面上の「読込」でこのファイルを選んでください。`);
+    } catch (e) { setMsg(`書き出せませんでした（${(e && e.message) || e}）`); }
+    setBusy("");
+  };
+  return (
+    <Box title="学習記録の控え（自動バックアップ）" icon={<Bookmark size={18} />}>
+      <div className="jp space-y-2">
+        <p className="text-[11px]" style={{ color: "var(--ink-soft)" }}>7日ごとに、学習記録の控えをクラウドの別の場所に自動で残しています（新しい{BACKUP_KEEP}回分）。万一のときは、控えをファイルに書き出してから、画面上の「読込」で選ぶと、その日の状態に戻せます。※ 問題に付けた画像は含みません。</p>
+        {list === null ? <p className="text-xs" style={{ color: "var(--ink-mute)" }}>読み込んでいます…</p>
+          : list.length === 0 ? <p className="text-xs" style={{ color: "var(--ink-mute)" }}>まだ控えはありません。</p>
+          : list.map((b) => (
+            <div key={b.id} className="flex items-center gap-2 px-2 py-1.5" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)", borderRadius: 8 }}>
+              <span className="flex-1 text-xs" style={{ color: "var(--ink)" }}><b>{Number(b.id.slice(5, 7))}月{Number(b.id.slice(8, 10))}日</b>の控え<span className="text-[10px] ml-1" style={{ color: "var(--ink-mute)" }}>問題集 {(b.banks || []).length}・問題 {b.nQ || 0}問</span></span>
+              <button onClick={() => download(b.id)} disabled={!!busy} className="btn-ghost text-[10px] px-2 py-1">{busy === b.id ? "準備中…" : "ファイルに書き出す"}</button>
+            </div>
+          ))}
+        <button onClick={now} disabled={!!busy} className="btn-info w-full py-2 text-xs">{busy === "now" ? "控えを取っています…" : "今すぐ控えを取る"}</button>
+        {msg && <p className="text-[11px]" style={{ color: "var(--gold)", fontWeight: 700 }}>{msg}</p>}
+      </div>
+    </Box>
+  );
+}
+
 // ── 冒険の記録書：これまでの学び・冒険・鍛錬・仲間を、ページをめくる本の形で見せる ──
 function longestStudyStreak(state) {
   const days = [...new Set(state.studyLog.map((l) => l.date).filter(Boolean))].sort();
@@ -3264,7 +3380,7 @@ function AdventureBook({ state, onClose }) {
   );
 }
 
-function StatusTab({ state, setMainTitle }) {
+function StatusTab({ state, setMainTitle, uid }) {
   const [book, setBook] = useState(false);
   const status = calculateStatus(state);
   const player = state.player;
@@ -3282,6 +3398,7 @@ function StatusTab({ state, setMainTitle }) {
         <span style={{ color: "#b08a3e", fontWeight: 800 }}>▶</span>
       </button>
       {book && <AdventureBook state={state} onClose={() => setBook(false)} />}
+      <SubjectJobs state={state} />
       <Box title="冒険者ステータス" icon={<StatusIcon size={18} />}>
         <div className="flex items-center gap-3 mb-3 p-3" style={{ background: "var(--sky-pale)", border: "1px solid var(--rule-soft)" }}>
           <div className="flex-shrink-0">
@@ -3335,6 +3452,7 @@ function StatusTab({ state, setMainTitle }) {
       <Box title="習得スキル" icon={<Sparkles size={18} />}>
         <SkillList state={state} status={status} />
       </Box>
+      {uid && <BackupPanel state={state} uid={uid} />}
     </div>
   );
 }
@@ -7205,7 +7323,7 @@ const RPG_DEFAULTS = {
   equipped: { weapon: null, armor: null, accessory: null }, bossWins: 0, bossLosses: 0, bossLog: [],
   boosts: { xpUntil: null }, restDays: [], crits: 0,
   classId: null, pet: null, seen: { stars: 0, pet: 0 },
-  materials: {}, skills: [], forgeLog: { ok: 0, ng: 0 }, daily: null, storySeen: -1, weekly: null, dungeon: null, regions: {}, castle: { floor: 0 }, cats: {}, journey: { pos: 0, acc: 0, lap: 0, log: [] }, sq: {}, powerLog: [], reportWeek: null, shoshiki: [], login: { count: 0 }, tower: { floor: 0, best: {} }, secBoss: {}, arcSeen: {}, conquered: {}, drill: [], rehearsal: { log: [], cfg: null }, cloze: { log: [], miss: {} }, rival: null, bonds: {}, bondSeen: {}, countdown: null, shinsei: [], pairsOk: {}, season: null, sakuzu: [],
+  materials: {}, skills: [], forgeLog: { ok: 0, ng: 0 }, daily: null, storySeen: -1, weekly: null, dungeon: null, regions: {}, castle: { floor: 0 }, cats: {}, journey: { pos: 0, acc: 0, lap: 0, log: [] }, sq: {}, powerLog: [], reportWeek: null, shoshiki: [], login: { count: 0 }, tower: { floor: 0, best: {} }, secBoss: {}, arcSeen: {}, conquered: {}, drill: [], rehearsal: { log: [], cfg: null }, cloze: { log: [], miss: {} }, rival: null, bonds: {}, bondSeen: {}, countdown: null, shinsei: [], pairsOk: {}, season: null, sakuzu: [], jobRank: {},
 };
 function normRpg(r) {
   const x = { ...RPG_DEFAULTS, ...(r || {}) };
@@ -7870,6 +7988,118 @@ function weeklyReport(state, weekStart) {
 }
 
 // ── 最終ボス（本番の試験）：合格力が合格ラインに届けば撃破できる ──
+// ── 科目ごとのジョブレベル：科目（地域）ごとの経験値＝正解の回数＋記憶が定着した問題×5。称号はレベルで上がる ──
+const JOB_SUBJECT = [[/不動産登記/, "登記"], [/民法/, "民法"], [/区分所有/, "区分所有"], [/調査士法/, "調査士法"], [/測量/, "測量"], [/書式/, "書式"]];
+const JOB_RANKS = [[1, "見習い"], [5, "修行者"], [10, "術士"], [20, "魔導士"], [35, "大魔導士"], [50, "賢者"]];
+const jobLevelOf = (xp) => Math.min(99, Math.floor((Math.sqrt(1 + (8 * xp) / 20) - 1) / 2) + 1); // Lv2＝20、Lv3＝60、Lv5＝200、Lv10＝900…
+const jobXpFor = (lv) => (20 * (lv - 1) * lv) / 2;
+const jobRankOf = (lv) => [...JOB_RANKS].reverse().find(([l]) => lv >= l) || JOB_RANKS[0];
+function subjectJobs(state) {
+  const qual = mainQual(state);
+  const linked = qual && state.questionBanks.some((b) => b.qualId === qual.id);
+  const pp = passPower(state, linked ? qual.id : null);
+  return pp.regions.filter((g) => g.total > 0).map((g) => {
+    let xp = 0;
+    g.banks.forEach((b) => (b.questions || []).forEach((q) => { xp += (q.correct || 0) + (q.fs && q.fs.s >= MASTERED_STABILITY ? 5 : 0); }));
+    const lv = jobLevelOf(xp);
+    const subj = (JOB_SUBJECT.find(([re]) => re.test(g.name)) || [null, g.name.replace(/の.*$/, "")])[1];
+    const rk = jobRankOf(lv);
+    return { region: g.name, th: g.th, subj, xp, lv, rank: rk[1], rankLv: rk[0], title: `${subj}の${rk[1]}`, lo: jobXpFor(lv), hi: jobXpFor(lv + 1), power: g.power };
+  });
+}
+function SubjectJobs({ state }) {
+  const jobs = subjectJobs(state);
+  if (!jobs.length) return null;
+  const low = [...jobs].sort((a, b) => a.lv - b.lv)[0];
+  return (
+    <Box title="科目ごとのジョブ" icon={<Award size={18} />}>
+      <div className="jp space-y-2">
+        {jobs.map((j) => (
+          <div key={j.region} className="flex items-center gap-2 px-2 py-1.5" style={{ background: "var(--paper)", border: `1px solid ${j === low && jobs.length > 1 ? "#c9564e" : "var(--rule-soft)"}`, borderRadius: 8 }}>
+            <span style={{ width: 36, height: 36, flexShrink: 0, borderRadius: 8, display: "inline-flex", alignItems: "center", justifyContent: "center", background: j.th.light || "var(--cream)", color: j.th.dark || "var(--ink)", fontWeight: 800, fontSize: 13, border: `1px solid ${j.th.body || "var(--rule-soft)"}` }}>{j.lv}</span>
+            <span className="flex-1 min-w-0">
+              <span className="block text-sm" style={{ fontWeight: 800, color: "var(--ink)" }}>{j.title}<span className="text-[10px] ml-1" style={{ color: "var(--ink-mute)", fontWeight: 500 }}>Lv{j.lv}</span></span>
+              <span className="block" style={{ height: 5, borderRadius: 3, background: "var(--beige)", overflow: "hidden", margin: "2px 0" }}><span className="block" style={{ width: `${((j.xp - j.lo) / (j.hi - j.lo)) * 100}%`, height: "100%", background: `linear-gradient(90deg, ${j.th.body || "#d6b56a"}, ${j.th.dark || "#b08a3e"})` }} /></span>
+              <span className="block text-[10px]" style={{ color: "var(--ink-mute)" }}>{j.region}　次のレベルまで {j.hi - j.xp}{(() => { const nx = JOB_RANKS.find(([l]) => l > j.lv); return nx ? `　・Lv${nx[0]}で「${j.subj}の${nx[1]}」` : ""; })()}</span>
+            </span>
+          </div>
+        ))}
+        {jobs.length > 1 && <p className="text-[11px]" style={{ color: "var(--ink-soft)" }}>いちばんレベルが低いのは「{low.title}」です。この科目を解くと、ぐんと伸びます。</p>}
+        <p className="text-[10px]" style={{ color: "var(--ink-mute)" }}>経験値：その科目の問題に正解するたびに1、記憶が定着した問題（21日以上もつ）1問につき5。</p>
+      </div>
+    </Box>
+  );
+}
+
+// ── 忘れかけの3問：解いたことがある問題のうち、いま思い出せる確率がいちばん低い問題 ──
+function forgettingItems(state, n = 3) {
+  const sch = getFsrsScheduler(state.srSettings);
+  const now = new Date();
+  const out = [];
+  state.questionBanks.forEach((b) => (b.questions || []).forEach((q) => {
+    if (q.excluded || !(q.fs || q.sr_nextReview)) return;
+    let r = 1; try { r = sch.get_retrievability(toFsrsCard(q, now), now, false); } catch (e) { r = 1; }
+    if (r >= 0 && r <= 1) out.push({ bankId: b.id, bankName: b.name, year: b.year || "", qId: q.id, r });
+  }));
+  return out.sort((a, b) => a.r - b.r).slice(0, n);
+}
+
+// ── 「いま試験なら」合格確率：択一20問で何問取れそうかを確率で出す（目安） ──
+// ・1問の正答率 ＝ 思い出せる確率^1.5（本番の1問には、いくつかの知識が必要なことを考えた目安）＋ わからないときの勘（5択で20%）
+// ・科目の重みは本番の出題数（不動産登記法16・民法3・調査士法1）。地域が見つからなければ全体の平均
+const EXAM_MIX = [[/不動産登記|登記法/, 16], [/民法/, 3], [/調査士法/, 1]];
+function binomTail(n, p, k) { let t = 0; for (let i = k; i <= n; i++) { let c = 1; for (let j = 0; j < i; j++) c = (c * (n - j)) / (j + 1); t += c * p ** i * (1 - p) ** (n - i); } return Math.min(1, t); }
+function examMean(pp) {
+  let w = 0, sum = 0;
+  EXAM_MIX.forEach(([re, n]) => { const g = pp.regions.find((x) => re.test(x.name) && x.total > 0); if (g) { w += n; sum += n * g.power; } });
+  return w ? sum / w : pp.power;
+}
+function passChance(state, pp, boost = 0) {
+  if (!pp.total) return null;
+  const cfg = rehearsalCfg(state);
+  const m = Math.min(1, examMean(pp) + boost);
+  const p = m ** 1.5 + (1 - m ** 1.5) * 0.2;
+  const baseQ = Math.ceil(cfg.mcBase / 2.5), passQ = Math.ceil(PASS_LINE * 20);
+  const dist = Array.from({ length: 21 }, (_, k) => binomTail(20, p, k) - (k < 20 ? binomTail(20, p, k + 1) : 0));
+  return { m, p, exp: p * 20, baseQ, passQ, pBase: binomTail(20, p, baseQ), pPass: binomTail(20, p, passQ), dist };
+}
+function ExamChance({ state, pp }) {
+  const c = passChance(state, pp);
+  if (!c) return null;
+  // 未学習の問題を覚えたら、どれだけ上がるか（覚えた問題は記憶率90%とみなす）
+  const unseen = pp.total - pp.seen;
+  const n = Math.min(unseen, Math.max(10, Math.round(pp.total * 0.05)));
+  const up = n > 0 ? passChance(state, pp, (n * 0.9) / pp.total) : null;
+  const max = Math.max(...c.dist);
+  const col = (v) => (v >= 0.8 ? "var(--gold)" : v >= 0.5 ? "var(--sage)" : "#c9564e");
+  return (
+    <Box title="いま試験なら（択一20問の予想）" icon={<TrendingUp size={18} />}>
+      <div className="jp">
+        <div className="grid grid-cols-2 gap-2 mb-2">
+          {[[`基準点（${c.baseQ}問）を超える確率`, c.pBase], [`合格ライン（${c.passQ}問）に届く確率`, c.pPass]].map(([k, v]) => (
+            <div key={k} className="text-center py-2" style={{ background: "var(--paper)", border: `1.5px solid ${col(v)}`, borderRadius: 10 }}>
+              <div className="text-[10px]" style={{ color: "var(--ink-mute)" }}>{k}</div>
+              <div style={{ fontSize: 28, fontWeight: 800, color: col(v), fontFamily: "'Cinzel', 'Shippori Mincho B1', serif" }}>{Math.round(v * 100)}<span className="text-sm">%</span></div>
+            </div>
+          ))}
+        </div>
+        <div className="text-[11px] text-center mb-1" style={{ color: "var(--ink-soft)" }}>予想される正解数：だいたい <b style={{ color: "var(--ink)" }}>{c.exp.toFixed(1)}問</b>（{(c.exp * 2.5).toFixed(1)}点）</div>
+        <div className="flex items-end gap-0.5" style={{ height: 70 }} aria-label="正解数ごとの確率">
+          {c.dist.map((v, k) => (
+            <div key={k} className="flex-1 flex flex-col justify-end items-center" style={{ height: "100%" }}>
+              <div style={{ width: "100%", height: `${(v / max) * 100}%`, minHeight: v > 0.001 ? 2 : 0, borderRadius: "2px 2px 0 0", background: k >= c.passQ ? "#d6b56a" : k >= c.baseQ ? "#9fc28b" : "#c8cfdc" }} />
+            </div>
+          ))}
+        </div>
+        <div className="flex gap-0.5 mt-0.5">{c.dist.map((_, k) => <div key={k} className="flex-1 text-center" style={{ fontSize: 7, color: k === c.baseQ || k === c.passQ ? "var(--ink)" : "var(--ink-mute)", fontWeight: k === c.baseQ || k === c.passQ ? 800 : 400 }}>{k % 5 === 0 || k === c.baseQ || k === c.passQ ? k : ""}</div>)}</div>
+        <div className="flex justify-center gap-3 text-[9px] mt-1" style={{ color: "var(--ink-mute)" }}><span><span style={{ display: "inline-block", width: 8, height: 8, background: "#9fc28b" }} /> 基準点以上</span><span><span style={{ display: "inline-block", width: 8, height: 8, background: "#d6b56a" }} /> 合格ライン以上</span></div>
+        {up && <p className="text-[11px] mt-2 px-2 py-1.5" style={{ background: "var(--cream)", border: "1px solid var(--rule-soft)", borderRadius: 8, color: "var(--ink)" }}>未学習の問題をあと<b>{n}問</b>覚えると、基準点を超える確率は <b>{Math.round(c.pBase * 100)}% → {Math.round(up.pBase * 100)}%</b> になる見込みです。</p>}
+        <p className="text-[10px] mt-2" style={{ color: "var(--ink-mute)" }}>※ 1問ごとの「いま思い出せる確率」から計算した目安です。科目の重みは本番の出題数（不動産登記法16・民法3・調査士法1）、わからないときは5択の勘（20%）として計算しています。記述式は含みません。</p>
+      </div>
+    </Box>
+  );
+}
+
 function FinalBoss({ state, qual, pp }) {
   const days = qual && qual.examDate ? daysUntil(qual.examDate) : null;
   const need = Math.max(0, Math.ceil(PASS_LINE * pp.total - pp.sumR));
@@ -8529,7 +8759,7 @@ function StoryTalk({ state, talk, onClose }) {
         <div className="text-[11px] mb-2" style={{ color: "#b08a3e", fontWeight: 800, letterSpacing: "0.15em", fontFamily: "'Shippori Mincho B1', serif" }}>{talk.title}</div>
         <div className="flex items-start gap-3">
           {isPet
-            ? <div style={{ width: 64, height: 64, borderRadius: "50%", flexShrink: 0, border: "2px solid #b08a3e", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 34, background: "#f6ead0" }}>{pet.icon}</div>
+            ? <div style={{ width: 64, height: 64, borderRadius: "50%", flexShrink: 0, border: "2px solid #b08a3e", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 34, background: "#f6ead0", overflow: "hidden" }}>{pet.type.art && pet.type.art[pet.stage] ? <PetIcon pet={pet} size={64} style={{ border: "none", boxShadow: "none" }} /> : pet.icon}</div>
             : ally ? face(`${ART_URL}${ally.img}`, ally.face) : isShadow ? face(th.avatar, th.face, SHADOW_FILTER) : heroExpr ? face(HERO_FACES[exprOfLine(line[1])], [50, 22], undefined, "cover") : face(th.avatar, th.face)}
           <div className="flex-1 min-w-0">
             <div className="text-xs mb-1" style={{ fontWeight: 800, color: "#5b6b8c" }}>{isPet ? pet.name : ally ? `${ally.name}（${ally.role}）` : isShadow ? "影の受験生" : heroStage(state.player.level).name}</div>
@@ -9807,7 +10037,7 @@ function storyNextInfo(state) {
 }
 
 // ── ホームの「今日の道しるべ」：今日やること（復習 → ストーリー → 最終決戦）と今日の記録を1枚にまとめる ──
-function HomeDashboard({ state, actions, todayCount, liveSeconds, onGo }) {
+function HomeDashboard({ state, actions, todayCount, liveSeconds, onGo, onQuick }) {
   const status = calculateStatus(state);
   const today = todayStr();
   const todayMin = state.studyLog.filter((l) => l.date === today).reduce((a, b) => a + b.minutes, 0) + (state.timer.startMs ? liveSeconds / 60 : 0);
@@ -9856,8 +10086,13 @@ function HomeDashboard({ state, actions, todayCount, liveSeconds, onGo }) {
           <Row no="一" icon={<Calendar size={18} />} label="今日の復習" title={todayCount > 0 ? `あと ${todayCount}問` : "今日の復習は完了です"} sub={todayCount > 0 ? "期限が来た問題と、まだ解いていない問題" : "おつかれさまでした。余力があればストーリーへ"} action={todayCount > 0 ? "はじめる" : "ひらく"} onClick={() => onGo("today")} />
           {sn.all > 0 && <Row no="二" icon={<BookOpen size={18} />} label={`ストーリーのつづき（描いた土地 ${sn.done}/${sn.all}）`} title={sn.next ? `${sn.reg.name}` : "すべての地図が完成"} sub={sn.next ? `${sn.next.bank.name}　第${sn.next.idx + 1}話` : "★を集め直すこともできます"} action="進む" onClick={() => onGo("adventure")} />}
           {plan && plan.perDay > 0 && <Row no="三" icon={<TrendingUp size={18} />} label="今日の目標（試験日から逆算）" title={`新しい問題 ${plan.perDay}問`} sub={plan.done >= plan.perDay ? `今日 ${plan.done}問 ― 達成しました！` : `今日 ${plan.done}問 ・ あと${plan.perDay - plan.done}問（未学習 ${plan.unseen}問を試験日までに）`} gauge={Math.min(1, plan.done / plan.perDay)} mark={false} action="解く" onClick={() => onGo("today")} />}
-          {pp.total > 0 && <Row no={plan && plan.perDay > 0 ? "四" : "三"} icon={<Skull size={18} />} label="最終決戦" title={days !== null && days >= 0 ? `決戦まで あと${days}日` : "試験の魔王"} sub={`合格力 ${pctTxt(pp.power)}（合格ライン${Math.round(PASS_LINE * 100)}%）`} gauge={pp.power} action="見る" onClick={() => onGo("adventure")} />}
+          {pp.total > 0 && <Row no={plan && plan.perDay > 0 ? "四" : "三"} icon={<Skull size={18} />} label="最終決戦" title={days !== null && days >= 0 ? `決戦まで あと${days}日` : "試験の魔王"} sub={`合格力 ${pctTxt(pp.power)}・いま試験なら基準点突破 ${Math.round(((passChance(state, pp) || {}).pBase || 0) * 100)}%`} gauge={pp.power} action="見る" onClick={() => onGo("adventure")} />}
         </div>
+        {onQuick && <button onClick={onQuick} className="jp w-full mt-2 flex items-center gap-2 px-3 py-2" style={{ background: "linear-gradient(90deg, rgba(214,181,106,0.18), rgba(214,181,106,0.04))", border: "1px dashed #b08a3e", borderRadius: 8, cursor: "pointer", textAlign: "left" }}>
+          <span style={{ fontSize: 18 }} aria-hidden="true">⏱</span>
+          <span className="flex-1"><span className="block text-sm" style={{ fontWeight: 800, color: "var(--ink)" }}>1分だけ：忘れかけの3問</span><span className="block text-[11px]" style={{ color: "var(--ink-soft)" }}>いちばん忘れそうな3問で、記憶をつなぎとめる</span></span>
+          <span className="text-xs" style={{ color: "var(--gold)", fontWeight: 800 }}>解く ▶</span>
+        </button>}
         <RivalCard state={state} pp={pp} qual={qual} compact />
         <div className="grid grid-cols-3 gap-2 mt-3">
           {chip("今日の学習", fmtMin(todayMin))}
@@ -10208,6 +10443,7 @@ function WorldView({ state, actions, todayCount, onWeekly, onDungeon, onGuardian
       </>)}
       {sec === "castle" && (<>
         <FinalBoss state={state} qual={qual} pp={pp} />
+        <ExamChance state={state} pp={pp} />
         <RivalCard state={state} pp={pp} qual={qual} />
         <PowerChart state={state} />
         <button onClick={() => actions.openTalk(weeklyReport(state, weekKey()) || { title: "週報", lines: [["hero", "週報は、合格力の記録が1週間分たまると読めるようになります。"], ["hero", "毎日の積み重ねを、来週いっしょにふり返りましょうね。"]] })} className="jp btn-ghost w-full py-2 text-sm">先週の週報を見る</button>
@@ -10599,7 +10835,7 @@ function BossBattle({ state, boss, pool, actions, recordAnswer, startTimer, stop
           <div className={`flex items-center gap-3 mt-3 ${hit === "me" ? "sq-shake" : ""}`}>
             <div className="flex-shrink-0 flex items-end" title="あなた">
               <CharacterDisplay level={state.player.level} job="" icon="" size={44} showAura={false} />
-              {(() => { const pt = getPetInfo(state); return pt ? <span style={{ fontSize: 18, marginLeft: -6 }}>{pt.icon}</span> : null; })()}
+              {(() => { const pt = getPetInfo(state); return pt ? <span style={{ marginLeft: -6 }}><PetIcon pet={pt} size={24} /></span> : null; })()}
             </div>
             <div className="flex-1">
               {bar(hp, maxHp, "linear-gradient(90deg, var(--sage), var(--mint))")}
@@ -10705,7 +10941,18 @@ function getClassInfo(state) {
 const PET_TYPES = {
   dragon: { label: "ドラゴン", stages: [["🥚", "竜のタマゴ"], ["🦎", "おさな竜"], ["🐲", "わか竜"], ["🐉", "竜"], ["🐉", "古竜"]], bonusText: (s) => `ボスへの攻撃+${s * 5}%`, fx: (s) => ({ bossDmgPct: s * 5 }) },
   bird:   { label: "鳥",       stages: [["🥚", "鳥のタマゴ"], ["🐣", "ひな"], ["🐥", "こどり"], ["🐦", "わかどり"], ["🦅", "大鷲"]],    bonusText: (s) => `ゴールド+${s * 5}%`,     fx: (s) => ({ goldPct: s * 5 }) },
+  // 星獣ルミ：描きおろしの白いもふもふ。孵化後は絵で表示（art）。今日学習したら笑顔の絵（happy）
+  lumi:   { label: "星獣ルミ", stages: [["🥚", "星のタマゴ"], ["✨", "ちびルミ"], ["🌟", "ルミ"], ["🕊", "光翼のルミ"], ["👑", "天空の守り神"]], bonusText: (s) => `EXP+${s * 2}%・素材ドロップ+${s * 3}%`, fx: (s) => ({ xpPct: s * 2, dropPct: s * 3 }),
+    art: [null, "pet-lumi-small.jpg", "pet-lumi.jpg", "pet-lumi.jpg", "pet-lumi.jpg"], happy: "pet-lumi-happy.jpg" },
 };
+// 相棒の姿：絵があれば絵（段階が上がるほど光る）、なければ絵文字
+function PetIcon({ pet, size = 40, style }) {
+  const art = pet.type.art && pet.type.art[pet.stage];
+  if (!art) return <span style={{ fontSize: size * 0.8, lineHeight: 1, ...style }}>{pet.icon}</span>;
+  const src = `${ART_URL}${pet.studiedToday && pet.stage >= 2 && pet.type.happy ? pet.type.happy : art}`;
+  const glow = pet.stage >= 4 ? "0 0 0 2px #fdfbf5, 0 0 0 4px #d6b56a, 0 0 14px 4px rgba(214,181,106,0.8)" : pet.stage >= 3 ? "0 0 0 2px #fdfbf5, 0 0 12px 3px rgba(127,163,216,0.8)" : "0 1px 4px rgba(0,0,0,0.2)";
+  return <img src={src} alt={pet.stageName} style={{ width: size, height: size, borderRadius: "50%", objectFit: "cover", border: "2px solid #fdfbf5", boxShadow: glow, display: "inline-block", verticalAlign: "middle", ...style }} />;
+}
 const PET_THRESHOLDS = [0, 30, 150, 500, 1500]; // 育成ポイント
 function getPetInfo(state) {
   const r = normRpg(state.rpg);
@@ -10833,7 +11080,7 @@ function WhiteHeroPortrait({ state, size = 160 }) {
             <div style={{ position: "absolute", top: size * 0.1, left: 0, right: 0, textAlign: "center", fontSize: Math.max(10, size * 0.08), color: "#ffe7a3", letterSpacing: 2, textShadow: "0 0 6px rgba(176,138,62,0.95), 0 1px 1px rgba(0,0,0,0.3)" }}>{"★".repeat(aw.stars)}</div>
           )}
           {pet && (
-            <div title={`${pet.name}（${pet.stageName}）`} style={{ position: "absolute", right: "6%", bottom: "4%", width: size * 0.26, height: size * 0.26, borderRadius: "50%", background: "rgba(253,251,245,0.92)", border: "1px solid #b08a3e", display: "flex", alignItems: "center", justifyContent: "center", fontSize: size * 0.15, animation: "sqBob 1.8s ease-in-out infinite" }}>{pet.icon}</div>
+            <div title={`${pet.name}（${pet.stageName}）`} style={{ position: "absolute", right: "6%", bottom: "4%", width: size * 0.26, height: size * 0.26, borderRadius: "50%", background: "rgba(253,251,245,0.92)", border: "1px solid #b08a3e", display: "flex", alignItems: "center", justifyContent: "center", fontSize: size * 0.15, animation: "sqBob 1.8s ease-in-out infinite", overflow: "hidden" }}>{pet.type.art && pet.type.art[pet.stage] ? <PetIcon pet={pet} size={size * 0.26} style={{ border: "none", boxShadow: "none" }} /> : pet.icon}</div>
           )}
         </div>
       </div>
@@ -10882,7 +11129,7 @@ function HeroPortrait({ state, size = 160, pixel = false }) {
         {/* 相棒 */}
         {pet && (
           <div style={{ position: "absolute", right: "5%", bottom: "4%", fontSize: size * (0.12 + pet.stage * 0.02), animation: "sqBob 1.8s ease-in-out infinite", filter: pet.maxed ? "drop-shadow(0 0 6px gold)" : "none" }} title={`${pet.name}（${pet.stageName}）`}>
-            {pet.icon}{!pet.studiedToday && pet.stage > 0 && <span style={{ fontSize: size * 0.07, position: "absolute", top: -size * 0.04, right: -size * 0.03 }}>💤</span>}
+            {pet.type.art && pet.type.art[pet.stage] ? <PetIcon pet={pet} size={size * (0.16 + pet.stage * 0.025)} /> : pet.icon}{!pet.studiedToday && pet.stage > 0 && <span style={{ fontSize: size * 0.07, position: "absolute", top: -size * 0.04, right: -size * 0.03 }}>💤</span>}
           </div>
         )}
         {/* 覚醒の★ */}
@@ -10974,10 +11221,10 @@ function GrowthPanels({ state, actions }) {
         {!pet ? (
           <>
             <p className="jp text-xs mb-2" style={{ color: "var(--ink-soft)" }}>タマゴを選んで、名前を付けてください。学習した日と正解した問題の数で育ち、5段階に進化します。</p>
-            <div className="grid grid-cols-2 gap-2 mb-2">
+            <div className="grid grid-cols-3 gap-2 mb-2">
               {Object.entries(PET_TYPES).map(([id, t]) => (
                 <button key={id} onClick={() => setPetType(id)} className="jp p-2 text-left" style={{ border: `2px solid ${petType === id ? "var(--sky-deep)" : "var(--rule-soft)"}`, background: "var(--paper)" }}>
-                  <div className="text-2xl">{t.stages.map((s) => s[0]).filter((v, i, a) => a.indexOf(v) === i).join("→")}</div>
+                  <div className="text-2xl">{t.art ? <span className="inline-flex items-center gap-1">🥚→<img src={`${ART_URL}${t.art[1]}`} alt="" style={{ width: 30, height: 30, borderRadius: "50%" }} />→<img src={`${ART_URL}${t.art[2]}`} alt="" style={{ width: 36, height: 36, borderRadius: "50%" }} /></span> : t.stages.map((s) => s[0]).filter((v, i, a) => a.indexOf(v) === i).join("→")}</div>
                   <div className="text-xs" style={{ color: "var(--ink)" }}>{t.label}</div>
                   <div className="text-[10px]" style={{ color: "var(--ink-mute)" }}>育つと{t.bonusText(4)}まで</div>
                 </button>
@@ -10989,13 +11236,14 @@ function GrowthPanels({ state, actions }) {
         ) : (
           <>
             <div className="flex items-center gap-3">
-              <div className="text-5xl" style={{ animation: "sqBob 1.8s ease-in-out infinite", filter: pet.maxed ? "drop-shadow(0 0 6px gold)" : "none" }}>{pet.icon}</div>
+              <div className="text-5xl" style={{ animation: "sqBob 1.8s ease-in-out infinite", filter: pet.maxed && !(pet.type.art && pet.type.art[pet.stage]) ? "drop-shadow(0 0 6px gold)" : "none" }}><PetIcon pet={pet} size={72} /></div>
               <div className="flex-1 min-w-0">
                 <div className="jp text-base" style={{ color: "var(--ink)", fontWeight: "bold" }}>{pet.name} <span className="jp text-xs" style={{ color: "var(--ink-soft)", fontWeight: "normal" }}>（{pet.stageName}）</span></div>
                 <div className="jp text-[10px]" style={{ color: "var(--ink-soft)" }}>育成ポイント {pet.points}{pet.next ? ` ／ 次の進化まで あと${pet.next - pet.points}` : "（最終進化）"}</div>
                 {pet.next && <div className="stat-bar mt-1"><div style={{ width: `${Math.min(100, ((pet.points - PET_THRESHOLDS[pet.stage]) / (pet.next - PET_THRESHOLDS[pet.stage])) * 100)}%` }} /></div>}
                 <div className="jp text-[10px] mt-1" style={{ color: "var(--sky-deep)" }}>{pet.stage > 0 ? `効果：${pet.type.bonusText(pet.stage)}` : "孵化すると効果が付きます"}</div>
                 <div className="jp text-[10px]" style={{ color: pet.studiedToday ? "var(--sage)" : "var(--ink-mute)" }}>{pet.studiedToday ? "😊 今日もいっしょに勉強した！" : "💤 今日はまだ勉強していません"}</div>
+                <div className="jp flex flex-wrap items-center gap-1 mt-1 text-[10px]" style={{ color: "var(--ink-mute)" }}>姿を変える：{Object.entries(PET_TYPES).map(([id, t]) => <button key={id} disabled={pet.type === t} onClick={() => actions.changePetType(id)} className="px-2 py-0.5" style={{ borderRadius: 999, border: `1px solid ${pet.type === t ? "var(--gold)" : "var(--rule-soft)"}`, background: pet.type === t ? "var(--cream)" : "var(--paper)", color: "var(--ink)", cursor: pet.type === t ? "default" : "pointer" }}>{t.label}</button>)}<span>（育ち具合はそのまま）</span></div>
               </div>
             </div>
             {renaming ? (
@@ -11830,7 +12078,7 @@ function ConfusionPairs({ state, actions }) {
   );
 }
 
-function TodayTab({ state, recordSRAnswer, updateSrSettings, startTimer, stopTimer, toggleQuestionMark, rpgActionsForPairs }) {
+function TodayTab({ state, recordSRAnswer, updateSrSettings, startTimer, stopTimer, toggleQuestionMark, rpgActionsForPairs, preset, onPresetUsed }) {
   const today = todayStr();
   const due = [];
   const fresh = [];
@@ -11863,6 +12111,13 @@ function TodayTab({ state, recordSRAnswer, updateSrSettings, startTimer, stopTim
 
   const stopMyTimer = () => { if (timerStartedByMe.current) { stopTimer(); timerStartedByMe.current = false; } };
 
+  // ホームの「忘れかけの3問」から来たときは、その3問ですぐに始める
+  useEffect(() => {
+    if (!preset || !preset.length) return;
+    setBattleKey(uid()); setQueue(preset); setShowAnswer(false); setResult({ sure: 0, unsure: 0, wrong: 0, err: {} });
+    if (!state.timer.startMs) { startTimer(null, "qa"); timerStartedByMe.current = true; }
+    if (onPresetUsed) onPresetUsed();
+  }, [preset]);
   const start = () => {
     const pool = [...due, ...(includeNew ? shuffle(fresh) : [])];
     const picked = pool.slice(0, setSize);
