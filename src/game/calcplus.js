@@ -4,11 +4,12 @@
 // ・答えには、解き方（steps）と fx-JP500 のキー操作（keys）を付ける。キーは "[SHIFT]" のように [ ] で囲む
 
 export const CALC2_GROUPS = [
-  { id: "coord", name: "座標・方向角・距離", types: ["pol", "rec"] },
+  { id: "exam", name: "本番形式（記述式の流れ）", types: ["composite", "bunpitsu"] },
+  { id: "coord", name: "座標・方向角・距離", types: ["pol", "rec", "transform"] },
   { id: "cross", name: "交点・内分点", types: ["cross", "divide", "online"] },
-  { id: "area", name: "面積", types: ["areaCoord", "sansha", "heron", "trapezoid"] },
+  { id: "area", name: "面積", types: ["areaCoord", "sansha", "heron", "trapezoid", "sumikiri", "arc"] },
   { id: "tri", name: "三角形の辺と角", types: ["cosLaw", "sinLaw", "innerAngle", "dms"] },
-  { id: "round", name: "建物・地積の端数処理", types: ["floor", "chiseki"] },
+  { id: "round", name: "建物・地積の端数処理", types: ["floor", "kubun", "chiseki"] },
 ];
 export const CALC2_TYPES = {
   pol: "距離と方向角（Pol）", rec: "放射・座標（Rec）",
@@ -16,7 +17,11 @@ export const CALC2_TYPES = {
   areaCoord: "座標法の面積", sansha: "三斜法の面積", heron: "ヘロンの公式", trapezoid: "台形の面積",
   cosLaw: "余弦定理（辺）", sinLaw: "正弦定理（辺）", innerAngle: "内角（cos⁻¹）", dms: "度分秒⇔十進",
   floor: "床面積の端数処理", chiseki: "地積の端数処理",
+  composite: "複合問題（方向角→交点→面積→地積）", bunpitsu: "面積指定の分筆", transform: "座標の平行移動・回転",
+  sumikiri: "隅切りの長さと面積", arc: "円弧部分（弓形）の面積", kubun: "区分建物と普通建物の床面積",
 };
+// まちがえたときの原因（記録して傾向を見る）
+export const CALC_MISS = [["sign", "符号（＋−）"], ["quad", "象限・360°の足し忘れ"], ["round", "端数処理・桁"], ["input", "電卓の入力ミス"], ["formula", "公式・手順"], ["other", "その他"]];
 export const CALC2_ALL = CALC2_GROUPS.flatMap((g) => g.types);
 export const FIXED_PER_TYPE = 5; // 決まった問題集：種類ごとに5問
 
@@ -46,7 +51,29 @@ const num = (v) => (v < 0 ? ["[(-)]", String(Math.abs(v))] : [String(v)]); // �
 const POL = ["[SHIFT]", "[+]", "(Pol)"], REC = ["[SHIFT]", "[−]", "(Rec)"], COMMA = ["[SHIFT]", "[)]", "(,)"];
 const pt = (name, X, Y, extra) => ({ name, X: r3(X), Y: r3(Y), ...(extra || {}) });
 
+const VERIFY = {
+  pol: ["求めた S と θ で Rec(S, θ) を計算すると、ΔX・ΔY（B − A）に戻ります。"],
+  rec: ["求めたPと A で Pol(XP − XA, YP − YA) を計算すると、距離 S と方向角 θ に戻ります。"],
+  cross: ["C→P の方向角を Pol で出すと α₂ と同じに、A→P の方向角は α₁ と同じになります（どちらの直線の上にもある）。"],
+  divide: ["Pol で A〜P と P〜B の距離を出すと、その比が m：n になります。"],
+  online: ["Pol(XP − XA, YP − YA) の r が、指定の距離になります。"],
+  areaCoord: ["点の順番を逆回り（Y × (X の差)）で計算しても、同じ倍面積（符号だけ反対）になります。"],
+  sansha: ["2つの三角形を別々に（底辺 × 高さ ÷ 2）計算して足しても、同じになります。"],
+  heron: ["余弦定理で1つの角を出し、½ × b × c × sin A で計算しても同じ面積になります。"],
+  trapezoid: ["対角線で2つの三角形に分けて足しても、同じになります。"],
+  cosLaw: ["求めた a と、正弦定理 a ÷ sin A ＝ b ÷ sin B で角Bを出し、A＋B＋C＝180° になるか確かめます。"],
+  sinLaw: ["a ÷ sin A と b ÷ sin B が同じ値になります。"],
+  innerAngle: ["cos A を計算し直すと、(b² + c² − a²) ÷ 2bc と同じになります。"],
+  dms: ["[°'\"] をもう一度押すと、元の書き方に戻ります。"],
+  floor: ["長方形の分け方を変えて（縦に分ける・横に分ける）計算しても、同じ合計になります。"],
+  chiseki: ["地目が宅地・鉱泉地か、10㎡を超えるかの2つを、もう一度確かめます。"],
+};
 export function makeCalc2(type, seed) {
+  const p = makeCalc2Raw(type, seed);
+  if (p && !p.verify && VERIFY[type]) p.verify = VERIFY[type];
+  return p;
+}
+function makeCalc2Raw(type, seed) {
   const rng = seededRng(seed);
   const R = (a, b) => a + rng() * (b - a);
   const RI = (a, b) => Math.floor(R(a, b + 1));
@@ -252,8 +279,132 @@ export function makeCalc2(type, seed) {
         keys: [],
       };
     }
+    case "transform": {
+      // ローカル座標 (x, y) を、原点 (X0, Y0)・回転角 φ で別の座標系に直す
+      const x = r3(R(10, 60)), y = r3(R(10, 60)), X0 = r3(R(100, 500)), Y0 = r3(R(100, 500));
+      const phi = { d: RI(5, 80), m: RI(0, 59), s: RI(0, 59) }, ph = rad(dmsDeg(phi));
+      const r = Math.hypot(x, y), be = deg(Math.atan2(y, x));
+      const X = X0 + x * Math.cos(ph) - y * Math.sin(ph), Y = Y0 + x * Math.sin(ph) + y * Math.cos(ph);
+      return {
+        type, pts: [],
+        given: [`ローカル座標の点P：x = ${f3(x)}、y = ${f3(y)}`, `ローカル座標の原点は、新しい座標で (${f3(X0)}, ${f3(Y0)})`, `x軸の回転角 φ = ${dmsText(phi)}（右回り）`],
+        ask: "点Pを新しい座標系に直した X・Y を求めてください（m・小数点以下3桁）。",
+        fields: [{ key: "X", label: "X", unit: "m", ans: r3(X), tol: 0.0015 }, { key: "Y", label: "Y", unit: "m", ans: r3(Y), tol: 0.0015 }],
+        steps: [`Pol(x, y) で 原点からの距離 r = ${f3(r)}、角 β = ${f6(be)}°`, `新しい座標系での方向角 = β + φ = ${f6(be + dmsDeg(phi))}°`, `Rec(r, β + φ) で ΔX・ΔY を出して、原点 (X0, Y0) に足す → (${f3(X)}, ${f3(Y)})`],
+        keys: [
+          { label: "Pol(x, y) で r と β", seq: [...POL, f3(x), ...COMMA, f3(y), "[)]", "[=]"], out: `r = ${f6(r)}　θ = ${f6(be)}` },
+          { label: "Rec(r, β ＋ φ)", seq: [...REC, f6(r), ...COMMA, f6(be), "[+]", ...dmsKeys(phi), "[)]", "[=]"], out: `x = ${f6(X - X0)}　y = ${f6(Y - Y0)}` },
+          { label: "原点に足す（X・Y それぞれ）", seq: [f3(X0), "[+]", ...num(r3(X - X0)), "[=]"], out: f3(X) },
+        ],
+        verify: ["新しい座標から原点を引いて Pol で出すと、距離は r のまま・角は β + φ になります（回転しても距離は変わらない）。"],
+      };
+    }
+    case "composite": {
+      // 記述式の流れ：方向角 → 交点 → 面積 → 地積
+      let A, B, C, D, a1, a2, sn, s0;
+      do {
+        A = pt("A", R(100, 200), R(100, 200)); B = pt("B", R(250, 350), R(250, 350));
+        C = pt("C", R(250, 350), R(100, 200)); D = pt("D", R(100, 200), R(250, 350));
+        a1 = Math.atan2(B.Y - A.Y, B.X - A.X); a2 = Math.atan2(D.Y - C.Y, D.X - C.X); sn = Math.sin(a2 - a1);
+        s0 = ((C.X - A.X) * Math.sin(a2) - (C.Y - A.Y) * Math.cos(a2)) / sn;
+      } while (Math.abs(sn) < 0.3);
+      const P = pt("P", A.X + s0 * Math.cos(a1), A.Y + s0 * Math.sin(a1), { unknown: true });
+      const tri = [A, P, C];
+      const dbl = tri.reduce((acc, q, i) => acc + q.X * (tri[(i + 1) % 3].Y - tri[(i + 2) % 3].Y), 0), area = Math.abs(dbl) / 2;
+      const kinds = [["宅地", true], ["畑", false], ["山林", false], ["雑種地", false]];
+      const [kind, small] = kinds[RI(0, kinds.length - 1)];
+      const area4 = Math.round(area * 10000) / 10000;
+      const chis = small ? trunc(area4, 2) : Math.floor(area4 + 1e-9);
+      const d1 = deg(a1);
+      return {
+        type, pts: [A, B, C, D, P], lines: [["A", "B"], ["C", "D"]], poly: ["A", "P", "C"],
+        given: [`地目：${kind}`],
+        stages: [
+          { ask: "第1段：点Aから点Bへの方向角 α₁ を求めてください（度分秒）。", fields: [{ key: "a1", label: "α₁", kind: "dms", ans: toDms(d1), tol: 1 }], steps: [`Pol(XB − XA, YB − YA) の θ = ${f6(d1)}° → ${dmsText(toDms(d1))}`], keys: [{ label: "Pol で A→B", seq: [...POL, f3(B.X), "[−]", f3(A.X), ...COMMA, f3(B.Y), "[−]", f3(A.Y), "[)]", "[=]"], out: `θ = ${f6(d1)}` }] },
+          { ask: "第2段：直線ABと直線CDの交点Pの座標を求めてください（m・小数点以下3桁）。", fields: [{ key: "X", label: "X", unit: "m", ans: P.X, tol: 0.002 }, { key: "Y", label: "Y", unit: "m", ans: P.Y, tol: 0.002 }], steps: [`α₂（C→D）= ${f6(deg(a2))}°`, `A→P の距離 s = {(XC − XA)·sin α₂ − (YC − YA)·cos α₂} ÷ sin(α₂ − α₁) = ${f3(s0)}`, `P = (${f3(P.X)}, ${f3(P.Y)})`], keys: [{ label: "Rec(s, α₁) → A に足す", seq: [...REC, f6(s0), ...COMMA, ...num(Number(f6(d1))), "[)]", "[=]"], out: `x = ${f6(P.X - A.X)}　y = ${f6(P.Y - A.Y)}` }] },
+          { ask: "第3段：三角形APCの面積を座標法で求めてください（㎡・小数点以下4桁）。", fields: [{ key: "S", label: "面積", unit: "㎡", ans: area4, tol: 0.002 }], steps: [...tri.map((q, i) => `${q.name}：${f3(q.X)} × (${f3(tri[(i + 1) % 3].Y)} − ${f3(tri[(i + 2) % 3].Y)})`), `倍面積 = ${f3(dbl)} → 面積 = ${area4.toFixed(4)} ㎡`], keys: [] },
+          { ask: `第4段：地目は「${kind}」です。登記する地積を答えてください（規則100条）。`, fields: [{ key: "C", label: "地積", unit: "㎡", ans: chis, tol: 0.005 }], steps: [`${kind}${small ? "なので 1/100㎡未満を切り捨て" : "で10㎡を超えるので 1㎡未満を切り捨て"} → ${small ? f2(chis) : chis} ㎡`], keys: [] },
+        ],
+        verify: ["第2段の P が、C→D の方向角の上にもあるか（Pol で C→P の θ が α₂ になるか）を確かめると安心です。"],
+      };
+    }
+    case "bunpitsu": {
+      // 四角形ABCDの土地を、Aと辺BC上の点Pを結ぶ直線で分け、三角形ABPを指定の面積にする
+      const cx = R(200, 300), cy = R(200, 300);
+      const ang = [200 + R(-15, 15), 290 + R(-15, 15), 20 + R(-15, 15), 110 + R(-15, 15)];
+      const [A, B, C, D] = ang.map((a, i) => pt("ABCD"[i], cx + R(25, 40) * Math.cos(rad(a)), cy + R(25, 40) * Math.sin(rad(a))));
+      const triArea = (p1, p2, p3) => Math.abs(p1.X * (p2.Y - p3.Y) + p2.X * (p3.Y - p1.Y) + p3.X * (p1.Y - p2.Y)) / 2;
+      const T = triArea(A, B, C);
+      const target = Math.round(T * R(0.3, 0.8) * 100) / 100;
+      const t = target / T;
+      const P = pt("P", B.X + t * (C.X - B.X), B.Y + t * (C.Y - B.Y), { unknown: true });
+      return {
+        type, pts: [A, B, C, D, P], poly: ["A", "B", "C", "D"], lines: [["A", "P"]],
+        given: [`三角形ABPの面積を ${f2(target)} ㎡ にしたい（PはBC上）`],
+        ask: "分割線APの点Pの座標 X・Y を求めてください（m・小数点以下3桁）。",
+        fields: [{ key: "X", label: "X", unit: "m", ans: P.X, tol: 0.002 }, { key: "Y", label: "Y", unit: "m", ans: P.Y, tol: 0.002 }],
+        steps: [`三角形ABCの面積（座標法）= ${f6(T)} ㎡`, `三角形ABP は高さが同じなので、面積の比 ＝ BP：BC。t = ${f2(target)} ÷ ${f6(T)} = ${f6(t)}`, `P = B ＋ t ×（C − B）= (${f3(P.X)}, ${f3(P.Y)})`],
+        keys: [
+          { label: "三角形ABCの倍面積", seq: [f3(A.X), "[×]", "[(]", f3(B.Y), "[−]", f3(C.Y), "[)]", "[+]", f3(B.X), "[×]", "[(]", f3(C.Y), "[−]", f3(A.Y), "[)]", "[+]", f3(C.X), "[×]", "[(]", f3(A.Y), "[−]", f3(B.Y), "[)]", "[=]"], out: `${f6(T * 2)}（マイナスなら符号をとる）` },
+          { label: "比 t ＝ 指定面積 ÷ 三角形ABCの面積", seq: [f2(target), "[÷]", f6(T), "[=]"], out: f6(t) },
+          { label: "P の X（Y も同じように）", seq: [f3(B.X), "[+]", f6(t), "[×]", "[(]", f3(C.X), "[−]", f3(B.X), "[)]", "[=]"], out: f3(P.X) },
+        ],
+        verify: ["求めた P で三角形ABPの面積を座標法で出すと、指定の面積になります。"],
+      };
+    }
+    case "sumikiri": {
+      const o = { d: RI(60, 120), m: RI(0, 59), s: 0 }, th = rad(dmsDeg(o)), L = Math.round(R(1.5, 4) * 100) / 100;
+      const c = 2 * L * Math.sin(th / 2), area = 0.5 * L * L * Math.sin(th);
+      return {
+        type, pts: [],
+        given: [`2本の道路の境界が角 θ = ${dmsText(o)} で交わる角を、角から両側に ${f2(L)} m の点を結んで切り取る（隅切り）`],
+        ask: "隅切りの長さ（切り取る線の長さ、m・小数点以下3桁）と、切り取る三角形の面積（㎡・小数点以下2桁未満切り捨て）を求めてください。",
+        fields: [{ key: "c", label: "隅切りの長さ", unit: "m", ans: r3(c), tol: 0.0015 }, { key: "A", label: "面積", unit: "㎡", ans: trunc(area, 2), tol: 0.005 }],
+        steps: [`隅切りの長さ = 2 × L × sin(θ ÷ 2) = 2 × ${f2(L)} × sin(${f6(dmsDeg(o) / 2)}°) = ${f3(c)} m`, `面積 = ½ × L × L × sin θ = ${f6(area)} → ${f2(trunc(area, 2))} ㎡`],
+        keys: [
+          { label: "長さ", seq: ["2", "[×]", f2(L), "[×]", "[sin]", ...dmsKeys(o), "[÷]", "2", "[)]", "[=]"], out: f6(c) },
+          { label: "面積", seq: ["0.5", "[×]", f2(L), "[x²]", "[×]", "[sin]", ...dmsKeys(o), "[)]", "[=]"], out: f6(area) },
+        ],
+        verify: ["隅切りの長さ c を余弦定理（c² ＝ L² ＋ L² − 2L²cos θ）でも出して、同じになるか確かめます。"],
+      };
+    }
+    case "arc": {
+      const r = Math.round(R(5, 20) * 100) / 100, o = { d: RI(30, 150), m: RI(0, 59), s: 0 }, th = rad(dmsDeg(o));
+      const area = (r * r / 2) * (th - Math.sin(th));
+      return {
+        type, pts: [],
+        given: [`半径 r = ${f2(r)} m、中心角 θ = ${dmsText(o)} の円弧と、その弦で囲まれた部分（弓形）`],
+        ask: "弓形の面積（㎡・小数点以下2桁未満切り捨て）を求めてください。",
+        fields: [{ key: "A", label: "面積", unit: "㎡", ans: trunc(area, 2), tol: 0.005 }],
+        steps: ["弓形 ＝ おうぎ形 − 三角形 ＝ r² ÷ 2 ×（θ［ラジアン］ − sin θ）", `θ = ${f6(dmsDeg(o))}° = ${f6(th)} ラジアン（× π ÷ 180）`, `面積 = ${f2(r)}² ÷ 2 × (${f6(th)} − ${f6(Math.sin(th))}) = ${f6(area)} → ${f2(trunc(area, 2))} ㎡`],
+        keys: [{ label: "度のまま：r² × (π × θ ÷ 360 − sin θ ÷ 2)", seq: [f2(r), "[x²]", "[×]", "[(]", "[π]", "[×]", ...dmsKeys(o), "[÷]", "360", "[−]", "[sin]", ...dmsKeys(o), "[)]", "[÷]", "2", "[)]", "[=]"], out: f6(area), note: "π は [SHIFT] [×10ˣ] などの位置にあります（機種の刻印を確かめてください）" }],
+        verify: ["おうぎ形（πr² × θ ÷ 360）と三角形（½r² sin θ）を別々に出して引いても、同じになります。"],
+      };
+    }
+    case "kubun": {
+      const W = Math.round(R(6, 14) * 100) / 100, H = Math.round(R(5, 12) * 100) / 100, t = Math.round(R(0.12, 0.3) * 100) / 100;
+      const outer = W * H, inner = (W - t) * (H - t);
+      return {
+        type, pts: [],
+        given: [`長方形の建物：壁の中心線で ${f2(W)} m × ${f2(H)} m`, `壁の厚さ ${f2(t)} m（中心線から内側へ ${f2(t / 2)} m ずつ）`],
+        ask: "この建物を、①普通の建物（壁の中心線）と ②区分建物（壁の内側線）として、それぞれの床面積を求めてください（規則115条の端数処理）。",
+        fields: [{ key: "o", label: "①壁心", unit: "㎡", ans: trunc(outer, 2), tol: 0.005 }, { key: "i", label: "②内法", unit: "㎡", ans: trunc(inner, 2), tol: 0.005 }],
+        steps: [`① ${f2(W)} × ${f2(H)} = ${outer.toFixed(4)} → ${f2(trunc(outer, 2))} ㎡`, `② 内側線の長さは、両側から t ÷ 2 ずつ引いて（${f2(W)} − ${f2(t)}）×（${f2(H)} − ${f2(t)}）= ${inner.toFixed(4)} → ${f2(trunc(inner, 2))} ㎡`, "区分建物は壁その他の区画の内側線、それ以外は中心線で囲まれた部分（規則115条）"],
+        keys: [{ label: "②内法", seq: ["[(]", f2(W), "[−]", f2(t), "[)]", "[×]", "[(]", f2(H), "[−]", f2(t), "[)]", "[=]"], out: inner.toFixed(4) }],
+        verify: ["① − ② が、壁の厚さぶんの帯（だいたい 周の長さ × t ÷ 2）くらいになっているか見ます。"],
+      };
+    }
     default: return null;
   }
+}
+
+// 段（stages）のない問題は、問題そのものを1段として扱う
+export const stagesOf = (p) => (p.stages && p.stages.length ? p.stages : [{ ask: p.ask, fields: p.fields, steps: p.steps, keys: p.keys }]);
+// キー操作の練習用：数字はまとめて「数」に、注記は除いて、押すキーの並びにする
+export function keyDrillOf(seq) {
+  const out = [];
+  seq.forEach((t) => { if (t.startsWith("(") && t.endsWith(")") && !t.startsWith("[")) return; if (t.startsWith("[")) out.push(t.slice(1, -1)); else if (out[out.length - 1] !== "数") out.push("数"); });
+  return out;
 }
 
 // 答え合わせ：数は誤差 tol 以内、度分秒は秒の差 tol 以内（360°をまたいでもよい）

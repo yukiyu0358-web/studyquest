@@ -7,7 +7,7 @@ import { LINE_ICONS, Ico, Sword, Plus, Check, Trash2, Sparkles, ScrollIcon, Uplo
 import { SFX } from "./game/sfx"; // 効果音
 import { CALC_TYPES, makeCalcProblem, checkCalc, calcAnsText, SAKUZU_TYPES, makeSakuzuProblem } from "./game/calc"; // 計算ドリル・作図ドリルの問題づくり
 import { BATTLE_FX_CSS, heroAttackFor, monAttackFor, impactOf, AttackFx, SkillBanner, Ambient } from "./game/battlefx"; // 戦いの技と演出
-import { CALC2_GROUPS, CALC2_TYPES, CALC2_ALL, FIXED_PER_TYPE, makeCalc2, fixedSeed, checkCalc2, fieldAnsText } from "./game/calcplus"; // 計算強化（fx-JP500）
+import { CALC2_GROUPS, CALC2_TYPES, CALC2_ALL, FIXED_PER_TYPE, CALC_MISS, makeCalc2, fixedSeed, checkCalc2, fieldAnsText, stagesOf, keyDrillOf } from "./game/calcplus"; // 計算強化（fx-JP500）
 import { makeCloze, BLANK_LABELS, makeTrap, isTrueAnswer } from "./game/cloze"; // 条文の穴埋め・○×のひっかけ版の問題づくり
 import { parseQuickText, TEXT_IMPORT_MODES } from "./game/textimport"; // 貼り付けた文章を一問一答に分ける
 import { SHINSEI_CASES, SHINSEI_PURPOSES, SHINSEI_CAUSES, SHINSEI_DEADLINES, SHINSEI_ATTACH } from "./data/shinsei"; // 申請書の穴埋めの場面
@@ -2154,8 +2154,10 @@ function StudyRPG({ user }) {
       SFX.play("drop");
       showRpgToast(`🐾 おつかいの成果：${gold}G・${(matById(fid) || {}).name}×${frag}${star ? "・星霊石×1" : ""}${potion ? "・回復薬×1" : ""}`, "#b08a3e");
     },
-    logCalc2: ({ type, id, ok, fixed }) => {
+    logCalc2: ({ type, id, ok, fixed, hints = 0, sec = 0 }) => {
       let lapUp = false, lapNo = 0;
+      const prevBest = ((normRpg(stateRef.current.rpg).calc2 || {}).best || {})[type];
+      const isBest = ok && !hints && sec > 0 && (!prevBest || sec < prevBest);
       updateRpg((x) => {
         const c = x.calc2 || {};
         const stats = { ...(c.stats || {}), [type]: { n: ((c.stats || {})[type] || {}).n + 1 || 1, ok: (((c.stats || {})[type] || {}).ok || 0) + (ok ? 1 : 0) } };
@@ -2167,13 +2169,23 @@ function StudyRPG({ user }) {
           if (Object.keys(done).length >= CALC2_ALL.length * FIXED_PER_TYPE) { lapUp = true; lapNo = lap; lap += 1; done = {}; }
           fx = { ...fx, res, done, lap };
         }
-        let out = { ...x, calc2: { ...c, stats, fixed: fx } };
+        const bestMap = isBest ? { ...(c.best || {}), [type]: sec } : c.best || {};
+        let out = { ...x, calc2: { ...c, stats, fixed: fx, best: bestMap, hints: (c.hints || 0) + hints } };
         if (ok) out = addBond(out, "kai", 1);
         if (lapUp) out = { ...out, gold: out.gold + 300, goldEarned: out.goldEarned + 300 };
         return out;
       });
       if (ok) setTimeout(() => awardXp(6), 100);
       if (lapUp) setTimeout(() => { SFX.play("stamp"); showRpgToast(`🧮 計算問題集を${lapNo}周しました！ 300G`, "#b08a3e"); }, 400);
+      return isBest;
+    },
+    logCalcMiss: (type, kind) => updateRpg((x) => { const c = x.calc2 || {}; return { ...x, calc2: { ...c, miss: { ...(c.miss || {}), [kind]: ((c.miss || {})[kind] || 0) + 1 }, missByType: { ...(c.missByType || {}), [type]: { ...((c.missByType || {})[type] || {}), [kind]: (((c.missByType || {})[type] || {})[kind] || 0) + 1 } } } }; }),
+    logCalcDrill: (sec, miss) => {
+      const prev = ((normRpg(stateRef.current.rpg).calc2 || {}).drill || {}).best;
+      const best = !miss && (!prev || sec < prev);
+      updateRpg((x) => { const c = x.calc2 || {}; const d = c.drill || {}; return { ...x, calc2: { ...c, drill: { n: (d.n || 0) + 1, best: best ? sec : d.best, log: [...(d.log || []), { d: todayStr(), sec, miss }].slice(-30) } } }; });
+      setTimeout(() => awardXp(10), 100);
+      return best;
     },
     markArc: (region, key) => updateRpg((x) => ({ ...x, arcSeen: { ...x.arcSeen, [`${region}:${key}`]: todayStr() } })),
     // 試練の塔の結果：80%で突破。初突破でゴールド・欠片、試練の間（10の倍数の階）で星霊石と演出、50・100階で賢者の結晶
@@ -15385,16 +15397,25 @@ function KeySeq({ seq }) {
 }
 function CalcTab({ state, actions, startTimer, stopTimer }) {
   const c2 = normRpg(state.rpg).calc2 || {};
-  const [picked, setPicked] = useState(() => { try { const v = JSON.parse(localStorage.getItem("sq-calc2-types") || "null"); if (Array.isArray(v) && v.length) return v; } catch (e) { /* 既定 */ } return CALC2_ALL; });
+  const [picked, setPicked] = useState(() => { try { const v = JSON.parse(localStorage.getItem("sq-calc2-types") || "null"); if (Array.isArray(v) && v.length) return [...new Set([...v, ...CALC2_ALL.filter((t) => !(v.includes(t)) && ["composite", "bunpitsu", "transform", "sumikiri", "arc", "kubun"].includes(t))])]; } catch (e) { /* 既定 */ } return CALC2_ALL; });
   const [modes, setModes] = useState({ random: true, fixed: false });
   const [wrongOnly, setWrongOnly] = useState(false);
   const [count, setCount] = useState(10);
-  const [run, setRun] = useState(null); // { list:[{type, seed, id, fixed}], i, prob, vals, checked, results:[] }
+  const [run, setRun] = useState(null); // { list, i, prob, stage, vals, checked, stageOk:[], results, hints, t0, missPick }
+  const [drill, setDrill] = useState(null); // キー操作の早押し { tasks:[{label, keys}], i, pos, t0, miss, flash }
+  const [now, setNow] = useState(Date.now());
   const timerMine = useRef(false);
   useEffect(() => { try { localStorage.setItem("sq-calc2-types", JSON.stringify(picked)); } catch (e) { /* 無視 */ } }, [picked]);
   useEffect(() => () => { if (timerMine.current) { stopTimer(); timerMine.current = false; } }, []);
+  useEffect(() => { if (!run && !drill) return undefined; const id = setInterval(() => setNow(Date.now()), 500); return () => clearInterval(id); }, [!!run, !!drill]);
   const fixedRes = (c2.fixed || {}).res || {}, fixedDone = (c2.fixed || {}).done || {}, lap = (c2.fixed || {}).lap || 1;
   const fixedIds = picked.flatMap((t) => Array.from({ length: FIXED_PER_TYPE }, (_, k) => ({ type: t, k: k + 1, id: `${t}#${k + 1}` })));
+  const begin = (items) => {
+    if (!items.length) return;
+    if (!state.timer.startMs) { startTimer(null, "qa"); timerMine.current = true; }
+    const first = items[0];
+    setRun({ list: items, i: 0, prob: makeCalc2(first.type, first.seed), stage: 0, vals: {}, checked: null, stageOk: [], results: [], hints: 0, t0: Date.now(), missPick: null });
+  };
   const start = () => {
     const list = [];
     if (modes.fixed) {
@@ -15406,48 +15427,114 @@ function CalcTab({ state, actions, startTimer, stopTimer }) {
       const n = modes.fixed ? Math.ceil(count / 2) : count;
       for (let k = 0; k < n; k++) { const t = picked[(k + Math.floor(Math.random() * picked.length)) % picked.length]; list.push({ type: t, seed: Math.floor(Math.random() * 1e9), fixed: false, label: `${CALC2_TYPES[t]}（数字は毎回ちがう）` }); }
     }
-    const items = modes.fixed && modes.random ? [...list.filter((x) => x.fixed).slice(0, Math.floor(count / 2)), ...list.filter((x) => !x.fixed)] : modes.fixed ? list.slice(0, count) : list;
-    if (!items.length) return;
-    if (!state.timer.startMs) { startTimer(null, "qa"); timerMine.current = true; }
-    const first = items[0];
-    setRun({ list: items, i: 0, prob: makeCalc2(first.type, first.seed), vals: {}, checked: null, results: [] });
+    begin(modes.fixed && modes.random ? [...list.filter((x) => x.fixed).slice(0, Math.floor(count / 2)), ...list.filter((x) => !x.fixed)] : modes.fixed ? list.slice(0, count) : list);
+  };
+  // キー操作の早押し：選んだ種類の問題から、キー操作を5つ
+  const startDrill = () => {
+    const tasks = [];
+    for (let k = 0; k < 40 && tasks.length < 5; k++) {
+      const t = picked[Math.floor(Math.random() * picked.length)];
+      const p = makeCalc2(t, Math.floor(Math.random() * 1e9));
+      const ks = stagesOf(p).flatMap((st) => st.keys || []).filter((x) => x.seq.length >= 4);
+      if (!ks.length) continue;
+      const kk = ks[Math.floor(Math.random() * ks.length)];
+      tasks.push({ label: `${CALC2_TYPES[t]}：${kk.label}`, keys: keyDrillOf(kk.seq), seq: kk.seq });
+    }
+    if (tasks.length) setDrill({ tasks, i: 0, pos: 0, t0: Date.now(), miss: 0, flash: null });
   };
   const toggleType = (t) => setPicked(picked.includes(t) ? picked.filter((x) => x !== t) : [...picked, t]);
   const chip = (on) => ({ borderRadius: 999, border: `1px solid ${on ? "var(--gold)" : "var(--rule-soft)"}`, background: on ? "var(--cream)" : "var(--paper)", color: "var(--ink)", fontWeight: on ? 800 : 500, cursor: "pointer" });
+  const mmss = (sec) => `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`;
   const head = (
-    <div className="relative overflow-hidden mb-3 jp" style={{ borderRadius: 12, border: "1px solid #b08a3e", background: "linear-gradient(120deg, #22335c, #34508c 60%, #4f7fb8)", padding: "12px 14px", color: "#fdfbf5" }}>
-      <div className="text-[10px]" style={{ letterSpacing: "0.3em", color: "#f1dfae", fontWeight: 800 }}>CALC TRAINING</div>
-      <div style={{ fontFamily: "'Shippori Mincho B1', serif", fontWeight: 800, fontSize: 22 }}>計算強化</div>
-      <div className="text-[11px]" style={{ color: "#dfe8f6" }}>関数電卓（カシオ fx-JP500）のキー操作つき。座標・交点・面積・三角形・端数処理を周回。</div>
+    <div className="mb-3 jp">
+      <div className="relative overflow-hidden" style={{ borderRadius: 12, border: "1px solid #b08a3e", boxShadow: "inset 0 0 0 3px #fdfbf5, inset 0 0 0 4px rgba(176,138,62,.45)", width: "100%", maxWidth: 680, margin: "0 auto", aspectRatio: "1672 / 941", background: "#34508c" }}>
+        <img src={`${ART_URL}calcroom.webp`} alt="計算問題 周回の部屋 ― 関数電卓で、解く力を磨く" className="w-full h-full" style={{ objectFit: "cover", objectPosition: "center 35%" }} />
+      </div>
+      <div className="text-[11px] mt-1 text-center" style={{ color: "var(--ink-soft)" }}>関数電卓（カシオ fx-JP500）のキー操作つき。記述式の流れ・座標・交点・面積・三角形・端数処理を周回。</div>
     </div>
   );
 
+  // ── キー操作の早押し ──
+  if (drill) {
+    const task = drill.tasks[drill.i];
+    if (!task) {
+      const sec = Math.round((Date.now() - drill.t0) / 1000);
+      return (
+        <div className="space-y-3">{head}
+          <Box title="キー操作の早押し：結果" icon={<Award size={18} />}>
+            <div className="jp text-center"><div style={{ fontFamily: "'Cinzel', serif", fontWeight: 900, fontSize: 28, color: "var(--gold)" }}>{mmss(drill.sec || sec)}</div><div className="text-[11px]" style={{ color: "var(--ink-soft)" }}>押しまちがい {drill.miss}回{drill.best ? "　🏆 自己ベスト！" : ""}</div></div>
+            <div className="grid grid-cols-2 gap-2 mt-3"><button onClick={() => setDrill(null)} className="jp btn-ghost py-2">もどる</button><button onClick={startDrill} className="jp btn-primary py-2">もう一度</button></div>
+          </Box>
+        </div>
+      );
+    }
+    const PAD = ["SHIFT", "MENU", "(", ")", "Ans", "sin", "cos", "tan", "x²", "√", "°'\"", "(-)", "π", "×", "÷", "+", "−", "=", "数"];
+    const press = (k) => {
+      if (k === task.keys[drill.pos]) {
+        const pos = drill.pos + 1;
+        if (pos >= task.keys.length) {
+          const ni = drill.i + 1;
+          if (ni >= drill.tasks.length) { const sec = Math.round((Date.now() - drill.t0) / 1000); const best = actions.logCalcDrill(sec, drill.miss); SFX.play("result"); setDrill({ ...drill, i: ni, pos: 0, sec, best }); return; }
+          SFX.play("defeat"); setDrill({ ...drill, i: ni, pos: 0, flash: null }); return;
+        }
+        setDrill({ ...drill, pos, flash: null });
+      } else { SFX.play("miss"); setDrill({ ...drill, miss: drill.miss + 1, flash: k }); }
+    };
+    return (
+      <div className="space-y-3">
+        <div className="flex items-center justify-between jp text-xs"><button onClick={() => setDrill(null)} style={{ color: "var(--ink-soft)", background: "none", border: "none" }}>✕ やめる</button><span style={{ color: "var(--ink-soft)", fontWeight: 700 }}>{drill.i + 1} / {drill.tasks.length}　⏱ {mmss(Math.round((now - drill.t0) / 1000))}　ミス {drill.miss}</span></div>
+        <Box title="キー操作の早押し" icon={<Pencil size={18} />}>
+          <div className="jp space-y-2">
+            <div className="text-[12px]" style={{ color: "var(--ink)", fontWeight: 800 }}>{task.label}</div>
+            <div className="px-2 py-1.5" style={{ background: "var(--cream)", borderRadius: 8, border: "1px solid var(--rule-soft)" }}><KeySeq seq={task.seq} /></div>
+            <div className="flex flex-wrap gap-1 text-[11px]">{task.keys.map((k, j) => <span key={j} style={{ ...KEYCAP, opacity: j < drill.pos ? 0.35 : 1, outline: j === drill.pos ? "2px solid #d6b56a" : "none" }}>{k}</span>)}</div>
+            <p className="text-[10px]" style={{ color: "var(--ink-mute)" }}>上の順に、下のキーを押してください。数字のところは「数」をまとめて1回押します。</p>
+            <div className="grid grid-cols-5 gap-1.5 p-2" style={{ background: "#2a3550", borderRadius: 10 }}>
+              {PAD.map((k) => <button key={k} onClick={() => press(k)} style={{ ...KEYCAP, padding: "8px 0", fontSize: 13, background: drill.flash === k ? "#f3c4bf" : k === "SHIFT" ? "linear-gradient(180deg, #f6e2a8, #d6b56a)" : k === "数" ? "linear-gradient(180deg, #dfe8f6, #b8c6dc)" : KEYCAP.background }}>{k}</button>)}
+            </div>
+          </div>
+        </Box>
+      </div>
+    );
+  }
+
   // ── 解いているとき ──
   if (run && run.i < run.list.length) {
-    const it = run.list[run.i], p = run.prob;
+    const it = run.list[run.i], p = run.prob, stages = stagesOf(p), st = stages[run.stage], lastStage = run.stage >= stages.length - 1;
+    const sec = Math.round((now - run.t0) / 1000);
+    const allSteps = stages.slice(0, run.stage + 1).flatMap((x) => x.steps || []);
+    const stageStepCount = (st.steps || []).length;
     const check = () => {
-      const good = p.fields.map((f) => checkCalc2(f, run.vals[f.key]));
+      const good = st.fields.map((f) => checkCalc2(f, run.vals[f.key]));
       const ok = good.every(Boolean);
       SFX.play(ok ? "defeat" : "miss");
-      actions.logCalc2({ type: it.type, id: it.id, ok, fixed: it.fixed });
-      setRun({ ...run, checked: good, results: [...run.results, { it, ok }] });
+      const stageOk = [...run.stageOk, ok];
+      if (lastStage) {
+        const all = stageOk.every(Boolean);
+        const best = actions.logCalc2({ type: it.type, id: it.id, ok: all, fixed: it.fixed, hints: run.hints, sec: Math.round((Date.now() - run.t0) / 1000) });
+        setRun({ ...run, checked: good, stageOk, results: [...run.results, { it, ok: all, sec: Math.round((Date.now() - run.t0) / 1000), best }] });
+      } else setRun({ ...run, checked: good, stageOk });
     };
+    const nextStage = () => setRun({ ...run, stage: run.stage + 1, vals: {}, checked: null, hintOpen: 0 });
     const next = () => {
       const ni = run.i + 1;
       if (ni >= run.list.length) { if (timerMine.current) { stopTimer(); timerMine.current = false; } SFX.play("result"); setRun({ ...run, i: ni }); return; }
-      setRun({ ...run, i: ni, prob: makeCalc2(run.list[ni].type, run.list[ni].seed), vals: {}, checked: null });
+      setRun({ ...run, i: ni, prob: makeCalc2(run.list[ni].type, run.list[ni].seed), stage: 0, vals: {}, checked: null, stageOk: [], hints: 0, hintOpen: 0, t0: Date.now(), missPick: null });
     };
     const inp = { background: "var(--paper)", border: "1px solid var(--rule)", borderRadius: 6, color: "var(--ink)", padding: "6px 8px", fontSize: 15, width: "100%", fontFamily: "ui-monospace, monospace" };
     const setV = (k, v) => setRun((r) => ({ ...r, vals: { ...r.vals, [k]: v } }));
+    const hintOpen = run.hintOpen || 0;
+    const res = run.results[run.results.length - 1];
+    const problemDone = lastStage && run.checked;
     return (
       <div className="space-y-3">
         <div className="flex items-center justify-between jp text-xs">
           <button onClick={() => { if (confirm("やめますか？（答えた問題の記録は残ります）")) { if (timerMine.current) { stopTimer(); timerMine.current = false; } setRun(null); } }} style={{ color: "var(--ink-soft)", background: "none", border: "none" }}>✕ やめる</button>
-          <span style={{ color: "var(--ink-soft)", fontWeight: 700 }}>{run.i + 1} / {run.list.length}問　正解 {run.results.filter((x) => x.ok).length}</span>
+          <span style={{ color: "var(--ink-soft)", fontWeight: 700 }}>{run.i + 1} / {run.list.length}問　正解 {run.results.filter((x) => x.ok).length}　⏱ {problemDone && res ? mmss(res.sec) : mmss(sec)}</span>
         </div>
         <Box title={CALC2_TYPES[it.type]} icon={<Pencil size={18} />}>
           <div className="jp space-y-2">
-            <div className="text-[10px]" style={{ color: "var(--ink-mute)" }}>{it.label}</div>
+            <div className="text-[10px]" style={{ color: "var(--ink-mute)" }}>{it.label}{(c2.best || {})[it.type] ? `　自己ベスト ${mmss(c2.best[it.type])}` : ""}</div>
             {p.pts && p.pts.length > 0 && <CalcFigure prob={p} />}
             {p.pts && p.pts.length > 0 && (
               <div className="grid grid-cols-2 gap-x-3 text-[12px]" style={{ fontFamily: "ui-monospace, monospace", color: "var(--ink)" }}>
@@ -15455,8 +15542,12 @@ function CalcTab({ state, actions, startTimer, stopTimer }) {
               </div>
             )}
             {(p.given || []).map((g, i) => <div key={i} className="text-[13px]" style={{ color: "var(--ink)" }}>{g}</div>)}
-            <div className="text-sm px-2 py-1.5" style={{ background: "var(--cream)", border: "1px solid var(--rule-soft)", borderRadius: 8, color: "var(--ink)", fontWeight: 700 }}>{p.ask}</div>
-            {p.fields.map((f, k) => (
+            {stages.length > 1 && (
+              <div className="flex gap-1">{stages.map((_, k) => <span key={k} className="flex-1 text-center text-[10px] py-0.5" style={{ borderRadius: 4, background: k < run.stage ? (run.stageOk[k] ? "rgba(109,132,84,0.2)" : "rgba(201,86,78,0.15)") : k === run.stage ? "var(--cream)" : "var(--paper)", border: `1px solid ${k === run.stage ? "var(--gold)" : "var(--rule-soft)"}`, color: "var(--ink)", fontWeight: k === run.stage ? 800 : 500 }}>第{k + 1}段{k < run.stage ? (run.stageOk[k] ? " ○" : " ✕") : ""}</span>)}</div>
+            )}
+            {stages.slice(0, run.stage).map((x, k) => <div key={k} className="text-[11px] px-2 py-1" style={{ background: "var(--paper)", border: "1px dashed var(--rule-soft)", borderRadius: 6, color: "var(--ink-soft)" }}>第{k + 1}段の答え：{x.fields.map((f) => `${f.label} ${fieldAnsText(f)}`).join("　")}（次の段はこの値を使います）</div>)}
+            <div className="text-sm px-2 py-1.5" style={{ background: "var(--cream)", border: "1px solid var(--rule-soft)", borderRadius: 8, color: "var(--ink)", fontWeight: 700 }}>{st.ask}</div>
+            {st.fields.map((f, k) => (
               <div key={f.key} className="flex items-center gap-2">
                 <span className="text-xs" style={{ width: 64, flexShrink: 0, color: "var(--ink-soft)", fontWeight: 700 }}>{f.label}</span>
                 {f.kind === "dms" ? (
@@ -15469,16 +15560,24 @@ function CalcTab({ state, actions, startTimer, stopTimer }) {
                 {run.checked && <span style={{ fontWeight: 900, color: run.checked[k] ? "var(--sage)" : "#c9564e" }}>{run.checked[k] ? "○" : "✕"}</span>}
               </div>
             ))}
-            {!run.checked ? <button onClick={check} className="btn-primary w-full py-2">答え合わせ</button> : (<>
-              <div className="px-2 py-2 space-y-1" style={{ background: "var(--sky-pale)", border: "1px solid var(--gold)", borderRadius: 8 }}>
-                <div className="text-xs" style={{ fontWeight: 800, color: "var(--ink)" }}>答え：{p.fields.map((f) => `${f.label} ${fieldAnsText(f)}`).join("　")}</div>
-                <div className="text-[10px]" style={{ color: "var(--ink-mute)", fontWeight: 700 }}>解き方</div>
-                {p.steps.map((st, i) => <div key={i} className="text-[12px]" style={{ color: "var(--ink)", lineHeight: 1.7 }}>{st}</div>)}
+            {!run.checked && (<>
+              {/* 段階ヒント：1手順ずつ開ける */}
+              {hintOpen > 0 && <div className="px-2 py-1.5 space-y-0.5" style={{ background: "rgba(214,181,106,0.12)", border: "1px dashed var(--gold)", borderRadius: 8 }}>{(st.steps || []).slice(0, hintOpen).map((h, i) => <div key={i} className="text-[12px]" style={{ color: "var(--ink)" }}>💡 ヒント{i + 1}：{h}</div>)}</div>}
+              <div className="grid grid-cols-3 gap-2">
+                <button disabled={hintOpen >= stageStepCount} onClick={() => setRun({ ...run, hintOpen: hintOpen + 1, hints: run.hints + 1 })} className="btn-ghost py-2 text-xs" style={{ opacity: hintOpen >= stageStepCount ? 0.4 : 1 }}>💡 ヒント（{hintOpen}/{stageStepCount}）</button>
+                <button onClick={check} className="btn-primary py-2 col-span-2">答え合わせ</button>
               </div>
-              {p.keys && p.keys.length > 0 && (
+            </>)}
+            {run.checked && (<>
+              <div className="px-2 py-2 space-y-1" style={{ background: "var(--sky-pale)", border: "1px solid var(--gold)", borderRadius: 8 }}>
+                <div className="text-xs" style={{ fontWeight: 800, color: "var(--ink)" }}>答え：{st.fields.map((f) => `${f.label} ${fieldAnsText(f)}`).join("　")}</div>
+                <div className="text-[10px]" style={{ color: "var(--ink-mute)", fontWeight: 700 }}>解き方</div>
+                {(st.steps || []).map((x, i) => <div key={i} className="text-[12px]" style={{ color: "var(--ink)", lineHeight: 1.7 }}>{x}</div>)}
+              </div>
+              {st.keys && st.keys.length > 0 && (
                 <div className="px-2 py-2 space-y-2" style={{ background: "#1f2a44", border: "1px solid #b08a3e", borderRadius: 8 }}>
                   <div className="text-[11px]" style={{ color: "#f1dfae", fontWeight: 800 }}>🧮 fx-JP500 のキー操作</div>
-                  {p.keys.map((k, i) => (
+                  {st.keys.map((k, i) => (
                     <div key={i} className="px-2 py-1.5" style={{ background: "#fdfbf5", borderRadius: 6 }}>
                       <div className="text-[10px] mb-1" style={{ color: "var(--ink-soft)", fontWeight: 700 }}>{i + 1}．{k.label}</div>
                       <KeySeq seq={k.seq} />
@@ -15488,8 +15587,18 @@ function CalcTab({ state, actions, startTimer, stopTimer }) {
                   ))}
                 </div>
               )}
-              <button onClick={next} className="btn-primary w-full py-2">{run.i + 1 >= run.list.length ? "結果を見る" : "次の問題へ"}</button>
+              {problemDone && p.verify && p.verify.length > 0 && <div className="px-2 py-1.5 text-[11px]" style={{ background: "rgba(109,132,84,0.08)", border: "1px solid rgba(109,132,84,0.5)", borderRadius: 8, color: "var(--ink)" }}><b>✔ 検算：</b>{p.verify.join(" ")}</div>}
+              {problemDone && res && res.ok && res.best && <div className="text-center text-[12px]" style={{ color: "var(--gold)", fontWeight: 800 }}>🏆 自己ベスト更新！ {mmss(res.sec)}</div>}
+              {problemDone && res && !res.ok && (
+                <div className="px-2 py-1.5" style={{ background: "rgba(201,86,78,0.06)", border: "1px solid #e0948a", borderRadius: 8 }}>
+                  <div className="text-[11px] mb-1" style={{ color: "var(--ink)", fontWeight: 700 }}>まちがえた原因は？（記録して傾向を見ます）</div>
+                  <div className="flex flex-wrap gap-1.5 text-[11px]">{CALC_MISS.map(([id, l]) => <button key={id} disabled={!!run.missPick} onClick={() => { actions.logCalcMiss(it.type, id); setRun({ ...run, missPick: id }); }} className="px-2 py-0.5" style={chip(run.missPick === id)}>{l}</button>)}</div>
+                </div>
+              )}
+              {!lastStage ? <button onClick={nextStage} className="btn-primary w-full py-2">第{run.stage + 2}段へ</button>
+                : <button onClick={next} className="btn-primary w-full py-2">{run.i + 1 >= run.list.length ? "結果を見る" : "次の問題へ"}</button>}
             </>)}
+            {allSteps.length === 0 && null}
           </div>
         </Box>
       </div>
@@ -15504,7 +15613,7 @@ function CalcTab({ state, actions, startTimer, stopTimer }) {
         {head}
         <Box title="結果" icon={<Award size={18} />}>
           <div className="jp text-center"><div style={{ fontFamily: "'Cinzel', serif", fontWeight: 900, fontSize: 30, color: "var(--gold)" }}>{ok} / {run.results.length}</div></div>
-          <div className="jp space-y-0.5 mt-2">{run.results.map((r, i) => <div key={i} className="text-[11px] flex gap-2"><span style={{ color: r.ok ? "var(--sage)" : "#c9564e", fontWeight: 900 }}>{r.ok ? "○" : "✕"}</span><span style={{ color: "var(--ink)" }}>{r.it.label}</span></div>)}</div>
+          <div className="jp space-y-0.5 mt-2">{run.results.map((r, i) => <div key={i} className="text-[11px] flex gap-2"><span style={{ color: r.ok ? "var(--sage)" : "#c9564e", fontWeight: 900 }}>{r.ok ? "○" : "✕"}</span><span className="flex-1" style={{ color: "var(--ink)" }}>{r.it.label}</span><span style={{ color: r.best ? "var(--gold)" : "var(--ink-mute)" }}>{mmss(r.sec)}{r.best ? "🏆" : ""}</span></div>)}</div>
           <div className="grid grid-cols-2 gap-2 mt-3"><button onClick={() => setRun(null)} className="jp btn-ghost py-2">もどる</button><button onClick={start} className="jp btn-primary py-2">もう1セット</button></div>
         </Box>
       </div>
@@ -15512,9 +15621,10 @@ function CalcTab({ state, actions, startTimer, stopTimer }) {
   }
 
   // ── 開始前 ──
-  const stats = c2.stats || {};
+  const stats = c2.stats || {}, best = c2.best || {}, miss = c2.miss || {};
   const doneN = fixedIds.filter((x) => fixedDone[x.id]).length;
   const wrongN = fixedIds.filter((x) => fixedRes[x.id] && !fixedRes[x.id].last).length;
+  const missTotal = CALC_MISS.reduce((t, [id]) => t + (miss[id] || 0), 0);
   return (
     <div className="space-y-3">
       {head}
@@ -15527,7 +15637,7 @@ function CalcTab({ state, actions, startTimer, stopTimer }) {
               <div key={g.id} className="px-2 py-1.5" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)", borderRadius: 8 }}>
                 <button onClick={() => setPicked(all ? picked.filter((t) => !g.types.includes(t)) : [...new Set([...picked, ...g.types])])} className="text-xs mb-1" style={{ background: "none", border: "none", color: "var(--ink)", fontWeight: 800, cursor: "pointer" }}>{all ? "☑" : some ? "▣" : "☐"} {g.name}</button>
                 <div className="flex flex-wrap gap-1.5 text-[11px]">
-                  {g.types.map((t) => { const st = stats[t]; return <button key={t} onClick={() => toggleType(t)} className="px-2.5 py-0.5" style={chip(picked.includes(t))}>{picked.includes(t) ? "☑ " : "☐ "}{CALC2_TYPES[t]}{st && st.n ? <span style={{ color: "var(--ink-mute)", fontWeight: 500 }}>　{Math.round((st.ok / st.n) * 100)}%</span> : null}</button>; })}
+                  {g.types.map((t) => { const s2 = stats[t]; return <button key={t} onClick={() => toggleType(t)} className="px-2.5 py-0.5" style={chip(picked.includes(t))}>{picked.includes(t) ? "☑ " : "☐ "}{CALC2_TYPES[t]}{s2 && s2.n ? <span style={{ color: "var(--ink-mute)", fontWeight: 500 }}>　{Math.round((s2.ok / s2.n) * 100)}%</span> : null}{best[t] ? <span style={{ color: "var(--gold)", fontWeight: 500 }}>　🏆{mmss(best[t])}</span> : null}</button>; })}
                 </div>
               </div>
             );
@@ -15536,14 +15646,31 @@ function CalcTab({ state, actions, startTimer, stopTimer }) {
       </Box>
       <Box title="出し方（☑で選ぶ・両方もOK）" icon={<Shuffle size={18} />}>
         <div className="jp space-y-2">
-          <button onClick={() => setModes({ ...modes, random: !modes.random })} className="w-full text-left text-sm px-2 py-1.5" style={chip(modes.random)}>{modes.random ? "☑" : "☐"} 毎回数字が変わる問題<span className="block text-[10px]" style={{ color: "var(--ink-mute)", fontWeight: 500 }}>何度でも新しい数字で練習。種類ごとの正答率を記録します</span></button>
+          <button onClick={() => setModes({ ...modes, random: !modes.random })} className="w-full text-left text-sm px-2 py-1.5" style={chip(modes.random)}>{modes.random ? "☑" : "☐"} 毎回数字が変わる問題<span className="block text-[10px]" style={{ color: "var(--ink-mute)", fontWeight: 500 }}>何度でも新しい数字で練習。種類ごとの正答率と自己ベストを記録します</span></button>
           <button onClick={() => setModes({ ...modes, fixed: !modes.fixed })} className="w-full text-left text-sm px-2 py-1.5" style={chip(modes.fixed)}>{modes.fixed ? "☑" : "☐"} 決まった問題集を周回（種類ごとに{FIXED_PER_TYPE}問）<span className="block text-[10px]" style={{ color: "var(--ink-mute)", fontWeight: 500 }}>いつも同じ数字。全{CALC2_ALL.length * FIXED_PER_TYPE}問を解くと1周で、周回スタンプと300G。いま第{lap}周・{Object.keys(fixedDone).length}/{CALC2_ALL.length * FIXED_PER_TYPE}問</span></button>
           {modes.fixed && <button onClick={() => setWrongOnly(!wrongOnly)} className="text-[11px] w-full text-left" style={{ background: "none", border: "none", color: "var(--ink)", cursor: "pointer" }}>{wrongOnly ? "☑" : "☐"} 問題集は、前回まちがえた問題だけ（{wrongN}問）</button>}
           <div className="flex items-center gap-1.5 text-[11px]" style={{ color: "var(--ink-soft)" }}>1セット {[5, 10, 20].map((n) => <button key={n} onClick={() => setCount(n)} className="px-2.5 py-0.5" style={chip(count === n)}>{n}問</button>)}</div>
           <button onClick={start} disabled={!picked.length || (!modes.random && !modes.fixed)} className="btn-primary w-full py-2.5 text-base">計算をはじめる</button>
           {modes.fixed && <p className="text-[10px]" style={{ color: "var(--ink-mute)" }}>選んだ種類の問題集のうち、この周でまだ解いていない問題から出します（選んだ種類では {doneN}/{fixedIds.length}問）。</p>}
+          <p className="text-[10px]" style={{ color: "var(--ink-mute)" }}>答え合わせの前に「💡ヒント」で1手順ずつ開けられます（使った数も記録）。1問ごとの時間を測り、正解したときの最速を自己ベストとして残します。</p>
         </div>
       </Box>
+      <Box title="キー操作の早押し" icon={<Clock size={18} />}>
+        <div className="jp space-y-2">
+          <p className="text-[11px]" style={{ color: "var(--ink-soft)" }}>選んだ種類の問題から、fx-JP500 のキー操作を5つ。画面のキーを正しい順にタップして、指に手順を覚えさせます。時間と押しまちがいを記録します。</p>
+          <button onClick={startDrill} disabled={!picked.length} className="btn-sky w-full py-2">早押しをはじめる{(c2.drill || {}).best ? `（自己ベスト ${mmss(c2.drill.best)}）` : ""}</button>
+        </div>
+      </Box>
+      {missTotal > 0 && (
+        <Box title="計算ミスの傾向" icon={<TrendingUp size={18} />}>
+          <div className="jp space-y-1">
+            {CALC_MISS.filter(([id]) => miss[id]).sort((a, b) => miss[b[0]] - miss[a[0]]).map(([id, l]) => (
+              <div key={id}><div className="flex text-[11px]"><span className="flex-1" style={{ color: "var(--ink)" }}>{l}</span><span style={{ color: "var(--ink-soft)" }}>{miss[id]}回</span></div><div style={{ height: 5, borderRadius: 3, background: "var(--beige)", overflow: "hidden" }}><div style={{ width: `${(miss[id] / missTotal) * 100}%`, height: "100%", background: "#c9564e" }} /></div></div>
+            ))}
+            <p className="text-[10px]" style={{ color: "var(--ink-mute)" }}>{(() => { const top = CALC_MISS.filter(([id]) => miss[id]).sort((a, b) => miss[b[0]] - miss[a[0]])[0]; return top ? { sign: "符号のミスが多めです。ΔX・ΔY は「後の点 − 前の点」と決めて、毎回同じ順で引きましょう。", quad: "象限のミスが多めです。Pol の θ がマイナスなら360°を足す、を習慣に。", round: "端数処理のミスが多めです。地積は規則100条、床面積は規則115条の桁を確かめましょう。", input: "電卓の入力ミスが多めです。「キー操作の早押し」で手順を指に覚えさせましょう。", formula: "公式・手順のミスが多めです。答え合わせの前に「💡ヒント」で手順を確かめましょう。", other: "答えを出したら、検算の手順で確かめる習慣をつけましょう。" }[top[0]] : ""; })()}</p>
+          </div>
+        </Box>
+      )}
       <Box title="fx-JP500 の準備" icon={<Bookmark size={18} />}>
         <div className="jp text-[11px] space-y-1" style={{ color: "var(--ink)" }}>
           <div>・角度の単位を「度」にする：<KeySeq seq={["[SHIFT]", "[MENU]", "(設定)"]} /> → 角度単位 → 度（D）</div>
