@@ -13757,7 +13757,7 @@ function LapRoom({ state, actions, rpgActions }) {
   const stamps = state.questionBanks.reduce((a, b) => a + (b.clears || 0), 0);
   return (
     <div className="space-y-4">
-      <div className="relative overflow-hidden" style={{ borderRadius: 12, border: "1px solid #b08a3e", boxShadow: "inset 0 0 0 3px #fdfbf5, inset 0 0 0 4px rgba(176,138,62,.45)", aspectRatio: "16 / 9", maxHeight: 300 }}>
+      <div className="relative overflow-hidden" style={{ borderRadius: 12, border: "1px solid #b08a3e", boxShadow: "inset 0 0 0 3px #fdfbf5, inset 0 0 0 4px rgba(176,138,62,.45)", width: "100%", aspectRatio: "16 / 9" }}>
         <img src={`${ART_URL}laproom.webp`} alt="周回の部屋 ― くり返し解いて、知識を定着" className="w-full h-full" style={{ objectFit: "cover", objectPosition: "center 40%" }} />
       </div>
       <div className="jp grid grid-cols-3 gap-2">
