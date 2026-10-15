@@ -1463,6 +1463,19 @@ function StudyRPG({ user }) {
     window.addEventListener("sq-q-patch", on);
     return () => window.removeEventListener("sq-q-patch", on);
   }, []);
+  // 言葉の一括置換（問題タブ）：文字だけを置き換え、学習の記録は残す
+  useEffect(() => {
+    const on = (e) => {
+      const { from, to, where } = e.detail || {};
+      if (!from) return;
+      const swap = (t) => String(t || "").split(from).join(to);
+      setState((s) => ({ ...s, questionBanks: s.questionBanks.map((b) => (b.questions || []).some((q) => (where !== "a" && String(q.q || "").includes(from)) || (where !== "q" && String(q.a || "").includes(from)))
+        ? { ...b, questions: b.questions.map((q) => ({ ...q, ...(where !== "a" && String(q.q || "").includes(from) ? { q: swap(q.q) } : {}), ...(where !== "q" && String(q.a || "").includes(from) ? { a: swap(q.a) } : {}) })) }
+        : b) }));
+    };
+    window.addEventListener("sq-bulk-replace", on);
+    return () => window.removeEventListener("sq-bulk-replace", on);
+  }, []);
   const recordRef = useRef(null);
   useEffect(() => {
     const on = (e) => { const d = e.detail || {}; if (d.bankId && d.qId && recordRef.current) recordRef.current(d.bankId, d.qId, !!d.correct, d.meta || null); };
@@ -2099,6 +2112,12 @@ function StudyRPG({ user }) {
     // 特別な出題の結果：週末の抜き打ちテスト・寝る前の復習・朝の確認
     finishSpecial: (info, result) => {
       const ok = result.sure + result.unsure, n = ok + result.wrong, d = todayStr();
+      if (info.kind === "weekday" && normRpg(stateRef.current.rpg).weekdayDone !== d) {
+        const gold = ok * 20, fid = (MON_THEMES.find((t) => t.region === info.region) || MON_THEME_DEFAULT).mat;
+        updateRpg((x) => ({ ...x, weekdayDone: d, gold: x.gold + gold, goldEarned: x.goldEarned + gold, materials: { ...x.materials, [fid]: ((x.materials || {})[fid] || 0) + Math.max(1, Math.ceil(ok / 2)) } }));
+        if (ok) setTimeout(() => awardXp(ok * 6), 200);
+        setTimeout(() => showRpgToast(`🗓 曜日の迷宮をクリア！ 報酬2倍：${gold}G・${(matById(fid) || {}).name}×${Math.max(1, Math.ceil(ok / 2))}`, "#b08a3e"), 400);
+      }
       if (info.kind === "weekly") updateRpg((x) => { const wt = { ...(x.weeklyTest || {}), [info.wk]: { ok, n, d } }; const keys = Object.keys(wt).sort().slice(-26); return { ...x, weeklyTest: Object.fromEntries(keys.map((k) => [k, wt[k]])) }; });
       if (info.kind === "night") updateRpg((x) => ({ ...x, sleep: { date: d, ids: info.ids || [], night: { ok, n } } }));
       if (info.kind === "morning") updateRpg((x) => ({ ...x, sleep: { ...(x.sleep || {}), morning: d, mres: { ok, n } } }));
@@ -2121,6 +2140,19 @@ function StudyRPG({ user }) {
     },
     logPace: (rec) => updateRpg((x) => ({ ...x, pace: { log: [...(((x.pace || {}).log) || []), { d: todayStr(), ...rec }].slice(-40) } })),
     logLawListen: (n, ok) => { updateRpg((x) => ({ ...x, lawListen: { n: ((x.lawListen || {}).n || 0) + n, ok: ((x.lawListen || {}).ok || 0) + ok } })); if (ok) setTimeout(() => awardXp(ok * 4), 150); },
+    logNumQuiz: (n, ok) => { updateRpg((x) => ({ ...x, numQuiz: { n: ((x.numQuiz || {}).n || 0) + n, ok: ((x.numQuiz || {}).ok || 0) + ok } })); if (ok) setTimeout(() => awardXp(ok * 4), 150); },
+    logShoCheck: (miss) => updateRpg((x) => ({ ...x, shoCheck: { log: [...(((x.shoCheck || {}).log) || []), { d: todayStr(), miss }].slice(-60) } })),
+    addMock: (m) => updateRpg((x) => ({ ...x, mocks: [...(x.mocks || []), m].sort((a, b) => (a.d < b.d ? -1 : 1)).slice(-60) })),
+    removeMock: (id) => updateRpg((x) => ({ ...x, mocks: (x.mocks || []).filter((m) => m.id !== id) })),
+    claimErrand: (ans) => {
+      const r0 = normRpg(stateRef.current.rpg);
+      if (r0.errand === todayStr()) return;
+      const fid = FRAG_IDS[Math.floor(Math.random() * FRAG_IDS.length)];
+      const gold = ans >= 60 ? 150 : ans >= 30 ? 100 : 50, frag = ans >= 30 ? 3 : 2, star = ans >= 30 ? 1 : 0, potion = ans >= 60 ? 1 : 0;
+      updateRpg((x) => ({ ...x, errand: todayStr(), gold: x.gold + gold, goldEarned: x.goldEarned + gold, materials: { ...x.materials, [fid]: ((x.materials || {})[fid] || 0) + frag, ...(star ? { "m-star": ((x.materials || {})["m-star"] || 0) + star } : {}) }, consumables: { ...x.consumables, potion: (x.consumables.potion || 0) + potion } }));
+      SFX.play("drop");
+      showRpgToast(`🐾 おつかいの成果：${gold}G・${(matById(fid) || {}).name}×${frag}${star ? "・星霊石×1" : ""}${potion ? "・回復薬×1" : ""}`, "#b08a3e");
+    },
     markArc: (region, key) => updateRpg((x) => ({ ...x, arcSeen: { ...x.arcSeen, [`${region}:${key}`]: todayStr() } })),
     // 試練の塔の結果：80%で突破。初突破でゴールド・欠片、試練の間（10の倍数の階）で星霊石と演出、50・100階で賢者の結晶
     towerFinish: ({ floor, acc }) => {
@@ -3392,7 +3424,7 @@ function StudyRPG({ user }) {
           {tab === "task" && <TaskTab state={state} addTask={addTask} completeTask={completeTask} deleteTask={deleteTask} addPreset={addPreset} deletePreset={deletePreset} updatePreset={updatePreset} />}
           {tab === "timer" && <TimerTab state={state} liveSeconds={liveSeconds} startTimer={startTimer} stopTimer={stopTimer} cancelTimer={cancelTimer} addManualLog={addManualLog} deleteLog={deleteLog} focusActions={focusActions} />}
           {tab === "memo" && <MemoTab state={state} addStudyNote={addStudyNote} updateStudyNote={updateStudyNote} deleteStudyNote={deleteStudyNote} addFolder={addFolder} deleteFolder={deleteFolder} renameFolder={renameFolder} reorderFolders={reorderFolders} />}
-          {tab === "laps" && <LapRoom state={state} actions={planActions} />}
+          {tab === "laps" && <LapRoom state={state} actions={planActions} rpgActions={rpgActions} />}
           {tab === "rules" && <RuleBook state={state} />}
           {tab === "qbank" && <QBankTab openBankReq={openBankReq} onOpenedBank={() => setOpenBankReq(null)} onPlanWeakDone={(id) => markPlanBank(id, true)} state={state} addBank={addQuestionBank} deleteBank={deleteBank} recordAnswer={recordAnswer} recordRevengeAnswer={recordRevengeAnswer} awardXp={awardXp} startTimer={startTimer} stopTimer={stopTimer} incrementBankClears={incrementBankClears} updateBestStreak={updateBestStreak} moveBank={moveBank} addCloze={addCloze} deleteCloze={deleteCloze} recordClozeAnswer={recordClozeAnswer} recordClozeRevengeAnswer={recordClozeRevengeAnswer} toggleQuestionMark={toggleQuestionMark} toggleClozeMark={toggleClozeMark} recordClearSnapshot={recordClearSnapshot} createClozeBank={createClozeBank} updateQuestionFormats={updateQuestionFormats} addQuestionToBank={addQuestionToBank} editQuestion={editQuestion} deleteQuestion={deleteQuestion} moveQuestions={moveQuestions} editBankMeta={editBankMeta} addFolder={addFolder} deleteFolder={deleteFolder} renameFolder={renameFolder} reorderFolders={reorderFolders} addStudyNote={addStudyNote} updateStudyNote={updateStudyNote} deleteStudyNote={deleteStudyNote} moveBankToFolder={moveBankToFolder} saveSessionResume={saveSessionResume} clearSessionResume={clearSessionResume} editBankClears={editBankClears} updateQuestionMemo={updateQuestionMemo} toggleQuestionExclude={toggleQuestionExclude} />}
         </div>
@@ -5141,6 +5173,7 @@ function QBankTab(props) {
           <button onClick={() => setClozeCompileMode(true)} className="jp btn-primary py-2 flex items-center justify-center gap-1 text-xs"><BookOpen size={14} /> 穴埋め問題集を作成</button>
         </div>
         <button onClick={() => setTrapMode(true)} className="jp btn-ghost w-full py-1.5 text-xs mb-2">⚡ ○×の「ひっかけ版」をつくる</button>
+        <BulkTools state={state} />
         <button onClick={() => setFolderManagerOpen(!folderManagerOpen)} className="jp w-full py-1.5 text-xs flex items-center justify-center gap-1" style={{ background: folderManagerOpen ? "var(--sky-pale)" : "var(--paper)", border: "1px solid var(--rule-soft)", color: "var(--ink)" }}>
           <FolderIcon size={13} /> フォルダを管理 {folders.length > 0 && `(${folders.length})`}
         </button>
@@ -8267,10 +8300,20 @@ const equippedWeaponId = (r) => { const inv = r.inventory.find((v) => v.u === r.
 const rpgEquippedItems = (r) => RPG_SLOTS.map((s) => rpgInvItem(r.inventory.find((v) => v.u === r.equipped[s.id]))).filter(Boolean);
 
 // 装備とステータスから、実際の効果を計算する
+// 装備のセット効果：同じシリーズの武器・防具・アクセサリーを3つそろえると、ボーナス
+const GEAR_SETS = [
+  { id: "border", name: "境界の守り手", items: ["w-holy", "a-border", "x-charm"], fx: { bossDmgPct: 15, dmgCutPct: 10 } },
+  { id: "sky", name: "天空の賢者", items: ["w-star", "a-angel", "x-ring"], fx: { xpPct: 15, critPct: 5 } },
+  { id: "azure", name: "蒼の騎士", items: ["w-sky", "a-dragon", "x-pendant"], fx: { bossDmgPct: 20, hpPlus: 20 } },
+  { id: "start", name: "旅立ちの装い", items: ["w-staff", "a-uniform", "x-brooch"], fx: { xpPct: 5, goldPct: 10 } },
+  { id: "survey", name: "測量士の道具", items: ["w-chain", "a-coat", "x-compass"], fx: { critPct: 4, goldPct: 15 } },
+];
+const setStatus = (r) => { const ids = new Set(rpgEquippedItems(r).map((it) => it.id)); return GEAR_SETS.map((st) => ({ ...st, have: st.items.filter((i) => ids.has(i)).length })); };
 function getRpgBonuses(state) {
   const r = normRpg(state.rpg);
   const eq = rpgEquippedItems(r);
-  const gfx = [...getGrowthFx(state), ...r.skills.map((id) => (skillNodes.find((n) => n.id === id) || {}).fx || {}), ...Object.keys(r.regions || {}).filter((k) => r.regions[k].cleared).map((k) => regionInfo(k).emblem.fx), ...activeEvents(state).map((e) => e.fx), ...alliesJoined(r).map((a) => bondFx(a, r))]; // クラス・相棒・覚醒・スキル・地域の紋章・季節のイベント・仲間
+  const setFx = setStatus(r).filter((st) => st.have === 3).map((st) => st.fx);
+  const gfx = [...setFx, ...getGrowthFx(state), ...r.skills.map((id) => (skillNodes.find((n) => n.id === id) || {}).fx || {}), ...Object.keys(r.regions || {}).filter((k) => r.regions[k].cleared).map((k) => regionInfo(k).emblem.fx), ...activeEvents(state).map((e) => e.fx), ...alliesJoined(r).map((a) => bondFx(a, r))]; // クラス・相棒・覚醒・スキル・地域の紋章・季節のイベント・仲間
   const sum = (k) => eq.reduce((a, it) => a + ((it.fx && it.fx[k]) || 0), 0) + gfx.reduce((a, f) => a + (f[k] || 0), 0);
   const st = calculateStatus(state);
   const boostActive = !!(r.boosts.xpUntil && Date.now() < r.boosts.xpUntil);
@@ -11702,6 +11745,7 @@ function WorldView({ state, actions, todayCount, onWeekly, onDungeon, onGuardian
       </>)}
       {sec === "tower" && <TowerView state={state} pp={pp} onStart={onTower} />}
       {sec === "train" && (<>
+        <NumberDeck state={state} actions={actions} />
         <PaceDrill state={state} actions={actions} />
         <KumiaiDrill state={state} actions={actions} />
         <LawListen state={state} actions={actions} />
@@ -11712,6 +11756,7 @@ function WorldView({ state, actions, todayCount, onWeekly, onDungeon, onGuardian
         <SakuzuDrill state={state} actions={actions} />
         <LawCloze state={state} actions={actions} />
         <ShoshikiDojo state={state} actions={actions} />
+        <ShoshikiCheck state={state} actions={actions} />
       </>)}
       {sec === "road" && (<>
         <PartyCard state={state} actions={actions} />
@@ -11723,6 +11768,8 @@ function WorldView({ state, actions, todayCount, onWeekly, onDungeon, onGuardian
       </>)}
       {sec === "quest" && (<>
         <SeasonCard state={state} actions={actions} />
+        <WeekdayDungeon state={state} />
+        <LumiErrand state={state} actions={actions} />
         <StudyGroupCard state={state} onStart={onStudyGroup} />
         <DailyQuests state={state} actions={actions} todayCount={todayCount} />
         <CategoryQuests state={state} pp={pp} actions={actions} />
@@ -11949,6 +11996,7 @@ function AdventureTab({ state, actions, recordAnswer, startTimer, stopTimer, tod
           })}
         </div>
         <div className="jp text-[10px] mt-2 p-2" style={{ background: "var(--cream)", color: "var(--ink-soft)" }}>
+          {setStatus(r).filter((st) => st.have >= 2).map((st) => <div key={st.id} style={{ color: st.have === 3 ? "#b08a3e" : "var(--ink-soft)", fontWeight: st.have === 3 ? 800 : 500 }}>{st.have === 3 ? "✦ セット効果" : "△ あと1つ"}「{st.name}」{st.have}/3：{fxText(st.fx)}{st.have < 3 ? `（${st.items.filter((i) => !rpgEquippedItems(r).some((it) => it.id === i)).map((i) => (rpgItemById(i) || {}).name).join("")}）` : ""}</div>)}
           いまの効果：会心率 {bonus.critPct}% ／ EXP+{bonus.xpPct}% ／ ゴールド+{bonus.goldPct}% ／ ボスへの攻撃+{bonus.bossDmgPct}% ／ 被ダメージ-{bonus.dmgCutPct}% ／ 最大HP {bonus.maxHp}
           <br />会心率はLUK、攻撃はINT、被ダメージ軽減はDEF、HPは連続学習日数とレベルでも上がります。
         </div>
@@ -13666,7 +13714,7 @@ function PlanMaker({ state, onSave, onCancel }) {
   );
 }
 // ── 周回の部屋（下のタブ「周回」）：学習計画・今日のタスク・これまでの周回の記録 ──
-function LapRoom({ state, actions }) {
+function LapRoom({ state, actions, rpgActions }) {
   const plans = state.studyPlans || [];
   const active = plans.filter((p) => !p.finishedAt);
   const left = active.reduce((a, p) => a + planToday(p).pending.length, 0);
@@ -13684,6 +13732,7 @@ function LapRoom({ state, actions }) {
       <PlanTasks state={state} actions={actions} />
       <LapGrowth state={state} actions={actions} />
       <StudyAnalysis state={state} />
+      {rpgActions && <MockLog state={state} actions={rpgActions} />}
       <LapRecordsPanel state={state} />
     </div>
   );
@@ -14382,7 +14431,7 @@ function TodayTab({ state, recordSRAnswer, updateSrSettings, startTimer, stopTim
   useEffect(() => {
     if (!preset) return;
     const items = Array.isArray(preset) ? preset : preset.items;
-    if (items && items.length) startSpecial(items, Array.isArray(preset) ? null : { kind: preset.kind, title: preset.title });
+    if (items && items.length) startSpecial(items, Array.isArray(preset) ? null : (({ items: _i, ...info }) => info)(preset));
     if (onPresetUsed) onPresetUsed();
   }, [preset]);
   // 特別な出題が終わったら、結果を記録（抜き打ちテストの点数・寝る前と朝の確認）
@@ -14480,6 +14529,7 @@ function TodayTab({ state, recordSRAnswer, updateSrSettings, startTimer, stopTim
           )}
         </Box>
         <MemoryReportCard state={state} />
+        <Prescription state={state} />
         <BountyBoard state={state} actions={rpgActionsForPairs} onStart={startSpecial} />
         <SpecialQuizCards state={state} onStart={startSpecial} />
         <ListenMode state={state} due={due} toggleQuestionMark={toggleQuestionMark} />
@@ -14499,7 +14549,7 @@ function TodayTab({ state, recordSRAnswer, updateSrSettings, startTimer, stopTim
         {pInfo && (
           <div className="jp text-center mb-2 px-2 py-2" style={{ background: "var(--cream)", border: "1px solid var(--gold)", borderRadius: 8 }}>
             <div style={{ fontFamily: "'Cinzel', serif", fontWeight: 900, fontSize: 28, color: "var(--gold)" }}>{okN} / {allN}</div>
-            <div className="text-[11px]" style={{ color: "var(--ink-soft)" }}>{pInfo.kind === "bounty" ? "正解した賞金首は★が1つ増えます。ちがう日に3回続けて正解すると、依頼書から報酬を受け取れます。" : pInfo.kind === "weekly" ? "今週の抜き打ちテストの点数として記録しました。" : pInfo.kind === "night" ? "おやすみなさい。明日の朝、同じ問題でもう一度確かめましょう。" : pInfo.kind === "morning" ? (result.wrong ? "まだ残っている所は、自分ルールやメモで補強しましょう。" : "ひと晩たっても覚えていました。記憶が定着しています！") : pInfo.kind === "pretest" ? "わからなくて大丈夫。先に「わからない」を体験すると、このあと学ぶ内容が頭に入りやすくなります。" : "おつかれさまでした。"}</div>
+            <div className="text-[11px]" style={{ color: "var(--ink-soft)" }}>{pInfo.kind === "weekday" ? "曜日の迷宮の報酬は、正解1問につき20G（ふだんの2倍）と、その科目の欠片です（1日1回）。" : pInfo.kind === "bounty" ? "正解した賞金首は★が1つ増えます。ちがう日に3回続けて正解すると、依頼書から報酬を受け取れます。" : pInfo.kind === "weekly" ? "今週の抜き打ちテストの点数として記録しました。" : pInfo.kind === "night" ? "おやすみなさい。明日の朝、同じ問題でもう一度確かめましょう。" : pInfo.kind === "morning" ? (result.wrong ? "まだ残っている所は、自分ルールやメモで補強しましょう。" : "ひと晩たっても覚えていました。記憶が定着しています！") : pInfo.kind === "pretest" ? "わからなくて大丈夫。先に「わからない」を体験すると、このあと学ぶ内容が頭に入りやすくなります。" : "おつかれさまでした。"}</div>
           </div>
         )}
         <BattleResult state={state} battleKey={battleKey} />
@@ -15006,6 +15056,294 @@ function LawListen({ state, actions }) {
         {ll.n ? <p className="text-[10px]" style={{ color: "var(--ink-mute)" }}>これまで {ll.n}条を聞いて、{ll.ok}問正解</p> : null}
       </div>
     </Box>
+  );
+}
+
+// ── 1. 期限・数字の一覧表と暗記クイズ：答えが○の問題文から、期限・数字を集める ──
+const NUM_PICK = /(?:[一二三四五六七八九十百]+|\d+)(?:年|箇月|か月|ヶ月|月|週間|日|時間)(?:以内|以上|以下|未満|を経過|前|後)?|[一二三四五六七八九十百]+分の[一二三四五六七八九十]+|過半数/g;
+const numUnit = (w) => (w.match(/年|箇月|か月|ヶ月|月|週間|日|時間|分の|過半数/) || [""])[0].replace(/箇月|か月|ヶ月/, "月");
+const numDeckCache = new WeakMap();
+function numberDeck(state) {
+  const c = numDeckCache.get(state.questionBanks);
+  if (c) return c;
+  const items = [];
+  state.questionBanks.forEach((b) => (b.questions || []).forEach((q) => {
+    if (q.excluded || !isTrueAnswer(q.a)) return;
+    const t = String(q.q || "");
+    const ms = t.match(NUM_PICK);
+    if (!ms || ms.length !== 1 || t.split(ms[0]).length !== 2) return; // 数字が1つだけの正しい文
+    items.push({ b, q, num: ms[0], unit: numUnit(ms[0]) });
+  }));
+  numDeckCache.set(state.questionBanks, items);
+  return items;
+}
+function NumberDeck({ state, actions }) {
+  const deck = numberDeck(state);
+  const [view, setView] = useState(null); // null | table | quiz
+  const [run, setRun] = useState(null); // { list:[{it, opts}], i, pick, ok }
+  if (deck.length < 4) return null;
+  const groups = new Map(); deck.forEach((it) => { if (!groups.has(it.num)) groups.set(it.num, []); groups.get(it.num).push(it); });
+  const startQuiz = () => {
+    const list = shuffle(deck).slice(0, 8).map((it) => {
+      const same = [...new Set(deck.filter((x) => x.unit === it.unit && x.num !== it.num).map((x) => x.num))];
+      const other = [...new Set(deck.filter((x) => x.num !== it.num).map((x) => x.num))];
+      const opts = shuffle([it.num, ...shuffle(same).slice(0, 3), ...shuffle(other.filter((o) => !same.includes(o))).slice(0, Math.max(0, 3 - same.length))].slice(0, 4));
+      return { it, opts };
+    }).filter((x) => x.opts.length >= 2);
+    setRun({ list, i: 0, pick: null, ok: 0 }); setView("quiz");
+  };
+  if (view === "quiz" && run) {
+    const cur = run.list[run.i];
+    if (!cur) return (
+      <Box title="期限・数字の暗記クイズ" icon={<Calendar size={18} />}>
+        <div className="jp text-center py-2"><div style={{ fontFamily: "'Cinzel', serif", fontWeight: 900, fontSize: 26, color: "var(--gold)" }}>{run.ok} / {run.list.length}</div><button onClick={() => { setRun(null); setView(null); }} className="btn-primary px-6 py-1.5 mt-2 text-sm">もどる</button></div>
+      </Box>
+    );
+    const [pre, post] = String(cur.it.q.q).split(cur.it.num);
+    const answered = run.pick !== null;
+    return (
+      <Box title={`期限・数字の暗記クイズ　${run.i + 1} / ${run.list.length}`} icon={<Calendar size={18} />}>
+        <div className="jp space-y-2">
+          <div className="text-[10px]" style={{ color: "var(--ink-mute)" }}>{cur.it.b.name}</div>
+          <div className="text-sm px-3 py-2" style={{ background: "var(--cream)", border: "1px solid var(--rule-soft)", borderRadius: 8, lineHeight: 1.9, color: "var(--ink)" }}>{pre}<span style={{ display: "inline-block", minWidth: 56, padding: "0 6px", margin: "0 2px", border: "1.5px solid var(--gold)", borderRadius: 4, background: "var(--paper)", fontWeight: 800, textAlign: "center", color: answered ? (run.pick === cur.it.num ? "var(--sage)" : "#c9564e") : "var(--gold)" }}>{answered ? cur.it.num : "？"}</span>{post}</div>
+          <div className="grid grid-cols-2 gap-1.5">
+            {cur.opts.map((o) => { const right = answered && o === cur.it.num, bad = answered && run.pick === o && o !== cur.it.num; return <button key={o} disabled={answered} onClick={() => { const g = o === cur.it.num; SFX.play(g ? "defeat" : "miss"); setRun({ ...run, pick: o, ok: run.ok + (g ? 1 : 0) }); }} className="text-sm px-2 py-2" style={{ borderRadius: 8, border: `1.5px solid ${right ? "var(--sage)" : bad ? "#c9564e" : "var(--rule-soft)"}`, background: right ? "rgba(109,132,84,0.12)" : bad ? "rgba(201,86,78,0.08)" : "var(--paper)", color: "var(--ink)", fontWeight: right ? 800 : 500 }}>{o}</button>; })}
+          </div>
+          {answered && <button onClick={() => { if (run.i + 1 >= run.list.length) { actions.logNumQuiz(run.list.length, run.ok); SFX.play("result"); } setRun({ ...run, i: run.i + 1, pick: null }); }} className="btn-primary w-full py-2">{run.i + 1 >= run.list.length ? "結果を見る" : "次へ"}</button>}
+        </div>
+      </Box>
+    );
+  }
+  return (
+    <Box title="期限・数字の一覧表" icon={<Calendar size={18} />}>
+      <div className="jp space-y-2">
+        <p className="text-[11px]" style={{ color: "var(--ink-soft)" }}>正しい（答えが○の）問題文から、期限や数字（1月以内・2週間・3分の2 など）を集めました。数字ごとの一覧で見比べ、クイズで固めましょう（{deck.length}問・{groups.size}種類）。</p>
+        <div className="grid grid-cols-2 gap-2">
+          <button onClick={() => setView(view === "table" ? null : "table")} className="btn-ghost py-2 text-sm">{view === "table" ? "一覧を閉じる" : "📋 一覧表を見る"}</button>
+          <button onClick={startQuiz} disabled={groups.size < 2} title={groups.size < 2 ? "数字が2種類以上あると出題できます" : undefined} className="btn-primary py-2 text-sm" style={{ opacity: groups.size < 2 ? 0.5 : 1 }}>数字クイズ（8問）</button>
+        </div>
+        {view === "table" && [...groups.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1)).map(([num, its]) => (
+          <div key={num} className="px-2 py-1.5" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)", borderRadius: 6 }}>
+            <div className="text-xs" style={{ fontWeight: 800, color: "var(--gold)" }}>{num}<span className="text-[10px] ml-1" style={{ color: "var(--ink-mute)", fontWeight: 500 }}>{its.length}件</span></div>
+            {its.slice(0, 8).map(({ q, b }) => <div key={q.id} className="text-[11px]" style={{ color: "var(--ink)", lineHeight: 1.6 }}>・{String(q.q).replace(num, `【${num}】`)}<span className="text-[9px] ml-1" style={{ color: "var(--ink-mute)" }}>{b.name}</span></div>)}
+          </div>
+        ))}
+        {(normRpg(state.rpg).numQuiz || {}).n ? <p className="text-[10px]" style={{ color: "var(--ink-mute)" }}>これまで {(normRpg(state.rpg).numQuiz || {}).n}問中 {(normRpg(state.rpg).numQuiz || {}).ok}問正解</p> : null}
+      </div>
+    </Box>
+  );
+}
+
+// ── 2. 間違いの種類別の処方箋：この1週間のまちがいの傾向から、次にやることを案内 ──
+const RX = {
+  knowledge: { name: "知識不足", go: "冒険 → 世界 → 鍛錬「条文の穴埋め」「条文の音読モード」", tip: "覚えていなかった問題が多めです。条文に戻って、言葉ごと覚え直しましょう。" },
+  confusion: { name: "混同", go: "今日タブ「混同ペアの対比カード」", tip: "似た知識の取り違えが多めです。2つを並べて、違いの一点を見つけましょう。" },
+  misread: { name: "読み違い", go: "「Aa 文字」の設定で「ひっかけ言葉の印」をオン", tip: "問題文の読み違いが多めです。否定語・主語・数字に印を付けて読みましょう。" },
+  careless: { name: "ケアレス", go: "冒険 → 世界 → 鍛錬「時間配分トレーニング」", tip: "わかっていたのに落とすミスが多めです。答える前の見直し手順を決めましょう。" },
+  slow: { name: "時間がかかる", go: "冒険 → 世界 → 鍛錬「時間配分トレーニング」", tip: "思い出すまでの時間が長めです。数字や結論を即答できるまで、短い周期で回しましょう。" },
+  sure: { name: "思い込み", go: "周回の部屋 → 学習の分析「思い込み度」", tip: "「確実」で答えてまちがえる問題があります。根拠の条文まで確かめましょう。" },
+};
+function Prescription({ state }) {
+  const from = ymdCode(addDays(todayStr(), -6));
+  const cnt = {};
+  let wrongs = 0;
+  state.questionBanks.forEach((b) => (b.questions || []).forEach((q) => {
+    const wk = (q.ah || []).map(String).filter((h) => h.slice(0, 6) >= from);
+    if (!wk.length) return;
+    const w = wk.filter((h) => h.endsWith("w")).length;
+    if (w) { wrongs += w; Object.keys(q.errTypes || {}).forEach((k) => { cnt[k] = (cnt[k] || 0) + w; }); if (q.lastConf === "wrongSure") cnt.sure = (cnt.sure || 0) + w; }
+    if ((q.ts || []).some((sec) => sec >= (STUDY_PREFS.slowSec || 25))) cnt.slow = (cnt.slow || 0) + 1;
+  }));
+  const ranked = Object.entries(cnt).filter(([k]) => RX[k]).sort((a, b) => b[1] - a[1]);
+  if (!ranked.length || wrongs < 3) return null;
+  const [top, n] = ranked[0];
+  return (
+    <Box title="今週の処方箋" icon={<Bookmark size={18} />}>
+      <div className="jp space-y-1.5">
+        <div className="text-sm" style={{ fontWeight: 800, color: "var(--ink)" }}>💊 いちばん多いのは「{RX[top].name}」（{n}件）</div>
+        <p className="text-[11px]" style={{ color: "var(--ink-soft)" }}>{RX[top].tip}</p>
+        <div className="text-[11px] px-2 py-1.5" style={{ background: "var(--cream)", border: "1px solid var(--gold)", borderRadius: 6, color: "var(--ink)" }}>おすすめ：<b>{RX[top].go}</b></div>
+        {ranked.length > 1 && <p className="text-[10px]" style={{ color: "var(--ink-mute)" }}>ほかに：{ranked.slice(1, 4).map(([k, v]) => `${RX[k].name}${v}件`).join("・")}（この1週間のまちがい {wrongs}回から）</p>}
+      </div>
+    </Box>
+  );
+}
+
+// ── 3. 記述式（書式）の自己点検シート ──
+const SHO_CHECKS = [
+  { id: "purpose", name: "登記の目的" }, { id: "cause", name: "登記原因とその日付" }, { id: "applicant", name: "申請人（表題部所有者・所有権の登記名義人など）" },
+  { id: "attach", name: "添付情報の漏れ" }, { id: "plan", name: "図面（地積測量図・建物図面・各階平面図）" }, { id: "area", name: "地積・床面積の計算と端数処理" },
+  { id: "coord", name: "座標・辺長の計算" }, { id: "lot", name: "地番・家屋番号の付け方" }, { id: "struct", name: "種類・構造の書き方" }, { id: "time", name: "時間配分（書き切れなかった）" },
+];
+function ShoshikiCheck({ state, actions }) {
+  const [miss, setMiss] = useState([]);
+  const [saved, setSaved] = useState(false);
+  const log = (normRpg(state.rpg).shoCheck || {}).log || [];
+  const cnt = {}; log.forEach((l) => (l.miss || []).forEach((id) => { cnt[id] = (cnt[id] || 0) + 1; }));
+  const worst = Object.entries(cnt).sort((a, b) => b[1] - a[1]).slice(0, 3);
+  return (
+    <Box title="書式の自己点検シート" icon={<Pencil size={18} />}>
+      <div className="jp space-y-2">
+        <p className="text-[11px]" style={{ color: "var(--ink-soft)" }}>書式（記述）を1問解いたら、<b>まちがえた・あやしかった項目</b>に☑を付けて記録します。毎回落とす項目が見えてきます。</p>
+        <div className="grid grid-cols-1 gap-1">
+          {SHO_CHECKS.map((c) => { const on = miss.includes(c.id); return <button key={c.id} onClick={() => { setSaved(false); setMiss(on ? miss.filter((x) => x !== c.id) : [...miss, c.id]); }} className="text-left text-[12px] px-2 py-1" style={{ borderRadius: 6, border: `1px solid ${on ? "#c9564e" : "var(--rule-soft)"}`, background: on ? "rgba(201,86,78,0.07)" : "var(--paper)", color: "var(--ink)" }}>{on ? "☑" : "☐"} {c.name}{cnt[c.id] ? <span className="text-[10px] ml-1" style={{ color: "#c9564e" }}>（これまで{cnt[c.id]}回）</span> : null}</button>; })}
+        </div>
+        <button onClick={() => { actions.logShoCheck(miss); setMiss([]); setSaved(true); }} className="btn-primary w-full py-2 text-sm">{miss.length ? `この${miss.length}項目を記録する` : "全部できた！として記録する"}</button>
+        {saved && <p className="text-[11px] text-center" style={{ color: "var(--sage)", fontWeight: 800 }}>記録しました。</p>}
+        {worst.length > 0 && <p className="text-[11px]" style={{ color: "var(--ink)" }}>よく落とす項目：{worst.map(([id, n]) => `${(SHO_CHECKS.find((c) => c.id === id) || {}).name}（${n}回）`).join("・")}<span className="text-[10px] ml-1" style={{ color: "var(--ink-mute)" }}>{log.length}回の記録から</span></p>}
+      </div>
+    </Box>
+  );
+}
+
+// ── 4. 外部の模試の記録：点数の推移と、基準点・合格点の線 ──
+function MockLog({ state, actions }) {
+  const cfg = rehearsalCfg(state);
+  const mocks = normRpg(state.rpg).mocks || [];
+  const [f, setF] = useState({ d: todayStr(), name: "", ta: "", ki: "" });
+  const [open, setOpen] = useState(false);
+  const add = () => { const ta = Number(f.ta), ki = Number(f.ki); if (!(ta >= 0) || !(ki >= 0) || f.ta === "" || f.ki === "") return; actions.addMock({ id: uid(), d: f.d, name: f.name.trim() || "模試", ta, ki }); setF({ ...f, name: "", ta: "", ki: "" }); };
+  const W = 300, H = 120, pad = 20, maxV = 100;
+  const xs = (i) => pad + (mocks.length < 2 ? (W - pad * 2) / 2 : (i / (mocks.length - 1)) * (W - pad * 2));
+  const ys = (v) => H - pad - (v / maxV) * (H - pad * 2);
+  const line = (key) => mocks.map((m, i) => `${i ? "L" : "M"}${xs(i).toFixed(1)} ${ys(key(m)).toFixed(1)}`).join(" ");
+  const inp = { background: "var(--paper)", border: "1px solid var(--rule-soft)", borderRadius: 6, color: "var(--ink)", padding: "4px 6px", fontSize: 12, width: "100%" };
+  return (
+    <Box title="模試・答練の記録" icon={<TrendingUp size={18} />}>
+      <div className="jp space-y-2">
+        <p className="text-[11px]" style={{ color: "var(--ink-soft)" }}>受けた模試や答練の点数を記録すると、基準点（択一{cfg.mcBase}・記述{cfg.descBase}）と合格点（{cfg.pass}）の線と一緒に推移を見られます。線の値は本番リハーサルの設定と同じです。</p>
+        {mocks.length > 0 && (
+          <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", display: "block", background: "var(--paper)", border: "1px solid var(--rule-soft)", borderRadius: 8 }}>
+            <line x1={pad} x2={W - pad} y1={ys(cfg.pass)} y2={ys(cfg.pass)} stroke="#b08a3e" strokeDasharray="4 3" /><text x={W - pad} y={ys(cfg.pass) - 3} textAnchor="end" fontSize="8" fill="#b08a3e">合格点{cfg.pass}</text>
+            <path d={line((m) => m.ta + m.ki)} fill="none" stroke="#22335c" strokeWidth="2" />
+            <path d={line((m) => m.ta * 2)} fill="none" stroke="#4f8a72" strokeWidth="1.2" strokeDasharray="2 2" />
+            <path d={line((m) => m.ki * 2)} fill="none" stroke="#a24a45" strokeWidth="1.2" strokeDasharray="2 2" />
+            {mocks.map((m, i) => <g key={m.id}><circle cx={xs(i)} cy={ys(m.ta + m.ki)} r="3" fill={m.ta + m.ki >= cfg.pass && m.ta >= cfg.mcBase && m.ki >= cfg.descBase ? "#b08a3e" : "#22335c"} /><text x={xs(i)} y={ys(m.ta + m.ki) - 5} textAnchor="middle" fontSize="8" fill="#22335c">{m.ta + m.ki}</text></g>)}
+          </svg>
+        )}
+        {mocks.length > 0 && <p className="text-[9px]" style={{ color: "var(--ink-mute)" }}>実線＝合計（100点満点）、緑の点線＝択一×2、赤の点線＝記述×2（どちらも50点満点を100点に直して表示）。金の点は合格の線をすべて越えた回。</p>}
+        <button onClick={() => setOpen(!open)} className="btn-ghost w-full py-1.5 text-xs">{open ? "閉じる" : "＋ 点数を記録する"}</button>
+        {open && (
+          <div className="grid grid-cols-2 gap-1.5">
+            <input type="date" value={f.d} onChange={(e) => setF({ ...f, d: e.target.value })} style={inp} />
+            <input value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="名前（例：全国公開模試1）" style={inp} />
+            <input type="number" inputMode="decimal" value={f.ta} onChange={(e) => setF({ ...f, ta: e.target.value })} placeholder="択一（50点満点）" style={inp} />
+            <input type="number" inputMode="decimal" value={f.ki} onChange={(e) => setF({ ...f, ki: e.target.value })} placeholder="記述（50点満点）" style={inp} />
+            <button onClick={add} className="btn-primary py-1.5 text-sm col-span-2">記録する</button>
+          </div>
+        )}
+        {mocks.slice().reverse().slice(0, 8).map((m) => { const ok = m.ta >= cfg.mcBase && m.ki >= cfg.descBase && m.ta + m.ki >= cfg.pass; return (
+          <div key={m.id} className="flex items-center gap-2 text-[11px] py-0.5" style={{ borderTop: "1px dashed var(--rule-soft)" }}>
+            <span style={{ color: "var(--ink-mute)" }}>{m.d.slice(5).replace("-", "/")}</span><span className="flex-1 truncate" style={{ color: "var(--ink)" }}>{m.name}</span>
+            <span style={{ color: m.ta >= cfg.mcBase ? "var(--ink)" : "#c9564e" }}>択{m.ta}</span><span style={{ color: m.ki >= cfg.descBase ? "var(--ink)" : "#c9564e" }}>記{m.ki}</span><b style={{ color: ok ? "#b08a3e" : "var(--ink)" }}>{m.ta + m.ki}{ok ? "◎" : ""}</b>
+            <button onClick={() => { if (confirm("この記録を消しますか？")) actions.removeMock(m.id); }} className="text-[10px]" style={{ background: "none", border: "none", color: "var(--ink-mute)", cursor: "pointer" }}>✕</button>
+          </div>
+        ); })}
+      </div>
+    </Box>
+  );
+}
+
+// ── 5. 曜日の迷宮：曜日ごとに科目が変わり、その科目の10問で報酬2倍（1日1回） ──
+function weekdayRegion(state) {
+  const regs = REGION_ORDER.filter((rg) => state.questionBanks.some((b) => (b.questions || []).length && themeOf(b.name).region === rg));
+  if (!regs.length) return null;
+  const dow = (new Date().getDay() + 6) % 7; // 月曜＝0
+  return regs[dow % regs.length];
+}
+const DOW = ["月", "火", "水", "木", "金", "土", "日"];
+function WeekdayDungeon({ state }) {
+  const rg = weekdayRegion(state);
+  if (!rg) return null;
+  const done = normRpg(state.rpg).weekdayDone === todayStr();
+  const banks = state.questionBanks.filter((b) => (b.questions || []).length && themeOf(b.name).region === rg);
+  const start = () => { const items = buildPoolFromBanks(banks, 10); if (items.length) window.dispatchEvent(new CustomEvent("sq-study-items", { detail: { items, kind: "weekday", title: `${DOW[(new Date().getDay() + 6) % 7]}曜の迷宮`, region: rg } })); };
+  return (
+    <Box title={`曜日の迷宮（${DOW[(new Date().getDay() + 6) % 7]}曜日）`} icon={<Castle size={18} />}>
+      <div className="jp flex items-center gap-3">
+        <div className="flex-shrink-0" style={{ width: 72, height: 48, borderRadius: 8, border: "1px solid #b08a3e", background: `url(${regionStageUrl(rg)}) center/cover` }} />
+        <div className="flex-1 min-w-0">
+          <div className="text-sm" style={{ fontWeight: 800, color: "var(--ink)" }}>今日は「{rg}」</div>
+          <div className="text-[11px]" style={{ color: "var(--ink-soft)" }}>この科目の10問で、報酬が2倍（1日1回）。曜日ごとに科目が変わります。</div>
+        </div>
+      </div>
+      <button onClick={start} className="jp btn-primary w-full py-2 mt-2">{done ? "もう一度挑む（今日の報酬は受け取り済み）" : "迷宮に入る（10問）"}</button>
+    </Box>
+  );
+}
+
+// ── 7. 相棒ルミのおつかい：その日に学習すると、1日1回おみやげを持ってくる ──
+function LumiErrand({ state, actions }) {
+  const pet = getPetInfo(state);
+  const r = normRpg(state.rpg);
+  if (!pet) return null;
+  const code = ymdCode(todayStr());
+  let ans = 0; state.questionBanks.forEach((b) => (b.questions || []).forEach((q) => { ans += (q.ah || []).filter((h) => String(h).startsWith(code)).length; }));
+  const done = r.errand === todayStr();
+  const ready = ans >= 10;
+  return (
+    <Box title={`${pet.name}のおつかい`} icon={<Sparkles size={18} />}>
+      <div className="jp flex items-center gap-3">
+        <div className="flex-shrink-0"><PetIcon pet={pet} size={56} /></div>
+        <div className="flex-1 min-w-0 text-[11px]" style={{ color: "var(--ink-soft)" }}>
+          {done ? `${pet.name}は今日のおつかいを終えて、うれしそうにしています。また明日！` : ready ? `${pet.name}が、おみやげを持って帰ってきました！（今日 ${ans}問）` : `今日10問解くと、${pet.name}がおつかいから帰ってきます（いま ${ans}問）。30問・60問で、おみやげが豪華に。`}
+          <div style={{ height: 5, borderRadius: 3, background: "var(--beige)", overflow: "hidden", marginTop: 4 }}><div style={{ width: `${Math.min(100, (ans / 60) * 100)}%`, height: "100%", background: "linear-gradient(90deg, #d6b56a, #b08a3e)" }} /></div>
+        </div>
+      </div>
+      {!done && <button disabled={!ready} onClick={() => actions.claimErrand(ans)} className="jp btn-primary w-full py-2 mt-2" style={{ opacity: ready ? 1 : 0.5 }}>おみやげを受け取る</button>}
+    </Box>
+  );
+}
+
+// ── 8・9. 問題の一括置換と、CSV の書き出し（問題タブ） ──
+function BulkTools({ state }) {
+  const [open, setOpen] = useState(null); // null | replace | csv
+  const [from, setFrom] = useState(""), [to, setTo] = useState(""), [where, setWhere] = useState("both");
+  const [bankId, setBankId] = useState(state.questionBanks[0] ? state.questionBanks[0].id : "");
+  const [msg, setMsg] = useState("");
+  const hits = [];
+  if (open === "replace" && from) state.questionBanks.forEach((b) => (b.questions || []).forEach((q) => { const inQ = where !== "a" && String(q.q || "").includes(from), inA = where !== "q" && String(q.a || "").includes(from); if (inQ || inA) hits.push({ b, q, inQ, inA }); }));
+  const hl = (t) => { const parts = String(t).split(from); return parts.map((x, i) => <span key={i}>{x}{i < parts.length - 1 && <><s style={{ color: "#c9564e" }}>{from}</s><b style={{ color: "var(--sage)" }}>{to}</b></>}</span>); };
+  const apply = () => {
+    if (!hits.length || !confirm(`${hits.length}問の「${from}」を「${to}」に置き換えます。よろしいですか？\n（念のため、先に画面上の「書出」で控えを取っておくと安心です）`)) return;
+    window.dispatchEvent(new CustomEvent("sq-bulk-replace", { detail: { from, to, where } }));
+    setMsg(`${hits.length}問を置き換えました。`); setFrom(""); setTo("");
+  };
+  const exportCsv = () => {
+    const b = state.questionBanks.find((x) => x.id === bankId);
+    if (!b) return;
+    const csv = Papa.unparse([["問題", "答え", "メモ"], ...(b.questions || []).map((q) => [q.q || "", q.a || "", q.memo || ""])]);
+    const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8" });
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `${b.name}${b.year ? `_${b.year}` : ""}.csv`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    setMsg(`「${b.name}」を書き出しました（${(b.questions || []).length}問）。`);
+  };
+  const inp = { background: "var(--paper)", border: "1px solid var(--rule-soft)", borderRadius: 6, color: "var(--ink)", padding: "5px 8px", fontSize: 13, width: "100%" };
+  return (
+    <div className="jp mb-2">
+      <div className="grid grid-cols-2 gap-2">
+        <button onClick={() => { setOpen(open === "replace" ? null : "replace"); setMsg(""); }} className="btn-ghost py-1.5 text-xs">🔁 言葉の一括置換</button>
+        <button onClick={() => { setOpen(open === "csv" ? null : "csv"); setMsg(""); }} className="btn-ghost py-1.5 text-xs">📄 CSVで書き出す</button>
+      </div>
+      {open === "replace" && (
+        <div className="mt-2 p-2 space-y-1.5" style={{ background: "var(--cream)", border: "1px solid var(--rule-soft)", borderRadius: 8 }}>
+          <div className="grid grid-cols-2 gap-1.5"><input value={from} onChange={(e) => setFrom(e.target.value)} placeholder="さがす言葉（例：1月）" style={inp} /><input value={to} onChange={(e) => setTo(e.target.value)} placeholder="置き換える言葉（例：1か月）" style={inp} /></div>
+          <div className="flex gap-1.5 text-[11px]">{[["both", "問題と答え"], ["q", "問題だけ"], ["a", "答えだけ"]].map(([k, l]) => <button key={k} onClick={() => setWhere(k)} className="px-2.5 py-0.5" style={{ borderRadius: 999, border: `1px solid ${where === k ? "var(--gold)" : "var(--rule-soft)"}`, background: where === k ? "var(--paper)" : "transparent", color: "var(--ink)", fontWeight: where === k ? 800 : 500 }}>{l}</button>)}</div>
+          {from && <div className="text-[11px]" style={{ color: "var(--ink-soft)" }}>見つかった問題：{hits.length}問（すべての問題集から）</div>}
+          {hits.slice(0, 20).map(({ b, q, inQ, inA }) => <div key={q.id} className="text-[11px] py-1" style={{ borderTop: "1px dashed var(--rule-soft)", color: "var(--ink)" }}>{inQ && <div>問：{hl(q.q)}</div>}{inA && <div>答：{hl(q.a)}</div>}<div className="text-[9px]" style={{ color: "var(--ink-mute)" }}>{b.name}</div></div>)}
+          {hits.length > 20 && <div className="text-[10px]" style={{ color: "var(--ink-mute)" }}>ほか{hits.length - 20}問</div>}
+          <button disabled={!hits.length || !from} onClick={apply} className="btn-danger w-full py-1.5 text-sm" style={{ opacity: hits.length ? 1 : 0.5 }}>{hits.length}問を置き換える</button>
+          <p className="text-[10px]" style={{ color: "var(--ink-mute)" }}>学習の記録（正解数・復習の予定など）はそのままで、文字だけを置き換えます。</p>
+        </div>
+      )}
+      {open === "csv" && (
+        <div className="mt-2 p-2 space-y-1.5" style={{ background: "var(--cream)", border: "1px solid var(--rule-soft)", borderRadius: 8 }}>
+          <select value={bankId} onChange={(e) => setBankId(e.target.value)} style={inp}>{state.questionBanks.map((b) => <option key={b.id} value={b.id}>{b.name}{b.year ? `（${b.year}）` : ""}・{(b.questions || []).length}問</option>)}</select>
+          <button onClick={exportCsv} className="btn-primary w-full py-1.5 text-sm">この問題集を CSV で書き出す</button>
+          <p className="text-[10px]" style={{ color: "var(--ink-mute)" }}>1列目＝問題、2列目＝答え、3列目＝メモ。Excel で直して「CSV・写真から追加」で取り込めます（取り込むと新しい問題集になり、学習の記録は引き継がれません）。</p>
+        </div>
+      )}
+      {msg && <p className="text-[11px] mt-1 text-center" style={{ color: "var(--sage)", fontWeight: 800 }}>{msg}</p>}
+    </div>
   );
 }
 

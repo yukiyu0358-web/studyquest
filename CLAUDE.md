@@ -170,6 +170,15 @@ state の主なキー：`player` / `qualifications` / `tasks` / `studyPlans`（�
   - 図鑑の討伐メダル `KILL_TIERS` `killTier`（BattleStage の emitReward の stat.kind で rpg.kills[種族] を数え、10・50・100体で銅・銀・金と50・150・300G。MonsterKinds のカードに表示）
   - ボスの行動パターン（BossBattle）：溜め `CHARGE_EVERY`＝4問ごと［次にまちがえると2.5倍、正解で止めて1.3倍］`charging`、回復 `BOSS_HEALERS`［HP半分未満で1回、まちがえたとき15%］`healedRef`。BossArena に「溜め中」の札と紫の渦（sqyCharge）
   - 連携技 `JOINT_SKILLS`（絆 `JOINT_BOND`＝3以上の仲間と `JOINT_EVERY`＝6連撃ごと、ダメージ+60%。assist.joint）
+- 2026年10月15日の追加（その2）：
+  - 期限・数字の一覧表とクイズ `NumberDeck` `numberDeck`（鍛錬。答えが○の問題文で、期限・数字 `NUM_PICK` が1つだけのもの。数字ごとの一覧と、同じ単位の数から選ぶクイズ、rpg.numQuiz）
+  - 今週の処方箋 `Prescription` `RX`（今日タブ。この1週間のまちがいの errTypes・時間がかかった（ts）・思い込み（wrongSure）を数え、いちばん多い原因と行く場所を案内）
+  - 書式の自己点検シート `ShoshikiCheck` `SHO_CHECKS`（鍛錬。落とした項目を☑して記録、rpg.shoCheck.log、よく落とす項目トップ3）
+  - 模試・答練の記録 `MockLog`（周回の部屋。rpg.mocks=[{id,d,name,ta,ki}]、基準点・合格点は `rehearsalCfg`［mcBase・descBase・pass］。LapRoom に rpgActions を渡している）
+  - 曜日の迷宮 `WeekdayDungeon` `weekdayRegion`（クエスト。月曜から REGION_ORDER の順に科目、10問で正解1問20G＋欠片、1日1回 rpg.weekdayDone。今日タブの特別な出題 kind: weekday、finishSpecial で報酬。合図の detail の items 以外は pInfo に入る）
+  - 装備のセット効果 `GEAR_SETS` `setStatus`（3つそろえると getRpgBonuses に加算。拠点の装備の欄に表示）
+  - 相棒のおつかい `LumiErrand` `claimErrand`（クエスト。その日10問でおみやげ、30・60問で豪華に、1日1回 rpg.errand）
+  - 言葉の一括置換・CSV の書き出し `BulkTools`（問題タブ。置換は合図 sq-bulk-replace で StudyRPG が1回の setState で文字だけ置き換え［学習の記録は残す］。CSV は Papa.unparse＋BOM、列は問題・答え・メモで取り込みと同じ形）
 - 試し表示：.claude/launch.json に demo（5174）と preview（公開版と同じビルドを 4173 で。本番の Firebase につながるのでログインはしない）
 - テーマ：`DISPLAY_DEFAULTS`（既定は white）`THEME_PAL`（classic/white の配色）`CLASSIC_CSS` `WHITE_CSS` `ClassicThemeStyle` `TitleScreen` `ClassicInfoBar` `MenuHome`（クラシック）`SignpostHome`（白金・道しるべ）`migrateDisplay`
 
