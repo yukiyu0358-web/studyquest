@@ -107,7 +107,7 @@ state の主なキー：`player` / `qualifications` / `tasks` / `studyPlans`（�
 - 仲間 `ALLIES`（リーネ・カイ・ミラ。地域を1つ・2つ・3つ解放で加入、`alliesJoined`）`PartyCard`。会話の話し手に仲間の id を使える（まだ加入していない仲間のせりふは飛ばす）。演出・会話・ログインボーナスはタイトル画面の間は出さない（`showTitleNow`）
 - 試練の塔（世界タブ「試練の塔」）：100階。1階10問（第1階は新10問、以降は新8問＋下の階から2問）、10の倍数の階は「試練の間」＝直前9階から15問の総復習。80%で突破（`TOWER_PASS`）。問題の並びは `towerSeq`（科目を比例で交互に）、出題 `towerFloorPool`、弱さ `weaknessOf`。画面 `TowerView`、戦い `TrialRun`（汎用：一定の正答率で突破）、結果 `towerFinish`（rpg.tower={floor,best}）
 - ストーリーの強化：節の守護者（問題集の全話クリアで出現、15問・80%、`secBossFinish`、rpg.secBoss）。地域の制覇＝全話＋全節の守護者＋地域の守護者（`regionConquest`、rpg.conquered、StudyRPG の効果で祝う）。不動産登記法・民法・調査士法の3つで特別章（`TRINITY_REGIONS` `TRINITY_TALK`、rpg.conquered.__trinity）。科目ごとの物語 `REGION_ARC` `regionArc`（intro・sec・finale。src/data/story.js）、地域に初めて入ると intro（rpg.arcSeen）
-- 下のタブは7つ（ホーム・今日・問題・周回の部屋・冒険・ステータス・手帳）。「周回の部屋」は `LapRoom`（学習計画・今日のタスク・周回の記録）。「手帳」はタスク・時間・メモ・資格をまとめたもので、中の切り替えは `NOTE_TABS`（最後に開いたものを `lastNoteTab` で覚える）。学習カレンダーはステータスから外した（`StudyCalendar` 自体は残っている）
+- 下のタブは8つ（ホーム・今日・問題・周回の部屋・計算・冒険・ステータス・手帳。grid-cols-8）。「周回の部屋」は `LapRoom`（学習計画・今日のタスク・周回の記録）。「手帳」はタスク・時間・メモ・資格をまとめたもので、中の切り替えは `NOTE_TABS`（最後に開いたものを `lastNoteTab` で覚える）。学習カレンダーはステータスから外した（`StudyCalendar` 自体は残っている）
 - ホームのキャラクター：`HOME_CHARS`（主人公・リーネ・カイ・ミラ・少年）`homeCharOf`、設定 `displaySettings.homeChar`。face は顔アイコンの切り抜き位置（背景サイズ300%のときの%）
 - 周回スタンプの演出：問題集を最後まで解く（`incrementBankClears`）と `LapStampScene`（印が押される演出。5周ごとに金の印、効果音 `stamp`）
 - iPhone での見切れ対策：index.html の `.grid > * { min-width: 0; }`（横並びの枠が中の長い文字で広がらないように）
@@ -179,6 +179,7 @@ state の主なキー：`player` / `qualifications` / `tasks` / `studyPlans`（�
   - 装備のセット効果 `GEAR_SETS` `setStatus`（3つそろえると getRpgBonuses に加算。拠点の装備の欄に表示）
   - 相棒のおつかい `LumiErrand` `claimErrand`（クエスト。その日10問でおみやげ、30・60問で豪華に、1日1回 rpg.errand）
   - 言葉の一括置換・CSV の書き出し `BulkTools`（問題タブ。置換は合図 sq-bulk-replace で StudyRPG が1回の setState で文字だけ置き換え［学習の記録は残す］。CSV は Papa.unparse＋BOM、列は問題・答え・メモで取り込みと同じ形）
+- 計算強化（下のタブ「計算」 `CalcTab`、2026年10月15日）：問題づくりは `src/game/calcplus.js`（`CALC2_GROUPS`［座標・方向角・距離／交点・内分点／面積／三角形の辺と角／建物・地積の端数処理］の15種類 `CALC2_TYPES`、`makeCalc2(type, seed)`＝seed が同じなら同じ数字、`checkCalc2`［数は誤差 tol、度分秒は秒の差］、答えに解き方 steps と fx-JP500 のキー操作 keys［"[SHIFT]" のように [ ] で囲んだキー、"(Pol)" は小さな注記］）。出し方は☑で選ぶ：毎回数字が変わる／決まった問題集（種類ごとに `FIXED_PER_TYPE`＝5問、seed は `fixedSeed`。全部解くと1周で300G）。キーの表示は `KeySeq`、図は既存の `CalcFigure`。記録 `logCalc2`（rpg.calc2 = {stats:{種類:{n,ok}}, fixed:{lap, done, res:{id:{n,ok,last}}}}、正解でカイとの絆）。選んだ種類は端末の sq-calc2-types に保存。地積は規則100条（宅地・鉱泉地以外で10㎡超は1㎡未満切り捨て）、床面積は規則115条（1/100㎡未満切り捨て）
 - 試し表示：.claude/launch.json に demo（5174）と preview（公開版と同じビルドを 4173 で。本番の Firebase につながるのでログインはしない）
 - テーマ：`DISPLAY_DEFAULTS`（既定は white）`THEME_PAL`（classic/white の配色）`CLASSIC_CSS` `WHITE_CSS` `ClassicThemeStyle` `TitleScreen` `ClassicInfoBar` `MenuHome`（クラシック）`SignpostHome`（白金・道しるべ）`migrateDisplay`
 
