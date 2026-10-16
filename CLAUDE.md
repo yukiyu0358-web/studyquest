@@ -51,7 +51,7 @@ RPG風の資格学習Webアプリ。利用者本人（Yuki）が、土地家屋�
 ## ファイル構成
 
 - `src/App.jsx`：画面と機能の大部分（約1万行・約700KB）。500KB超のため Babel の "deoptimised the styling" という注意が出るが無害。少しずつ分割中。
-- 分割済み：`src/game/icons.jsx`（Ico・線のアイコン・GameIcon とメダル絵）、`src/game/sfx.js`（効果音 SFX）、`src/game/calc.js`（計算ドリルの問題）、`src/game/cloze.js`（条文の穴埋めの問題）、`src/data/shinsei.js`（申請書の穴埋めの場面）、`src/game/textimport.js`（貼り付けた文章を一問一答に分ける）、`src/data/quotes.js`（名言 STUDY_QUOTES）、`src/data/story.js`（会話 STORY_TALKS・REGION_TALK）。App.jsx の先頭で import している。
+- 分割済み：`src/game/kijutsu.js`（記述式の道場・本試験の計算のデータと部品）、`src/game/icons.jsx`（Ico・線のアイコン・GameIcon とメダル絵）、`src/game/sfx.js`（効果音 SFX）、`src/game/calc.js`（計算ドリルの問題）、`src/game/cloze.js`（条文の穴埋めの問題）、`src/data/shinsei.js`（申請書の穴埋めの場面）、`src/game/textimport.js`（貼り付けた文章を一問一答に分ける）、`src/data/quotes.js`（名言 STUDY_QUOTES）、`src/data/story.js`（会話 STORY_TALKS・REGION_TALK）。App.jsx の先頭で import している。
 - **分割したら必ず `node scripts/check-names.mjs` で点検する**（定義も import もされていない名前を探す。ビルドでは見つからず、使っている途中にエラーになるため）。
 - `src/firebase.js`：Firebase初期化。`src/main.jsx`：起動。
 - `public/hero.jpg`：クラシックテーマの立ち絵（少年）。`public/sprites/tier1〜6.png`：ドット絵の主人公（以前は App.jsx に埋め込み）。
@@ -180,6 +180,15 @@ state の主なキー：`player` / `qualifications` / `tasks` / `studyPlans`（�
   - 相棒のおつかい `LumiErrand` `claimErrand`（クエスト。その日10問でおみやげ、30・60問で豪華に、1日1回 rpg.errand）
   - 言葉の一括置換・CSV の書き出し `BulkTools`（問題タブ。置換は合図 sq-bulk-replace で StudyRPG が1回の setState で文字だけ置き換え［学習の記録は残す］。CSV は Papa.unparse＋BOM、列は問題・答え・メモで取り込みと同じ形）
 - 計算強化（下のタブ「計算」 `CalcTab`、2026年10月15日）：問題づくりは `src/game/calcplus.js`（`CALC2_GROUPS`［座標・方向角・距離／交点・内分点／面積／三角形の辺と角／建物・地積の端数処理］の15種類 `CALC2_TYPES`、`makeCalc2(type, seed)`＝seed が同じなら同じ数字、`checkCalc2`［数は誤差 tol、度分秒は秒の差］、答えに解き方 steps と fx-JP500 のキー操作 keys［"[SHIFT]" のように [ ] で囲んだキー、"(Pol)" は小さな注記］）。出し方は☑で選ぶ：毎回数字が変わる／決まった問題集（種類ごとに `FIXED_PER_TYPE`＝5問、seed は `fixedSeed`。全部解くと1周で300G）。キーの表示は `KeySeq`、図は既存の `CalcFigure`。記録 `logCalc2`（rpg.calc2 = {stats:{種類:{n,ok}}, fixed:{lap, done, res:{id:{n,ok,last}}}}、正解でカイとの絆）。選んだ種類は端末の sq-calc2-types に保存。追加（同日）：種類は21に（本番形式 composite［段 stages：方向角→交点→面積→地積。前の段の答えを次の段に表示］・bunpitsu［面積指定の分筆］、transform［座標の平行移動・回転］、sumikiri［隅切り］・arc［弓形］、kubun［区分建物＝内側線と普通建物＝中心線］）。段のない問題は `stagesOf` で1段に。段階ヒント（steps を1つずつ開ける、使った数を記録）、検算 verify（`VERIFY` と各問題）、まちがえた原因 `CALC_MISS`（`logCalcMiss`、rpg.calc2.miss・missByType、開始前に「計算ミスの傾向」とひとこと）、1問ごとの時間と自己ベスト（ヒントなしの正解の最速、rpg.calc2.best）、キー操作の早押し（`keyDrillOf` で数字を「数」にまとめ、画面のキーを順にタップ、`logCalcDrill`、rpg.calc2.drill）。π は [π] と表示（機種の刻印を確かめる注記つき）。地積は規則100条（宅地・鉱泉地以外で10㎡超は1㎡未満切り捨て）、床面積は規則115条（1/100㎡未満切り捨て）
+- 記述式の道場と本試験の計算（2026年10月16日。資格対策フォルダ［C:\Users\<ユーザー名>\OneDrive\Desktop\資格対策\成果物］の Word 文書から）：
+  - データは public/data/kijutsu.json（論点編・攻略本の40年分：事案 case・問い asks・自分で決めること decide・解法の見出し secs［登記の目的・申請書の骨格／要点・土地の表示欄・床面積 ― 求積・電卓のキー操作・原因及びその日付・この年の論点・つまずく点…］）と public/data/pastcalc.json（土地計算マニュアル7冊の20年分：与件 pts・求めるもの tasks・手順 sections［複素数モードのキー操作］・答え answer）。作り直しは `py scripts/kijutsu/build_data.py`（docx を読む。scripts/kijutsu/docx_blocks.py で表の形のまま読む）。読み込みは src/game/kijutsu.js の `loadData`
+  - src/game/kijutsu.js：添付書類の一覧 `DOC_LIST` `docsIn`（かっこ内の「〜は不要」は数えない）`isSingleApp`、模範の取り出し `modelAnswers` `decideOf`、床面積 `floorRows` `floorKeys` `hideResult`、目的⇄原因⇄日付 `CHEAT_ROWS`（暗記チートを本試験の答えで直したもの。食い違いは `CHEAT_FIXES`）、登記記録の申請前→後 `REC_CASES`（学習用に作った場面15）
+  - 計算の部屋（CalcTab）の上に `PastCalcArea`：土地の座標20年 `PastLandRun`（点の配置図 `PastFigure`、手順を1区切りずつ `PastSection`、キーの早見 `ComplexKeyLegend`）と建物の床面積20年 `PastFloorRun`（1/100㎡未満切り捨てで判定）。記録 `logPastCalc`（rpg.calc2.past = {res:{"L:R6"|"F:R6":{n,ok,last,d,best}}, done, lap}。全40題 `PAST_TOTAL` で1周500G）
+  - 周回の部屋（LapRoom）に `KijutsuDojo`：年度ごとの答案 `KijutsuRun`（決めることの欄＋添付書類は☑＋表示欄 `HyojiGrid`［tochi1.png・tatemono1.png と同じ形］→ 模範と並べて ○△✕ の自己採点、つまずく点に☑、下書きは端末の sq-kj-draft-{id}）、`CheatQuiz`、`RecordDrill`。記録 `logKijutsu`（rpg.kijutsu.res[id]＝{n,last,best,d,hist}、pit、80点以上で80G）`logKijutsuDrill`（rpg.kijutsu.cheat／rec）。解いているあいだは LapRoom のほかの欄を隠す（dojoFocus。並び順は変えない）
+  - 道場⇄計算の部屋は合図 `sq-open-past`（{to:"calc", kind:"L"|"F", id} ／ {to:"laps", key:"L-R6"}）→ StudyRPG の `pastReq`
+  - 年度の図 `YearFigures`：問題の画像と同じく圧縮して userdata/{uid}/images に保存、どの年度かは rpg.kijutsu.figs[年度id]（L-R6・B-R6。道場と計算の部屋で共有）。講座の画面の写しなので public には置かない
+  - 電卓の変数 x・y は KeySeq で等幅の斜体（Cinzel は小文字も大文字に見えるため）
+  - 成果物の CSV の新旧の比較は 資格対策/CSVの整理表.md
 - 試し表示：.claude/launch.json に demo（5174）と preview（公開版と同じビルドを 4173 で。本番の Firebase につながるのでログインはしない）
 - テーマ：`DISPLAY_DEFAULTS`（既定は white）`THEME_PAL`（classic/white の配色）`CLASSIC_CSS` `WHITE_CSS` `ClassicThemeStyle` `TitleScreen` `ClassicInfoBar` `MenuHome`（クラシック）`SignpostHome`（白金・道しるべ）`migrateDisplay`
 
