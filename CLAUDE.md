@@ -107,7 +107,7 @@ state の主なキー：`player` / `qualifications` / `tasks` / `studyPlans`（�
 - 仲間 `ALLIES`（リーネ・カイ・ミラ。地域を1つ・2つ・3つ解放で加入、`alliesJoined`）`PartyCard`。会話の話し手に仲間の id を使える（まだ加入していない仲間のせりふは飛ばす）。演出・会話・ログインボーナスはタイトル画面の間は出さない（`showTitleNow`）
 - 試練の塔（世界タブ「試練の塔」）：100階。1階10問（第1階は新10問、以降は新8問＋下の階から2問）、10の倍数の階は「試練の間」＝直前9階から15問の総復習。80%で突破（`TOWER_PASS`）。問題の並びは `towerSeq`（科目を比例で交互に）、出題 `towerFloorPool`、弱さ `weaknessOf`。画面 `TowerView`、戦い `TrialRun`（汎用：一定の正答率で突破）、結果 `towerFinish`（rpg.tower={floor,best}）
 - ストーリーの強化：節の守護者（問題集の全話クリアで出現、15問・80%、`secBossFinish`、rpg.secBoss）。地域の制覇＝全話＋全節の守護者＋地域の守護者（`regionConquest`、rpg.conquered、StudyRPG の効果で祝う）。不動産登記法・民法・調査士法の3つで特別章（`TRINITY_REGIONS` `TRINITY_TALK`、rpg.conquered.__trinity）。科目ごとの物語 `REGION_ARC` `regionArc`（intro・sec・finale。src/data/story.js）、地域に初めて入ると intro（rpg.arcSeen）
-- 下のタブは8つ（ホーム・今日・問題・周回の部屋・計算・冒険・ステータス・手帳。grid-cols-8）。「周回の部屋」は `LapRoom`（学習計画・今日のタスク・周回の記録）。「手帳」はタスク・時間・メモ・資格をまとめたもので、中の切り替えは `NOTE_TABS`（最後に開いたものを `lastNoteTab` で覚える）。学習カレンダーはステータスから外した（`StudyCalendar` 自体は残っている）
+- 下のタブは9つ（ホーム・今日・問題・周回の部屋・計算・参考書・冒険・ステータス・手帳。grid-cols-9、文字は text-[8px]）。「周回の部屋」は `LapRoom`（学習計画・今日のタスク・周回の記録）。「手帳」はタスク・時間・メモ・資格をまとめたもので、中の切り替えは `NOTE_TABS`（最後に開いたものを `lastNoteTab` で覚える）。学習カレンダーはステータスから外した（`StudyCalendar` 自体は残っている）
 - ホームのキャラクター：`HOME_CHARS`（主人公・リーネ・カイ・ミラ・少年）`homeCharOf`、設定 `displaySettings.homeChar`。face は顔アイコンの切り抜き位置（背景サイズ300%のときの%）
 - 周回スタンプの演出：問題集を最後まで解く（`incrementBankClears`）と `LapStampScene`（印が押される演出。5周ごとに金の印、効果音 `stamp`）
 - iPhone での見切れ対策：index.html の `.grid > * { min-width: 0; }`（横並びの枠が中の長い文字で広がらないように）
@@ -197,6 +197,7 @@ state の主なキー：`player` / `qualifications` / `tasks` / `studyPlans`（�
     - 本試験の手順の早押し：CalcTab の早押しに `PAST_DRILL_TYPES`（放射・交点・内分点・点の移動・閉合調整・求積・その他）`pastDrillTasks` `pastDrillOf` `PAST_PAD`（複素数モードのキーと変数。drill.past のとき6列）
     - 当日の確認カード `HayamiCards`（public/data/hayami.json＝計算マニュアル共通編 第9部・土地論点編 第10部・建物攻略本 第10部。build_data.py で作る）。`KeyText` は電卓のキーの名前のときだけキーの形（数式の［ ］はそのまま）。道場・計算の部屋の準備欄から開き、試験日の14日前からホームの行 `hayami`（`daysToExam`）
     - 択一の一問一答CSV：`py scripts/kijutsu/build_takuitsu_csv.py` で 資格対策/成果物/StudyQuest_択一_民法_過去問300肢.csv（民法の強化書H17-R6 第5部の300肢・○×・ひとこと・解説・根拠）と StudyQuest_択一_判例と言い回し.csv（図解版などの判例・ひっかけの言い回し、調査士法を含む）を作る。アプリには利用者が問題タブから取り込む
+- 参考書道場（下のタブ「参考書」 `SankoTab`、2026年10月16日）：暗記に特化した参考書。中身は src/data/sankosho.js の `SANKO_SUBJECTS`（科目→章 {id, title, intro, cols, rows:[{c:[セル…], ref:"不動産登記規則28条1号"}], ask:[クイズで聞く列], tip}）。いまは不動産登記法の11章（土地／建物・区分建物の登記と申請義務、合筆・合併の制限、保存期間［規則28条］、記名押印と印鑑証明書［令16・18条、規則47〜49条］、登記識別情報［令8条］、登記事項、地目・地積・床面積、建物の種類・構造・家屋番号、図面の縮尺、登録免許税）。**内容は条文データ（public/laws）で1つずつ確かめてから書く**（資格対策フォルダの暗記ノート・法令集には不確かな記述があるため、そのまま写さない）。根拠の 📜 は `SankoRef`（extractLawRefs → LawArticleModal）。章の画面 `SankoChapter`（読む・隠して覚える［めくって ✓覚えた／まだ］・クイズ・問題集に書き出す［名前「参考書：科目・章」。同じ名前があれば作らない］）、クイズ `sankoQuiz` `SankoQuizRun`（同じ列のほかの行の値を選択肢に）。記録 `sankoRead` `sankoMark` `sankoQuizLog`（rpg.sanko = {read, known:{"科目:章:行": 日付}, quiz:{n, ok, miss}}）。民法・調査士法・区分所有法はこれから足す
 - 試し表示：.claude/launch.json に demo（5174）と preview（公開版と同じビルドを 4173 で。本番の Firebase につながるのでログインはしない）
 - テーマ：`DISPLAY_DEFAULTS`（既定は white）`THEME_PAL`（classic/white の配色）`CLASSIC_CSS` `WHITE_CSS` `ClassicThemeStyle` `TitleScreen` `ClassicInfoBar` `MenuHome`（クラシック）`SignpostHome`（白金・道しるべ）`migrateDisplay`
 

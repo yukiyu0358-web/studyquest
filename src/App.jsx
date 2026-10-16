@@ -13,6 +13,7 @@ import { parseQuickText, TEXT_IMPORT_MODES } from "./game/textimport"; // 貼り
 import { loadData, DOC_LIST, docsIn, isSingleApp, modelAnswers, decideOf, floorRows, floorKeys, hideResult, CHEAT_ROWS, CHEAT_FIXES, REC_CASES, kjCanon, KJ_FIELDS, kjNextDate, kjDue, kjLabel, yearQuestionRe } from "./game/kijutsu"; // 記述式の道場・本試験の計算
 import { SHINSEI_CASES, SHINSEI_PURPOSES, SHINSEI_CAUSES, SHINSEI_DEADLINES, SHINSEI_ATTACH } from "./data/shinsei"; // 申請書の穴埋めの場面
 import { STUDY_QUOTES } from "./data/quotes"; // 名言
+import { SANKO_SUBJECTS } from "./data/sankosho"; // 参考書道場（暗記の参考書）
 import { REGION_TALK, STORY_TALKS, REGION_ARC, regionArc, TRINITY_REGIONS, TRINITY_TALK, BOND_TALKS, COUNTDOWN_TALKS, ACADEMY_MEET, STUDY_GROUP_TALK } from "./data/story"; // 物語の会話
 
 
@@ -2249,6 +2250,13 @@ function StudyRPG({ user }) {
       });
       if (mark === "o") setTimeout(() => awardXp(4), 100);
     },
+    // 参考書道場：読んだ章・覚えた行・クイズ
+    sankoRead: (chKey) => updateRpg((x) => { const k = x.sanko || {}; if ((k.read || {})[chKey] === todayStr()) return x; return { ...x, sanko: { ...k, read: { ...(k.read || {}), [chKey]: todayStr() } } }; }),
+    sankoMark: (key, on) => updateRpg((x) => { const k = x.sanko || {}; const known = { ...(k.known || {}) }; if (on) known[key] = todayStr(); else delete known[key]; return { ...x, sanko: { ...k, known } }; }),
+    sankoQuizLog: (key, ok) => {
+      updateRpg((x) => { const k = x.sanko || {}; const q = k.quiz || {}; const miss = { ...(q.miss || {}) }; if (!ok) miss[key] = (miss[key] || 0) + 1; return { ...x, sanko: { ...k, quiz: { n: (q.n || 0) + 1, ok: (q.ok || 0) + (ok ? 1 : 0), miss } } }; });
+      if (ok) setTimeout(() => awardXp(3), 100);
+    },
     setKijutsuFigs: (key, ids) => updateRpg((x) => { const k = x.kijutsu || {}; return { ...x, kijutsu: { ...k, figs: { ...(k.figs || {}), [key]: ids } } }; }),
     logKijutsuDrill: (kind, ok, key) => updateRpg((x) => {
       const k = x.kijutsu || {};
@@ -3529,18 +3537,20 @@ function StudyRPG({ user }) {
           {tab === "calc" && <CalcTab state={state} actions={rpgActions} startTimer={startTimer} stopTimer={stopTimer} pastReq={pastReq && pastReq.to === "calc" ? pastReq : null} onPastOpened={() => setPastReq(null)} />}
           {tab === "laps" && <LapRoom state={state} actions={planActions} rpgActions={rpgActions} pastReq={pastReq && pastReq.to === "laps" ? pastReq : null} onPastOpened={() => setPastReq(null)} startTimer={startTimer} stopTimer={stopTimer} />}
           {tab === "rules" && <RuleBook state={state} />}
+          {tab === "sanko" && <SankoTab state={state} actions={rpgActions} onCreateBank={addQuestionBank} />}
           {tab === "qbank" && <QBankTab openBankReq={openBankReq} onOpenedBank={() => setOpenBankReq(null)} onPlanWeakDone={(id) => markPlanBank(id, true)} state={state} addBank={addQuestionBank} deleteBank={deleteBank} recordAnswer={recordAnswer} recordRevengeAnswer={recordRevengeAnswer} awardXp={awardXp} startTimer={startTimer} stopTimer={stopTimer} incrementBankClears={incrementBankClears} updateBestStreak={updateBestStreak} moveBank={moveBank} addCloze={addCloze} deleteCloze={deleteCloze} recordClozeAnswer={recordClozeAnswer} recordClozeRevengeAnswer={recordClozeRevengeAnswer} toggleQuestionMark={toggleQuestionMark} toggleClozeMark={toggleClozeMark} recordClearSnapshot={recordClearSnapshot} createClozeBank={createClozeBank} updateQuestionFormats={updateQuestionFormats} addQuestionToBank={addQuestionToBank} editQuestion={editQuestion} deleteQuestion={deleteQuestion} moveQuestions={moveQuestions} editBankMeta={editBankMeta} addFolder={addFolder} deleteFolder={deleteFolder} renameFolder={renameFolder} reorderFolders={reorderFolders} addStudyNote={addStudyNote} updateStudyNote={updateStudyNote} deleteStudyNote={deleteStudyNote} moveBankToFolder={moveBankToFolder} saveSessionResume={saveSessionResume} clearSessionResume={clearSessionResume} editBankClears={editBankClears} updateQuestionMemo={updateQuestionMemo} toggleQuestionExclude={toggleQuestionExclude} />}
         </div>
       </div>
 
       <nav className="fixed bottom-0 left-0 right-0 z-40" style={{ background: classic ? "linear-gradient(180deg, rgba(39,63,120,0.97), rgba(23,37,72,0.98))" : isWhite ? "linear-gradient(180deg, rgba(253,251,245,0.97), rgba(246,240,226,0.98))" : "var(--paper)", borderTop: isWhite ? "1px solid #b08a3e" : "2px solid var(--rule)", boxShadow: classic ? "inset 0 2px 0 #0a1226, inset 0 3px 0 rgba(160,185,215,0.5)" : isWhite ? "inset 0 3px 0 #fdfbf5, inset 0 4px 0 rgba(176,138,62,0.45), 0 -4px 14px rgba(40,50,80,0.08)" : "none", paddingBottom: "env(safe-area-inset-bottom)" }}>
-        <div className="max-w-3xl mx-auto grid grid-cols-8">
+        <div className="max-w-3xl mx-auto grid grid-cols-9">
           {[
             { id: "home",   label: "ホーム",     icon: <Home size={18} /> },
             { id: "today",  label: "今日",        icon: <Calendar size={18} /> },
             { id: "qbank",  label: "問題",        icon: <FileQuestion size={18} /> },
             { id: "laps",   label: "周回の部屋",  icon: <Shuffle size={18} /> }, // 学習計画・今日のタスク・周回の記録
             { id: "calc",   label: "計算",        icon: <Pencil size={18} /> }, // 計算強化（関数電卓 fx-JP500）
+            { id: "sanko",  label: "参考書",      icon: <BookOpen size={18} /> }, // 参考書道場（暗記に特化した参考書）
             { id: "adventure", label: "冒険",     icon: <Castle size={18} /> },
             { id: "status", label: "ステータス",  icon: <StatusIcon size={18} /> },
             { id: "notebook", label: "手帳",      icon: <Bookmark size={18} /> }, // 資格・タスク・時間・メモをまとめたタブ
@@ -3551,7 +3561,7 @@ function StudyRPG({ user }) {
               <button key={t.id} onClick={() => setTab(t.id === "notebook" ? lastNoteTab.current : t.id)} className="jp flex flex-col items-center gap-0.5 py-2 transition relative"
                 style={on ? (classic ? { ...CL.rowOn, color: "#ffffff" } : isWhite ? { ...THEME_PAL.white.rowOn, color: "#22335c" } : { background: "var(--sky-deep)", color: "var(--paper)" }) : { background: "transparent", color: "var(--ink)" }}>
                 {t.icon}
-                <span className="text-[9px] md:text-[11px]" style={{ whiteSpace: "nowrap", letterSpacing: t.label.length > 4 ? "-0.04em" : undefined }}>{t.label}</span>
+                <span className="text-[8px] md:text-[11px]" style={{ whiteSpace: "nowrap", letterSpacing: t.label.length > 4 ? "-0.06em" : undefined }}>{t.label}</span>
                 {badge > 0 && (
                   <span className="absolute top-1 right-2 pixel text-[9px] px-1 min-w-[16px] text-center" style={{ background: "var(--brick)", color: "var(--paper)", borderRadius: "2px", lineHeight: "14px" }}>{badge}</span>
                 )}
@@ -16629,6 +16639,170 @@ function KijutsuDojo({ state, actions, pastReq, onPastOpened, startTimer, stopTi
         <button onClick={() => setView({ mode: "hayami" })} className="btn-ghost w-full py-2 text-[11px]">🗂 当日の確認カード（計算・土地・建物の早見表）</button>
       </div>
     </Box>
+  );
+}
+
+// ── 参考書道場（下のタブ「参考書」）：暗記に特化した参考書。src/data/sankosho.js の章を「読む・隠して覚える・クイズ・問題集に書き出す」 ──
+const sankoKey = (subj, ch, i) => `${subj}:${ch}:${i}`;
+function SankoRef({ refText }) {
+  const [open, setOpen] = useState(null);
+  if (!refText) return null;
+  const r = extractLawRefs([refText])[0];
+  return (
+    <>
+      <button onClick={() => r && setOpen(r)} className="jp text-[10px] px-1.5 py-0" style={{ background: "var(--cream)", border: "1px solid var(--gold)", borderRadius: 999, color: "var(--ink)", cursor: r ? "pointer" : "default" }}>📜 {refText}</button>
+      {open && <LawArticleModal target={open} onClose={() => setOpen(null)} />}
+    </>
+  );
+}
+// クイズ：聞く列のある行から、同じ列のほかの値をまぎらわしい選択肢に
+function sankoQuiz(subj, chapters, n = 10) {
+  const pool = [];
+  chapters.forEach((ch) => {
+    const asks = ch.ask && ch.ask.length ? ch.ask : [];
+    ch.rows.forEach((r, i) => asks.forEach((k) => {
+      const others = [...new Set(ch.rows.map((x) => x.c[k]).filter((v) => v && v !== r.c[k] && v !== "－"))];
+      if (others.length < 1) return;
+      pool.push({ key: sankoKey(subj, ch.id, i), ch, r, col: k, ask: `${r.c[0]}　→　${ch.cols[k]}は？`, ans: r.c[k], others });
+    }));
+  });
+  const sh = (a) => a.map((x) => [Math.random(), x]).sort((p, q) => p[0] - q[0]).map((x) => x[1]);
+  return sh(pool).slice(0, n).map((q) => ({ ...q, opts: sh([q.ans, ...sh(q.others).slice(0, 3)]) }));
+}
+function SankoQuizRun({ subj, chapters, actions, onExit, title }) {
+  const [qs, setQs] = useState(() => sankoQuiz(subj, chapters));
+  const [i, setI] = useState(0);
+  const [pick, setPick] = useState(null);
+  const [ok, setOk] = useState(0);
+  const q = qs[i];
+  const choose = (o) => { if (pick != null) return; const good = o === q.ans; setPick(o); if (good) setOk(ok + 1); SFX.play(good ? "defeat" : "miss"); actions.sankoQuizLog(q.key, good); };
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between jp text-xs"><button onClick={onExit} style={{ color: "var(--ink-soft)", background: "none", border: "none" }}>← もどる</button><span style={{ color: "var(--ink-soft)", fontWeight: 700 }}>{Math.min(i + 1, qs.length)} / {qs.length}　正解 {ok}</span></div>
+      <Box title={`クイズ：${title}`} icon={<Sparkles size={18} />}>
+        <div className="jp space-y-2">
+          {!qs.length && <p className="text-[12px]" style={{ color: "var(--ink-soft)" }}>この章はクイズにしにくい表です。「隠して覚える」で覚えましょう。</p>}
+          {q ? (<>
+            <div className="text-[10px]" style={{ color: "var(--ink-mute)" }}>{q.ch.title}</div>
+            <div className="text-sm px-2 py-1.5" style={{ background: "var(--cream)", border: "1px solid var(--rule-soft)", borderRadius: 8, color: "var(--ink)", fontWeight: 700 }}>{q.ask}</div>
+            {q.opts.map((o, k) => <button key={k} onClick={() => choose(o)} className="w-full text-left text-[12px] px-2 py-1.5" style={{ ...chipSt(pick === o), borderRadius: 8, borderColor: pick != null && o === q.ans ? "var(--sage)" : pick === o ? "#e0948a" : "var(--rule-soft)", background: pick != null && o === q.ans ? "rgba(109,132,84,0.12)" : pick === o ? "rgba(201,86,78,0.08)" : "var(--paper)" }}>{o}</button>)}
+            {pick != null && <div className="flex items-center gap-2"><SankoRef refText={q.r.ref} /></div>}
+            {pick != null && <button onClick={() => { setI(i + 1); setPick(null); }} className="btn-primary w-full py-2">{i + 1 >= qs.length ? "結果へ" : "次へ"}</button>}
+          </>) : qs.length > 0 && (
+            <div className="text-center space-y-2"><div style={{ fontFamily: "'Cinzel', serif", fontWeight: 900, fontSize: 28, color: "var(--gold)" }}>{ok} / {qs.length}</div><button onClick={() => { setQs(sankoQuiz(subj, chapters)); setI(0); setOk(0); setPick(null); }} className="btn-primary w-full py-2">もう10問</button></div>
+          )}
+        </div>
+      </Box>
+    </div>
+  );
+}
+// 1つの章：読む／隠して覚える
+function SankoChapter({ subj, ch, state, actions, onExit, onQuiz, onCreateBank }) {
+  const [mode, setMode] = useState("read");
+  const [opened, setOpened] = useState({});
+  const [onlyNew, setOnlyNew] = useState(false);
+  const rec = normRpg(state.rpg).sanko || {};
+  const known = rec.known || {};
+  const miss = (rec.quiz || {}).miss || {};
+  useEffect(() => { actions.sankoRead(`${subj}:${ch.id}`); }, [ch.id]);
+  const rows = ch.rows.map((r, i) => ({ r, i, key: sankoKey(subj, ch.id, i) })).filter((x) => !(mode === "hide" && onlyNew && known[x.key]));
+  const bankName = `参考書：${SANKO_SUBJECTS.find((s) => s.id === subj).name}・${ch.title}`;
+  const exists = state.questionBanks.some((b) => b.name === bankName);
+  const exportBank = () => {
+    const cols = ch.ask && ch.ask.length ? ch.ask : ch.cols.map((_, k) => k).slice(1);
+    const questions = [];
+    ch.rows.forEach((r) => cols.forEach((k) => { if (r.c[k] && r.c[k] !== "－") questions.push({ id: uid(), q: `【${ch.title}】${r.c[0]}　→　${ch.cols[k]}は？`, a: `${r.c[k]}${r.ref ? `【根拠】${r.ref}` : ""}`, correct: 0, wrong: 0, marked: false, clozes: [] }); }));
+    if (!questions.length) return;
+    onCreateBank({ id: uid(), name: bankName, year: "", qualId: mainQual(state) ? mainQual(state).id : null, questions, clearHistory: [] });
+    alert(`問題集「${bankName}」（${questions.length}問）を作りました。問題タブにあります。今日の復習にも出ます。`);
+  };
+  const doneN = ch.rows.filter((_, i) => known[sankoKey(subj, ch.id, i)]).length;
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between jp text-xs"><button onClick={onExit} style={{ color: "var(--ink-soft)", background: "none", border: "none" }}>← 目次へ</button><span style={{ color: "var(--ink-soft)", fontWeight: 700 }}>覚えた {doneN}/{ch.rows.length}</span></div>
+      <Box title={ch.title} icon={<BookOpen size={18} />}>
+        <div className="jp space-y-2">
+          <p className="text-[12px]" style={{ color: "var(--ink-soft)", lineHeight: 1.7 }}>{ch.intro}</p>
+          <div className="grid grid-cols-3 gap-1 p-1" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)", borderRadius: 999 }}>
+            {[["read", "📖 読む"], ["hide", "🙈 隠して覚える"], ["quiz", "✏ クイズ"]].map(([id, l]) => <button key={id} onClick={() => (id === "quiz" ? onQuiz() : setMode(id))} className="py-1 text-[11px]" style={{ borderRadius: 999, border: "none", fontWeight: 700, cursor: "pointer", background: mode === id ? "linear-gradient(180deg, #cfae62, #a8833a)" : "transparent", color: mode === id ? "#fffdf6" : "var(--ink-soft)" }}>{l}</button>)}
+          </div>
+          {mode === "hide" && (
+            <div className="flex items-center justify-between text-[11px]">
+              <button onClick={() => setOnlyNew(!onlyNew)} style={{ background: "none", border: "none", color: "var(--ink)", cursor: "pointer" }}>{onlyNew ? "☑" : "☐"} まだ覚えていない行だけ</button>
+              <button onClick={() => setOpened({})} className="btn-ghost px-2 py-0.5">ぜんぶ隠し直す</button>
+            </div>
+          )}
+          {ch.tip && mode === "read" && <div className="text-[12px] px-2 py-1.5" style={{ background: "rgba(214,181,106,0.12)", border: "1px dashed var(--gold)", borderRadius: 8, color: "var(--ink)" }}>💡 {ch.tip}</div>}
+          {rows.map(({ r, i, key }) => {
+            const isOpen = mode === "read" || opened[key];
+            return (
+              <div key={key} className="px-2 py-1.5 space-y-1" style={{ background: "var(--paper)", border: `1px solid ${known[key] ? "var(--sage)" : "var(--rule-soft)"}`, borderRadius: 8 }}>
+                <div className="flex items-start gap-1.5"><span className="flex-1 text-[13px]" style={{ color: "var(--ink)", fontWeight: 800 }}>{r.c[0]}</span>{known[key] && <span className="text-[10px]" style={{ color: "var(--sage)", fontWeight: 800 }}>✓覚えた</span>}{miss[key] ? <span className="text-[10px]" style={{ color: "#c9564e" }}>✕{miss[key]}</span> : null}</div>
+                {isOpen ? r.c.slice(1).map((v, k) => (
+                  <div key={k} className="text-[12px] flex gap-1.5" style={{ lineHeight: 1.7 }}><span style={{ color: "var(--ink-mute)", flexShrink: 0, fontSize: 10, paddingTop: 2 }}>{ch.cols[k + 1]}</span><span style={{ color: "var(--ink)" }}>{v}</span></div>
+                )) : (
+                  <button onClick={() => setOpened({ ...opened, [key]: true })} className="w-full text-[12px] py-2" style={{ background: "repeating-linear-gradient(45deg, rgba(201,86,78,0.12), rgba(201,86,78,0.12) 6px, rgba(201,86,78,0.06) 6px, rgba(201,86,78,0.06) 12px)", border: "1px dashed #e0948a", borderRadius: 6, color: "var(--ink-soft)", cursor: "pointer" }}>{ch.cols.slice(1).join("・")}は？（タップでめくる）</button>
+                )}
+                <div className="flex items-center gap-1.5 flex-wrap"><SankoRef refText={r.ref} />
+                  {mode === "hide" && opened[key] && (<>
+                    <button onClick={() => actions.sankoMark(key, true)} className="text-[10px] px-2 py-0.5" style={chipSt(!!known[key])}>✓ 覚えた</button>
+                    <button onClick={() => actions.sankoMark(key, false)} className="text-[10px] px-2 py-0.5" style={chipSt(false)}>まだ</button>
+                  </>)}
+                </div>
+              </div>
+            );
+          })}
+          <div className="pt-1 space-y-1" style={{ borderTop: "1px dashed var(--rule-soft)" }}>
+            <button disabled={exists} onClick={exportBank} className="btn-ghost w-full py-2 text-[11px]" style={{ opacity: exists ? 0.5 : 1 }}>{exists ? "📚 問題集はもう作ってあります（問題タブ）" : "📚 この章を一問一答の問題集に書き出す（今日の復習に乗る）"}</button>
+          </div>
+        </div>
+      </Box>
+    </div>
+  );
+}
+function SankoTab({ state, actions, onCreateBank }) {
+  const [subj, setSubj] = useState(SANKO_SUBJECTS[0].id);
+  const [view, setView] = useState(null); // {ch} | {quiz: chapters}
+  const S = SANKO_SUBJECTS.find((s) => s.id === subj);
+  const rec = normRpg(state.rpg).sanko || {};
+  const known = rec.known || {};
+  const quiz = rec.quiz || {};
+  useEffect(() => { window.scrollTo({ top: 0 }); }, [view]);
+  if (view && view.quiz) return <SankoQuizRun subj={subj} chapters={view.quiz} title={view.title} actions={actions} onExit={() => setView(view.back ? { ch: view.back } : null)} />;
+  if (view && view.ch) return <SankoChapter key={view.ch.id} subj={subj} ch={view.ch} state={state} actions={actions} onCreateBank={onCreateBank} onExit={() => setView(null)} onQuiz={() => setView({ quiz: [view.ch], title: view.ch.title, back: view.ch })} />;
+  const total = S.chapters.reduce((t, ch) => t + ch.rows.length, 0);
+  const done = S.chapters.reduce((t, ch) => t + ch.rows.filter((_, i) => known[sankoKey(subj, ch.id, i)]).length, 0);
+  const weak = Object.entries(quiz.miss || {}).filter(([k]) => k.startsWith(`${subj}:`)).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([k, n]) => { const [, chId, i] = k.split(":"); const ch = S.chapters.find((c) => c.id === chId); return ch ? { ch, r: ch.rows[Number(i)], n } : null; }).filter(Boolean);
+  return (
+    <div className="space-y-3">
+      <Box title="参考書道場" icon={<BookOpen size={18} />}>
+        <div className="jp space-y-2">
+          <p className="text-[12px]" style={{ color: "var(--ink-soft)", lineHeight: 1.7 }}>暗記に特化した参考書です。表で読み、答えの欄を隠して覚え、クイズで確かめます。中身はアプリの条文データ（e-Gov の法令）で確かめたもので、各項目の 📜 から条文が開きます。</p>
+          <div className="flex flex-wrap gap-1.5">{SANKO_SUBJECTS.map((s) => <button key={s.id} onClick={() => setSubj(s.id)} className="px-2.5 py-0.5 text-[12px]" style={chipSt(subj === s.id)}>{s.name}</button>)}<span className="text-[10px] self-center" style={{ color: "var(--ink-mute)" }}>（民法・調査士法・区分所有法はこれから）</span></div>
+          <div className="grid grid-cols-3 gap-2 text-center">
+            {[["覚えた", `${done}/${total}`], ["クイズ", quiz.n ? `${Math.round((quiz.ok / quiz.n) * 100)}%` : "－"], ["章", `${S.chapters.length}`]].map(([k, v]) => <div key={k} style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)", borderRadius: 8, padding: "5px 2px" }}><div className="text-[10px]" style={{ color: "var(--ink-mute)" }}>{k}</div><div className="text-sm" style={{ fontWeight: 800, color: "var(--ink)" }}>{v}</div></div>)}
+          </div>
+          <button onClick={() => setView({ quiz: S.chapters, title: `${S.name}（全章から10問）` })} className="btn-primary w-full py-2">✏ 全章からクイズ10問</button>
+          {weak.length > 0 && (
+            <div className="px-2 py-1.5" style={{ background: "rgba(201,86,78,0.05)", border: "1px solid #e0948a", borderRadius: 8 }}>
+              <div className="text-[11px] mb-0.5" style={{ color: "#c9564e", fontWeight: 800 }}>クイズでまちがえた項目</div>
+              {weak.map((w, k) => <button key={k} onClick={() => setView({ ch: w.ch })} className="w-full text-left text-[11px]" style={{ background: "none", border: "none", color: "var(--ink)", cursor: "pointer" }}>・{w.ch.title}：{w.r.c[0]}<span style={{ color: "var(--ink-mute)" }}>（✕{w.n}）</span></button>)}
+            </div>
+          )}
+        </div>
+      </Box>
+      <Box title={`${S.name}　目次`} icon={<Bookmark size={18} />}>
+        <div className="jp space-y-1.5">
+          {S.chapters.map((ch, n) => { const d = ch.rows.filter((_, i) => known[sankoKey(subj, ch.id, i)]).length; return (
+            <button key={ch.id} onClick={() => setView({ ch })} className="w-full text-left px-2 py-1.5" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)", borderRadius: 8, cursor: "pointer" }}>
+              <div className="flex items-center gap-2"><span className="text-[11px]" style={{ color: "var(--gold)", fontWeight: 900, width: 22 }}>{n + 1}</span><span className="flex-1 text-[13px]" style={{ color: "var(--ink)", fontWeight: 800 }}>{ch.title}</span><span className="text-[10px]" style={{ color: d === ch.rows.length ? "var(--sage)" : "var(--ink-mute)", fontWeight: 700 }}>{d}/{ch.rows.length}</span></div>
+              <div className="text-[11px] pl-7" style={{ color: "var(--ink-soft)" }}>{ch.intro}</div>
+              <div className="ml-7 mt-1" style={{ height: 4, borderRadius: 2, background: "var(--beige)", overflow: "hidden" }}><div style={{ width: `${(d / ch.rows.length) * 100}%`, height: "100%", background: "#6d8454" }} /></div>
+            </button>
+          ); })}
+        </div>
+      </Box>
+    </div>
   );
 }
 
