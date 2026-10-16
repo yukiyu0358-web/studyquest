@@ -10,7 +10,7 @@ import { BATTLE_FX_CSS, heroAttackFor, monAttackFor, impactOf, AttackFx, SkillBa
 import { CALC2_GROUPS, CALC2_TYPES, CALC2_ALL, FIXED_PER_TYPE, CALC_MISS, makeCalc2, fixedSeed, checkCalc2, fieldAnsText, stagesOf, keyDrillOf } from "./game/calcplus"; // 計算強化（fx-JP500）
 import { makeCloze, BLANK_LABELS, makeTrap, isTrueAnswer } from "./game/cloze"; // 条文の穴埋め・○×のひっかけ版の問題づくり
 import { parseQuickText, TEXT_IMPORT_MODES } from "./game/textimport"; // 貼り付けた文章を一問一答に分ける
-import { loadData, DOC_LIST, docsIn, isSingleApp, modelAnswers, decideOf, floorRows, floorKeys, hideResult, CHEAT_ROWS, CHEAT_FIXES, REC_CASES } from "./game/kijutsu"; // 記述式の道場・本試験の計算
+import { loadData, DOC_LIST, docsIn, isSingleApp, modelAnswers, decideOf, floorRows, floorKeys, hideResult, CHEAT_ROWS, CHEAT_FIXES, REC_CASES, kjCanon, KJ_FIELDS, kjNextDate, kjDue, kjLabel, yearQuestionRe } from "./game/kijutsu"; // 記述式の道場・本試験の計算
 import { SHINSEI_CASES, SHINSEI_PURPOSES, SHINSEI_CAUSES, SHINSEI_DEADLINES, SHINSEI_ATTACH } from "./data/shinsei"; // 申請書の穴埋めの場面
 import { STUDY_QUOTES } from "./data/quotes"; // 名言
 import { REGION_TALK, STORY_TALKS, REGION_ARC, regionArc, TRINITY_REGIONS, TRINITY_TALK, BOND_TALKS, COUNTDOWN_TALKS, ACADEMY_MEET, STUDY_GROUP_TALK } from "./data/story"; // 物語の会話
@@ -614,7 +614,7 @@ const HOME_BLOCKS = [
 ];
 const HOME_TOP_PARTS = [{ id: "hero", name: "主人公の立ち絵とステータス" }, { id: "menu", name: "道しるべ（メニュー）" }, { id: "mentor", name: "吹き出し（名言）" }];
 const HOME_ROWS = [
-  { id: "task", name: "今日のタスク（学習計画）" }, { id: "review", name: "今日の復習" }, { id: "story", name: "ストーリーのつづき" },
+  { id: "task", name: "今日のタスク（学習計画）" }, { id: "review", name: "今日の復習" }, { id: "kijutsu", name: "記述式の復習（道場）" }, { id: "hayami", name: "当日の確認カード（試験14日前から）" }, { id: "story", name: "ストーリーのつづき" },
   { id: "goal", name: "今日の目標（試験日から逆算）" }, { id: "final", name: "最終決戦" }, { id: "reflect", name: "今日のふりかえり" },
   { id: "quick", name: "忘れかけの3問" }, { id: "rival", name: "影の受験生" }, { id: "next", name: "次に取れそうな称号" }, { id: "stats", name: "今日の学習・連続学習・達成クエスト" },
 ];
@@ -2218,19 +2218,36 @@ function StudyRPG({ user }) {
       return isBest;
     },
     // 記述式の答案（本試験の年度ごと）：自己採点の点・はまった落とし穴
-    logKijutsu: ({ id, score, pits = [] }) => {
+    logKijutsu: ({ id, score, pits = [], marks = {} }) => {
       updateRpg((x) => {
         const k = x.kijutsu || {};
         const r0 = (k.res || {})[id] || {};
-        const res = { ...(k.res || {}), [id]: { n: (r0.n || 0) + 1, last: score, best: Math.max(r0.best || 0, score), d: todayStr(), hist: [...(r0.hist || []), { d: todayStr(), s: score }].slice(-10) } };
+        const fm = {};
+        Object.entries(marks).forEach(([f, m]) => { fm[kjCanon(f)] = m; });
+        const res = { ...(k.res || {}), [id]: { n: (r0.n || 0) + 1, last: score, best: Math.max(r0.best || 0, score), d: todayStr(), hist: [...(r0.hist || []), { d: todayStr(), s: score }].slice(-10), fm: { ...(r0.fm || {}), ...fm } } };
         const pit = { ...(k.pit || {}) };
         pits.forEach((p) => { pit[`${id}#${p}`] = (pit[`${id}#${p}`] || 0) + 1; });
-        let out = { ...x, kijutsu: { ...k, res, pit } };
+        const fields = { ...(k.fields || {}) };
+        Object.entries(fm).forEach(([f, m]) => { const a = fields[f] || { n: 0, pts: 0 }; fields[f] = { n: a.n + 1, pts: a.pts + (m === "o" ? 1 : m === "s" ? 0.5 : 0) }; });
+        let out = { ...x, kijutsu: { ...k, res, pit, fields } };
         if (score >= 80) out = { ...out, gold: out.gold + 80, goldEarned: out.goldEarned + 80 };
         return out;
       });
       setTimeout(() => awardXp(score >= 80 ? 30 : 15), 100);
       if (score >= 80) showRpgToast(`📜 答案 ${score}点！ 80G`, "#b08a3e");
+    },
+    // 欄ドリル：1つの欄だけの ○△✕（年度の点数・復習日は変えない）
+    logKijutsuField: ({ id, field, mark }) => {
+      const f = kjCanon(field);
+      updateRpg((x) => {
+        const k = x.kijutsu || {};
+        const r0 = (k.res || {})[id];
+        const res = r0 ? { ...(k.res || {}), [id]: { ...r0, fm: { ...(r0.fm || {}), [f]: mark } } } : k.res || {};
+        const fd = { ...(k.fdrill || {}), [`${id}#${f}`]: mark };
+        const a = (k.fields || {})[f] || { n: 0, pts: 0 };
+        return { ...x, kijutsu: { ...k, res, fdrill: fd, fields: { ...(k.fields || {}), [f]: { n: a.n + 1, pts: a.pts + (mark === "o" ? 1 : mark === "s" ? 0.5 : 0) } } } };
+      });
+      if (mark === "o") setTimeout(() => awardXp(4), 100);
     },
     setKijutsuFigs: (key, ids) => updateRpg((x) => { const k = x.kijutsu || {}; return { ...x, kijutsu: { ...k, figs: { ...(k.figs || {}), [key]: ids } } }; }),
     logKijutsuDrill: (kind, ok, key) => updateRpg((x) => {
@@ -2279,7 +2296,7 @@ function StudyRPG({ user }) {
       return `記録しました！ EXP20・書式の欠片×2${good ? "・星霊石×1（8割以上！）" : ""}`;
     },
     // 本番リハーサルの結果：rpg.rehearsal.log = [{id, d, full, mcOk, mcN, mc, desc, total, min, pass}]
-    rehearsalFinish: ({ full, mcOk, mcN, land, bldg, min }) => {
+    rehearsalFinish: ({ full, mcOk, mcN, land, bldg, min, split = null, years = null }) => {
       const cfg = rehearsalCfg(stateRef.current);
       const mc = Math.round((mcOk / Math.max(1, mcN)) * 50 * 10) / 10;
       const desc = full ? Math.round(((Number(land) || 0) + (Number(bldg) || 0)) * 10) / 10 : null;
@@ -2292,7 +2309,7 @@ function StudyRPG({ user }) {
         return {
           ...x, gold: x.gold + gold, goldEarned: x.goldEarned + gold,
           materials: { ...x.materials, "m-star": (x.materials["m-star"] || 0) + star },
-          rehearsal: { ...rh, log: [...(rh.log || []), { id: uid(), d: todayStr(), full, mcOk, mcN, mc, desc, total, min: Math.round(min), pass }].slice(-100) },
+          rehearsal: { ...rh, log: [...(rh.log || []), { id: uid(), d: todayStr(), full, mcOk, mcN, mc, desc, total, min: Math.round(min), pass, ...(split ? { split } : {}), ...(years ? { years } : {}) }].slice(-100) },
         };
       });
       setTimeout(() => awardXp(full ? 80 : 40), 300);
@@ -9471,12 +9488,19 @@ function RehearsalCard({ state, pp, actions, onStart }) {
                 <g key={e.id}><rect x={x} y={y} width={bw - 6} height={H - 14 - y} rx="2" fill={e.pass ? "#d6b56a" : "#9fb3d1"} /><text x={x + (bw - 6) / 2} y={y - 2} fontSize="8" textAnchor="middle" fill="var(--ink)">{e.total}</text><text x={x + (bw - 6) / 2} y={H - 3} fontSize="7" textAnchor="middle" fill="var(--ink-mute)">{Number(e.d.slice(5, 7))}/{Number(e.d.slice(8, 10))}</text></g>); })}
             </svg>
           </>)}
+          {(() => { const sp = rh.log.filter((e) => e.full && e.split && (e.split.land || e.split.bldg)).slice(-5); if (!sp.length) return null; const av = (k) => Math.round(sp.reduce((t, e) => t + (e.split[k] || 0), 0) / sp.length); const a = { mc: av("mc"), land: av("land"), bldg: av("bldg") }; const tot = Math.max(1, a.mc + a.land + a.bldg); return (
+            <div className="mt-2">
+              <div className="text-[10px] mb-1" style={{ color: "var(--ink-soft)" }}>時間配分（本番形式・直近{sp.length}回の平均）</div>
+              <div className="flex" style={{ height: 14, borderRadius: 4, overflow: "hidden", border: "1px solid var(--rule-soft)" }}>{[["mc", "択一", "#9fb3d1"], ["land", "土地", "#d6b56a"], ["bldg", "建物", "#6d8454"]].map(([k, l, c]) => <div key={k} title={`${l} ${a[k]}分`} style={{ width: `${(a[k] / tot) * 100}%`, background: c }} />)}</div>
+              <div className="text-[10px] mt-0.5" style={{ color: "var(--ink-mute)" }}>択一 {a.mc}分・土地 {a.land}分・建物 {a.bldg}分{a.mc > 60 ? "　→ 択一に時間をかけすぎて、記述の時間が足りなくなりがちです" : a.land > 60 || a.bldg > 60 ? "　→ 記述の1問に60分を超えています。先に申請書の骨格（目的・原因・添付）を書く練習を" : ""}</div>
+            </div>
+          ); })()}
           <div className="text-[10px] mt-1 mb-1" style={{ color: "var(--ink-soft)" }}>最近の記録</div>
           {[...rh.log].reverse().slice(0, 5).map((e) => (
             <div key={e.id} className="flex items-center gap-2 text-[11px] py-0.5">
               <span style={{ color: "var(--ink-mute)", minWidth: 36 }}>{Number(e.d.slice(5, 7))}/{Number(e.d.slice(8, 10))}</span>
               <span style={{ fontWeight: 700 }}>{e.full ? "本番形式" : "択一のみ"}</span>
-              <span className="flex-1" style={{ color: "var(--ink-soft)" }}>択一{e.mc}{e.full ? `・記述${e.desc}・計${e.total}` : ""}（{e.min}分）</span>
+              <span className="flex-1" style={{ color: "var(--ink-soft)" }}>択一{e.mc}{e.full ? `・記述${e.desc}・計${e.total}` : ""}（{e.split && (e.split.land || e.split.bldg) ? `択一${e.split.mc}・土地${e.split.land}・建物${e.split.bldg}分` : `${e.min}分`}）</span>
               <span style={{ color: e.pass ? "var(--gold)" : "var(--ink-mute)", fontWeight: 800 }}>{e.pass ? "合格ライン" : "あと一歩"}</span>
             </div>
           ))}
@@ -9499,6 +9523,11 @@ function RehearsalRun({ state, run, actions, recordAnswer, startTimer, stopTimer
   const [now, setNow] = useState(Date.now());
   const timerStartedByMe = useRef(false);
   const limitMs = minutes * 60000;
+  const kj = usePastData("kijutsu");
+  const [kjPick, setKjPick] = useState(null); // {land: "L-R6", bldg: "B-R6"}
+  const [kjOpen, setKjOpen] = useState(null); // {part: "land"|"bldg", t0}
+  const [kjTime, setKjTime] = useState({ land: 0, bldg: 0 });
+  useEffect(() => { if (kj && !kjPick) { const pick = (k) => { const l = kj.filter((y) => y.kind === k); return l.length ? l[Math.floor(Math.random() * l.length)].id : null; }; setKjPick({ land: pick("land"), bldg: pick("bldg") }); } }, [kj]);
   useEffect(() => {
     if (!state.timer.startMs) { startTimer(null, "qa"); timerStartedByMe.current = true; }
     const t = setInterval(() => setNow(Date.now()), 1000);
@@ -9510,7 +9539,8 @@ function RehearsalRun({ state, run, actions, recordAnswer, startTimer, stopTimer
   const finish = (list, l, b) => {
     if (timerStartedByMe.current) { stopTimer(); timerStartedByMe.current = false; }
     const mcOk = list.filter((x) => x.correct).length;
-    const o = actions.rehearsalFinish({ full, mcOk, mcN: pool.length, land: Math.min(25, Number(l) || 0), bldg: Math.min(25, Number(b) || 0), min: (Date.now() - startMs) / 60000 });
+    const split = full ? { mc: Math.round(mcMs / 60000), land: Math.round(kjTime.land / 60000), bldg: Math.round(kjTime.bldg / 60000) } : null;
+    const o = actions.rehearsalFinish({ full, mcOk, mcN: pool.length, land: Math.min(25, Number(l) || 0), bldg: Math.min(25, Number(b) || 0), min: (Date.now() - startMs) / 60000, split, years: full && kjPick ? kjPick : null });
     SFX.play(o.pass ? "levelup" : "result");
     setOut({ ...o, mcOk, used: Date.now() - startMs });
     setPhase("done");
@@ -9538,7 +9568,7 @@ function RehearsalRun({ state, run, actions, recordAnswer, startTimer, stopTimer
     return (
       <Box title="本番リハーサル：結果" icon={<Award size={18} />}>
         <div className="jp text-center py-2">
-          <div className="text-[11px]" style={{ color: "var(--ink-mute)" }}>{full ? "本番と同じ形" : "択一だけ"} ・ {mmss(out.used)}（択一 {mmss(mcMs)}）</div>
+          <div className="text-[11px]" style={{ color: "var(--ink-mute)" }}>{full ? "本番と同じ形" : "択一だけ"} ・ {mmss(out.used)}（択一 {mmss(mcMs)}{full && (kjTime.land || kjTime.bldg) ? `・土地 ${mmss(kjTime.land)}・建物 ${mmss(kjTime.bldg)}` : ""}）</div>
           <div style={{ fontSize: 40, fontWeight: 800, color: out.pass ? "var(--gold)" : "var(--ink)", fontFamily: "'Cinzel', 'Shippori Mincho B1', serif" }}>{full ? out.total : out.mc}<span className="text-base">点</span></div>
           <div className="text-sm" style={{ fontWeight: 800, color: out.pass ? "var(--gold)" : "var(--brick)" }}>{out.pass ? (full ? "合格ラインを突破しました！" : "択一の基準点クリア！") : full ? "合格ラインまで、あと一歩" : "択一の基準点まで、あと一歩"}</div>
         </div>
@@ -9562,6 +9592,16 @@ function RehearsalRun({ state, run, actions, recordAnswer, startTimer, stopTimer
     );
   }
 
+  if (phase === "desc" && kjOpen && kj) {
+    const y = kj.find((x) => x.id === kjPick[kjOpen.part]);
+    const close = () => { setKjTime((t) => ({ ...t, [kjOpen.part]: t[kjOpen.part] + (Date.now() - kjOpen.t0) })); setKjOpen(null); };
+    if (y) return (
+      <div className="space-y-3">
+        {head(kjOpen.part === "land" ? "記述・土地（第21問）" : "記述・建物（第22問）")}
+        <KijutsuRun key={y.id} y={y} state={state} actions={actions} onExit={close} startTimer={startTimer} stopTimer={stopTimer} timerOn={true} exitLabel="リハーサルの記述へもどる" onScored={(sc) => { const v = String(Math.round((sc / 100) * 25 * 2) / 2); if (kjOpen.part === "land") setLand(v); else setBldg(v); }} />
+      </div>
+    );
+  }
   if (phase === "desc") {
     const inp = (v, set, l) => (
       <label className="text-xs flex items-center gap-2" style={{ color: "var(--ink)" }}><span className="w-24" style={{ fontWeight: 700 }}>{l}</span><input type="number" inputMode="decimal" step="0.5" className="rpg-input" value={v} onChange={(e) => set(e.target.value)} placeholder="例：16" /><span className="whitespace-nowrap">/ 25点</span></label>
@@ -9572,6 +9612,21 @@ function RehearsalRun({ state, run, actions, recordAnswer, startTimer, stopTimer
         <Box title="記述式（書式）の時間です" icon={<Pencil size={18} />}>
           <div className="jp space-y-2">
             <p className="text-xs" style={{ color: "var(--ink-soft)" }}>択一 {res.filter((x) => x.correct).length}/{pool.length}問 正解（{mmss(mcMs)}）。残りの時間で、手元の書式の問題（土地・建物の2問）を紙で解いてください。解き終えたら、模範解答で自己採点して点数を入れます。</p>
+            {kj && kjPick && (
+              <div className="p-2 space-y-1.5" style={{ background: "var(--cream)", border: "1px solid var(--rule-soft)", borderRadius: 8 }}>
+                <div className="text-[11px]" style={{ fontWeight: 800 }}>記述式の道場の本試験で解く（自己採点の点を25点満点に直して入れます）</div>
+                {[["land", "土地"], ["bldg", "建物"]].map(([part, l]) => (
+                  <div key={part} className="flex items-center gap-1.5">
+                    <span className="text-[11px] w-10" style={{ fontWeight: 700 }}>{l}</span>
+                    <select value={kjPick[part] || ""} onChange={(e) => setKjPick({ ...kjPick, [part]: e.target.value })} className="rpg-input flex-1" style={{ fontSize: 12 }}>
+                      {kj.filter((y) => y.kind === part).sort((a, b) => a.year - b.year).map((y) => <option key={y.id} value={y.id}>{y.label} {y.title}</option>)}
+                    </select>
+                    <button onClick={() => setKjOpen({ part, t0: Date.now() })} className="btn-sky px-2 py-1 text-[11px]">答案を書く</button>
+                  </div>
+                ))}
+                {(kjTime.land > 0 || kjTime.bldg > 0) && <div className="text-[10px]" style={{ color: "var(--ink-soft)" }}>かかった時間：土地 {mmss(kjTime.land)}・建物 {mmss(kjTime.bldg)}</div>}
+              </div>
+            )}
             {inp(land, setLand, "土地（第21問）")}
             {inp(bldg, setBldg, "建物（第22問）")}
             <button onClick={() => finish(res, land, bldg)} className="btn-primary w-full py-2">採点を終えて結果を見る</button>
@@ -11453,6 +11508,8 @@ function HomeDashboard({ state, actions, todayCount, liveSeconds, onGo, onQuick,
           <span className="text-xs" style={{ color: "var(--gold)", fontWeight: 800 }}>解く ▶</span>
         </button>,
     rival: <RivalCard state={state} pp={pp} qual={qual} compact />,
+    kijutsu: (() => { const due = kjDue((normRpg(state.rpg).kijutsu || {}).res, today); if (!due.length) return null; return <Row no="◆" icon={<ScrollIcon size={18} />} label="記述式の復習（道場）" title={`${kjLabel(due[0].id)}${due.length > 1 ? ` ほか${due.length - 1}年` : ""}`} sub={`前回 ${due[0].r.last}点。もう一度答案を書く日です`} action="解く" onClick={() => window.dispatchEvent(new CustomEvent("sq-open-past", { detail: { to: "laps", key: due[0].id } }))} />; })(),
+    hayami: (() => { const d = daysToExam(state); if (d === null || d < 0 || d > 14) return null; return <Row no="◆" icon={<Bookmark size={18} />} label="当日の確認カード" title={d === 0 ? "今日が試験日です" : `試験まで あと${d}日`} sub="式・キー・登記の目的・原因・添付書類の早見表と、当日の手順" action="見る" onClick={() => window.dispatchEvent(new CustomEvent("sq-open-past", { detail: { to: "laps", key: "hayami" } }))} />; })(),
     next: (() => { const t = nextTitles(state, 1)[0]; if (!t) return null; return <Row no="◆" icon={<Crown size={18} />} label="次に取れそうな称号" title={`「${t.title}」まで ${titleLeft(t)}`} sub={t.how} gauge={Math.min(1, t.ratio)} mark={false} action="見る" onClick={() => onGo("status")} />; })(),
     stats: (<div className="grid grid-cols-3 gap-2 mt-1">
           {chip("今日の学習", fmtMin(todayMin))}
@@ -14625,6 +14682,7 @@ function TodayTab({ state, recordSRAnswer, updateSrSettings, startTimer, stopTim
         <MemoryReportCard state={state} />
         <Prescription state={state} />
         <BountyBoard state={state} actions={rpgActionsForPairs} onStart={startSpecial} />
+        <KijutsuDueCard state={state} />
         <SpecialQuizCards state={state} onStart={startSpecial} />
         <ListenMode state={state} due={due} toggleQuestionMark={toggleQuestionMark} />
         <ReviewForecast state={state} />
@@ -15453,9 +15511,30 @@ function KeySeq({ seq }) {
     </span>
   );
 }
+// 本試験の手順の早押し：計算マニュアルの手順（複素数モード）を型で選ぶ
+const PAST_DRILL_TYPES = [["all", "すべて", /./], ["hosha", "放射", /放射/], ["koten", "交点", /交点/], ["naibun", "内分点", /内分/], ["idou", "点の移動", /点の移動/], ["heigou", "閉合調整", /閉合/], ["kyuseki", "求積・面積指定", /求積|面積/], ["other", "垂線・平行移動・相似など", /垂線|平行移動|相似|座標変換|三角関数|夾角|後退|直交/]];
+const PAST_PAD = ["SHIFT", "ALPHA", "STO", "OPTN", "ENG", "Ans", "(", ")", "+", "−", "×", "÷", "=", "°′″", "(−)", "√", "1", "2", "3", "4", "数", "A", "B", "C", "D", "E", "F", "x", "y", "M"];
+function pastDrillOf(seq) {
+  const out = [];
+  for (const t of seq) {
+    if (t.startsWith("[")) out.push(t.slice(1, -1));
+    else if (/^[\d.]+$/.test(t)) { if (out[out.length - 1] !== "数") out.push("数"); }
+    else if (/^[A-FxyM]$/.test(t)) out.push(t);
+    else return null;
+  }
+  return out.every((k) => PAST_PAD.includes(k)) ? out : null;
+}
+function pastDrillTasks(data, type) {
+  const re = (PAST_DRILL_TYPES.find((x) => x[0] === type) || PAST_DRILL_TYPES[0])[2];
+  const pool = [];
+  (data || []).forEach((it) => (it.sections || []).forEach((sec) => { if (!re.test(sec.title)) return; (sec.steps || []).forEach((st) => { const keys = pastDrillOf(st.k); if (keys && keys.filter((k) => k !== "数").length >= 6) pool.push({ label: `${it.label} ${it.purpose}｜${sec.title.replace(/^[①-⑨]\s*/, "")}${st.o ? `：${st.o}` : ""}`, keys, seq: st.k }); }); }));
+  return pool.map((x) => [Math.random(), x]).sort((a, b) => a[0] - b[0]).slice(0, 5).map((x) => x[1]);
+}
 function CalcTab({ state, actions, startTimer, stopTimer, pastReq, onPastOpened }) {
   const c2 = normRpg(state.rpg).calc2 || {};
   const [pastOpen, setPastOpen] = useState(null); // 本試験の計算 {kind: "L"|"F", id}
+  const pastData = usePastData("pastcalc");
+  const [pdType, setPdType] = useState("all");
   useEffect(() => { if (pastReq && pastReq.kind) { setPastOpen({ kind: pastReq.kind, id: pastReq.id, n: Date.now() }); onPastOpened && onPastOpened(); } }, [pastReq]);
   useEffect(() => { if (pastOpen) window.scrollTo({ top: 0 }); }, [pastOpen && pastOpen.id, pastOpen && pastOpen.n]);
   const [picked, setPicked] = useState(() => { try { const v = JSON.parse(localStorage.getItem("sq-calc2-types") || "null"); if (Array.isArray(v) && v.length) return [...new Set([...v, ...CALC2_ALL.filter((t) => !(v.includes(t)) && ["composite", "bunpitsu", "transform", "sumikiri", "arc", "kubun"].includes(t))])]; } catch (e) { /* 既定 */ } return CALC2_ALL; });
@@ -15503,6 +15582,10 @@ function CalcTab({ state, actions, startTimer, stopTimer, pastReq, onPastOpened 
     }
     if (tasks.length) setDrill({ tasks, i: 0, pos: 0, t0: Date.now(), miss: 0, flash: null });
   };
+  const startPastDrill = () => {
+    const tasks = pastDrillTasks(pastData, pdType);
+    if (tasks.length) setDrill({ tasks, i: 0, pos: 0, t0: Date.now(), miss: 0, flash: null, past: true });
+  };
   const toggleType = (t) => setPicked(picked.includes(t) ? picked.filter((x) => x !== t) : [...picked, t]);
   const chip = (on) => ({ borderRadius: 999, border: `1px solid ${on ? "var(--gold)" : "var(--rule-soft)"}`, background: on ? "var(--cream)" : "var(--paper)", color: "var(--ink)", fontWeight: on ? 800 : 500, cursor: "pointer" });
   const mmss = (sec) => `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`;
@@ -15532,7 +15615,7 @@ function CalcTab({ state, actions, startTimer, stopTimer, pastReq, onPastOpened 
         </div>
       );
     }
-    const PAD = ["SHIFT", "MENU", "(", ")", "Ans", "sin", "cos", "tan", "x²", "√", "°'\"", "(-)", "π", "×", "÷", "+", "−", "=", "数"];
+    const PAD = drill.past ? PAST_PAD : ["SHIFT", "MENU", "(", ")", "Ans", "sin", "cos", "tan", "x²", "√", "°'\"", "(-)", "π", "×", "÷", "+", "−", "=", "数"];
     const press = (k) => {
       if (k === task.keys[drill.pos]) {
         const pos = drill.pos + 1;
@@ -15553,7 +15636,7 @@ function CalcTab({ state, actions, startTimer, stopTimer, pastReq, onPastOpened 
             <div className="px-2 py-1.5" style={{ background: "var(--cream)", borderRadius: 8, border: "1px solid var(--rule-soft)" }}><KeySeq seq={task.seq} /></div>
             <div className="flex flex-wrap gap-1 text-[11px]">{task.keys.map((k, j) => <span key={j} style={{ ...KEYCAP, opacity: j < drill.pos ? 0.35 : 1, outline: j === drill.pos ? "2px solid #d6b56a" : "none" }}>{k}</span>)}</div>
             <p className="text-[10px]" style={{ color: "var(--ink-mute)" }}>上の順に、下のキーを押してください。数字のところは「数」をまとめて1回押します。</p>
-            <div className="grid grid-cols-5 gap-1.5 p-2" style={{ background: "#2a3550", borderRadius: 10 }}>
+            <div className={drill.past ? "grid grid-cols-6 gap-1.5 p-2" : "grid grid-cols-5 gap-1.5 p-2"} style={{ background: "#2a3550", borderRadius: 10 }}>
               {PAD.map((k) => <button key={k} onClick={() => press(k)} style={{ ...KEYCAP, padding: "8px 0", fontSize: 13, background: drill.flash === k ? "#f3c4bf" : k === "SHIFT" ? "linear-gradient(180deg, #f6e2a8, #d6b56a)" : k === "数" ? "linear-gradient(180deg, #dfe8f6, #b8c6dc)" : KEYCAP.background }}>{k}</button>)}
             </div>
           </div>
@@ -15724,6 +15807,11 @@ function CalcTab({ state, actions, startTimer, stopTimer, pastReq, onPastOpened 
         <div className="jp space-y-2">
           <p className="text-[11px]" style={{ color: "var(--ink-soft)" }}>選んだ種類の問題から、fx-JP500 のキー操作を5つ。画面のキーを正しい順にタップして、指に手順を覚えさせます。時間と押しまちがいを記録します。</p>
           <button onClick={startDrill} disabled={!picked.length} className="btn-sky w-full py-2">早押しをはじめる{(c2.drill || {}).best ? `（自己ベスト ${mmss(c2.drill.best)}）` : ""}</button>
+          <div className="pt-1 space-y-1.5" style={{ borderTop: "1px dashed var(--rule-soft)" }}>
+            <div className="text-[11px]" style={{ color: "var(--ink)", fontWeight: 800 }}>本試験の手順で（計算マニュアルの複素数モード）</div>
+            <div className="flex flex-wrap gap-1.5 text-[11px]">{PAST_DRILL_TYPES.map(([id, l]) => <button key={id} onClick={() => setPdType(id)} className="px-2 py-0.5" style={chip(pdType === id)}>{l}</button>)}</div>
+            <button onClick={startPastDrill} disabled={!pastData} className="btn-ghost w-full py-2">本試験の手順で早押し（5問）</button>
+          </div>
         </div>
       </Box>
       {missTotal > 0 && (
@@ -15743,6 +15831,7 @@ function CalcTab({ state, actions, startTimer, stopTimer, pastReq, onPastOpened 
           <div>・度分秒の入力と切り替えは <KeySeq seq={["[°'\"]"]} />、cos⁻¹ などは <KeySeq seq={["[SHIFT]", "[cos]"]} />、マイナスの数は <KeySeq seq={["[(-)]"]} /></div>
           <div>・座標は X＝北、Y＝東なので、<b>Pol(ΔX, ΔY)</b> の θ がそのまま方向角になります（マイナスなら360°を足す）</div>
           <p className="text-[10px]" style={{ color: "var(--ink-mute)" }}>キーの位置は fx-JP500 の標準の配置です。お手元の電卓と表示がちがうときは教えてください。</p>
+          <button onClick={() => window.dispatchEvent(new CustomEvent("sq-open-past", { detail: { to: "laps", key: "hayami" } }))} className="btn-ghost w-full py-1.5 text-[11px]">🗂 当日の確認カード（式・キーの早見表）</button>
         </div>
       </Box>
     </div>
@@ -16060,6 +16149,141 @@ function YearFigures({ figKey, state, actions }) {
     </div>
   );
 }
+// その年の一問一答（成果物の年度別・穴埋めCSVの問題番号で探して、今日タブで解く）
+function yearQuestionItems(state, y) {
+  const re = yearQuestionRe(y);
+  const items = [];
+  state.questionBanks.forEach((b) => (b.questions || []).forEach((q) => { if (!q.excluded && re.test(String(q.q || "").trim())) items.push({ bankId: b.id, bankName: b.name, year: b.year || "", qId: q.id }); }));
+  return items;
+}
+function YearQuestionsButton({ y, state }) {
+  const items = yearQuestionItems(state, y);
+  if (!items.length) return <p className="text-[10px]" style={{ color: "var(--ink-mute)" }}>この年の一問一答は、成果物の年度別CSV（問題番号が「記{y.kind === "land" ? "土" : "建"}{y.era}-01」の形）を取り込むと、ここから解けます。</p>;
+  return <button onClick={() => window.dispatchEvent(new CustomEvent("sq-study-items", { detail: { items, kind: "kijutsu-year", title: `${y.label}（${y.kind === "land" ? "土地" : "建物"}）の一問一答` } }))} className="btn-sky w-full py-1.5 text-[11px]">📝 この年の一問一答を解く（{items.length}問）</button>;
+}
+// 欄ドリル：1つの欄だけを、40年分から続けて
+function FieldDrill({ kj, field, state, actions, onExit }) {
+  const rec = normRpg(state.rpg).kijutsu || {};
+  const order = useState(() => {
+    const has = (y) => (field === "表示欄" ? true : decideOf(y).some((k) => kjCanon(k) === field));
+    const markOf = (y) => (rec.fdrill || {})[`${y.id}#${field}`] || (((rec.res || {})[y.id] || {}).fm || {})[field];
+    const rank = (y) => { const m = markOf(y); return m === "x" ? 0 : m === "s" ? 1 : !m ? 2 : 3; };
+    return kj.filter(has).map((y) => [rank(y), Math.random(), y]).sort((a, b) => a[0] - b[0] || a[1] - b[1]).slice(0, 10).map((x) => x[2]);
+  })[0];
+  const [i, setI] = useState(0);
+  const [ans, setAns] = useState({});
+  const [shown, setShown] = useState(false);
+  const [mark, setMark] = useState(null);
+  const [tally, setTally] = useState({ o: 0, s: 0, x: 0 });
+  const y = order[i];
+  if (!y) return (
+    <div className="space-y-3">
+      <Box title={`欄ドリル：${field}　結果`} icon={<Award size={18} />}>
+        <div className="jp text-center space-y-2">
+          <div style={{ fontFamily: "'Cinzel', serif", fontWeight: 900, fontSize: 28, color: "var(--gold)" }}>○{tally.o}　△{tally.s}　✕{tally.x}</div>
+          <button onClick={onExit} className="btn-primary w-full py-2">記述式の道場へもどる</button>
+        </div>
+      </Box>
+    </div>
+  );
+  const key = field === "表示欄" ? "表示欄" : decideOf(y).find((k) => kjCanon(k) === field);
+  const { m: model } = modelAnswers(y);
+  const hyojiModel = y.kind === "land" ? (y.secs || []).find((s) => s.h === "土地の表示欄") : (y.secs || []).find((s) => s.h === "申請書の要点");
+  const hint = key !== "表示欄" ? kjAutoHint(key, model, ans) : null;
+  const set = (k, v) => setAns((a) => ({ ...a, [k]: v }));
+  const next = () => { actions.logKijutsuField({ id: y.id, field, mark }); setTally((t) => ({ ...t, [mark]: t[mark] + 1 })); setI(i + 1); setAns({}); setShown(false); setMark(null); window.scrollTo({ top: 0 }); };
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between jp text-xs"><button onClick={onExit} style={{ color: "var(--ink-soft)", background: "none", border: "none" }}>← 記述式の道場へもどる</button><span style={{ color: "var(--ink-soft)", fontWeight: 700 }}>{i + 1} / {order.length}</span></div>
+      <Box title={`欄ドリル：${field}`} icon={<Pencil size={18} />}>
+        <div className="jp space-y-2">
+          <div className="text-[12px]" style={{ color: "var(--ink)", fontWeight: 800 }}>{y.label}　{y.title}</div>
+          {(y.case || []).map((c, k) => <p key={k} className="text-[13px]" style={{ color: "var(--ink)", lineHeight: 1.8 }}>{c}</p>)}
+          <div className="text-[12px]" style={{ color: "var(--ink)", fontWeight: 800 }}>{key === "表示欄" ? (y.kind === "land" ? "土地の表示欄" : "建物の表示欄") : key}</div>
+          {key === "表示欄" ? <HyojiGrid kind={y.kind} value={ans.hyoji} onChange={(v) => set("hyoji", v)} disabled={shown} /> : <KjFieldInput k={key} ans={ans} set={set} disabled={shown} />}
+          {!shown ? <button onClick={() => setShown(true)} className="btn-primary w-full py-2">模範を見る</button> : (<>
+            <div className="px-2 py-1.5" style={{ background: "var(--sky-pale)", border: "1px solid var(--gold)", borderRadius: 8 }}>
+              <div className="text-[10px]" style={{ color: "var(--ink-mute)", fontWeight: 700 }}>模範</div>
+              {key === "表示欄" ? (hyojiModel ? <KjSection sec={hyojiModel} /> : <div className="text-[12px]">（資料にありません）</div>) : <div className="text-[12px]" style={{ color: "var(--ink)", whiteSpace: "pre-wrap", lineHeight: 1.7 }}>{model[key] || "（資料にありません）"}</div>}
+              {hint && <div className="text-[11px] mt-1" style={{ color: hint.startsWith("✔") ? "var(--sage)" : "#c9564e", fontWeight: 800 }}>{hint}</div>}
+            </div>
+            <div className="flex gap-1.5">{KJ_MARKS.map(([id, l]) => <button key={id} onClick={() => setMark(id)} className="flex-1 py-1 text-sm" style={{ ...chipSt(mark === id), color: id === "o" ? "var(--sage)" : id === "x" ? "#c9564e" : "var(--gold)", fontWeight: 900 }}>{l}</button>)}</div>
+            <button disabled={!mark} onClick={next} className="btn-primary w-full py-2" style={{ opacity: mark ? 1 : 0.5 }}>{i + 1 >= order.length ? "結果へ" : "次の年へ"}</button>
+          </>)}
+        </div>
+      </Box>
+    </div>
+  );
+}
+// 欄ごとの弱点表（自己採点の平均。低い順）
+function KjFieldTable({ rec, onDrill }) {
+  const f = rec.fields || {};
+  const rows = KJ_FIELDS.filter((k) => f[k] && f[k].n).map((k) => ({ k, n: f[k].n, r: f[k].pts / f[k].n })).sort((a, b) => a.r - b.r);
+  return (
+    <div className="px-2 py-1.5 space-y-1" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)", borderRadius: 8 }}>
+      <div className="text-[11px]" style={{ color: "var(--ink)", fontWeight: 800 }}>欄ごとの出来（低い順）・タップで欄ドリル</div>
+      {rows.length === 0 && <div className="text-[10px]" style={{ color: "var(--ink-mute)" }}>答案を自己採点すると、欄ごとの出来がここに出ます。</div>}
+      {rows.map((x) => (
+        <button key={x.k} onClick={() => onDrill(x.k)} className="w-full text-left" style={{ background: "none", border: "none", cursor: "pointer", padding: 0 }}>
+          <div className="flex text-[11px]"><span className="flex-1" style={{ color: "var(--ink)" }}>{x.k}</span><span style={{ color: x.r < 0.6 ? "#c9564e" : x.r < 0.8 ? "var(--gold)" : "var(--sage)", fontWeight: 800 }}>{Math.round(x.r * 100)}%</span><span style={{ color: "var(--ink-mute)", width: 44, textAlign: "right" }}>{x.n}回</span></div>
+          <div style={{ height: 5, borderRadius: 3, background: "var(--beige)", overflow: "hidden" }}><div style={{ width: `${x.r * 100}%`, height: "100%", background: x.r < 0.6 ? "#c9564e" : x.r < 0.8 ? "#d6b56a" : "#6d8454" }} /></div>
+        </button>
+      ))}
+      <div className="flex flex-wrap gap-1 pt-1 text-[10px]">{KJ_FIELDS.map((k) => <button key={k} onClick={() => onDrill(k)} className="px-2 py-0.5" style={chipSt(false)}>{k}</button>)}</div>
+    </div>
+  );
+}
+// 今日タブ：記述式の復習の日が来た年度
+function KijutsuDueCard({ state }) {
+  const due = kjDue((normRpg(state.rpg).kijutsu || {}).res, todayStr());
+  if (!due.length) return null;
+  return (
+    <Box title={`記述式の復習（${due.length}年）`} icon={<ScrollIcon size={18} />}>
+      <div className="jp space-y-1.5">
+        <p className="text-[11px]" style={{ color: "var(--ink-soft)" }}>記述式の道場で解いた年のうち、もう一度解く日が来たものです（前回の点が低いほど早く来ます）。</p>
+        {due.slice(0, 5).map((x) => <button key={x.id} onClick={() => window.dispatchEvent(new CustomEvent("sq-open-past", { detail: { to: "laps", key: x.id } }))} className="w-full text-left text-[12px] px-2 py-1.5 flex" style={{ ...chipSt(false), borderRadius: 8 }}><span className="flex-1">{kjLabel(x.id)}</span><span style={{ color: "var(--ink-mute)" }}>前回 {x.r.last}点 ▶</span></button>)}
+      </div>
+    </Box>
+  );
+}
+// 当日の確認カード（計算マニュアル・論点編・攻略本の「早見表と当日の確認」）
+function KeyText({ text }) {
+  const parts = String(text).split(/(［[^］]*］)/).filter(Boolean);
+  const isKey = (t) => t.startsWith("［") && /^(SHIFT|ALPHA|STO|OPTN|ENG|MENU|AC|DEL|Ans|M\+|S⇔D|x⁻¹|sin|cos|tan|√|°′″|\(−\)|\(|\)|\+|−|×|÷|=|◀|▶|\d)$/.test(t.slice(1, -1));
+  return <>{parts.map((t, i) => isKey(t) ? <span key={i} style={{ ...KEYCAP, fontSize: 10, padding: "0 4px", margin: "0 1px" }}>{t.slice(1, -1)}</span> : <Fragment key={i}>{t}</Fragment>)}</>;
+}
+function HayamiCards({ onExit }) {
+  const data = usePastData("hayami");
+  const [tab, setTab] = useState(0);
+  const card = (data || [])[tab];
+  return (
+    <div className="space-y-3">
+      {onExit && <div className="flex items-center justify-between jp text-xs"><button onClick={onExit} style={{ color: "var(--ink-soft)", background: "none", border: "none" }}>← もどる</button></div>}
+      <Box title="当日の確認カード" icon={<Bookmark size={18} />}>
+        <div className="jp space-y-2">
+          {!data ? <div className="text-[11px]" style={{ color: "var(--ink-mute)" }}>読み込んでいます…</div> : (<>
+            <div className="grid grid-cols-3 gap-1 p-1" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)", borderRadius: 999 }}>
+              {data.map((c, i) => <button key={i} onClick={() => setTab(i)} className="py-1 text-[11px]" style={{ borderRadius: 999, border: "none", fontWeight: 700, cursor: "pointer", background: tab === i ? "linear-gradient(180deg, #cfae62, #a8833a)" : "transparent", color: tab === i ? "#fffdf6" : "var(--ink-soft)" }}>{c.title}</button>)}
+            </div>
+            {card && card.secs.map((sec, i) => (
+              <div key={i} className="px-2 py-1.5 space-y-1" style={{ background: /当日/.test(sec.h) ? "rgba(214,181,106,0.12)" : "var(--paper)", border: `1px solid ${/当日/.test(sec.h) ? "var(--gold)" : "var(--rule-soft)"}`, borderRadius: 8 }}>
+                <div className="text-[12px]" style={{ color: "var(--sky-deep)", fontWeight: 800 }}>{sec.h}</div>
+                {sec.items.map((it, j) => it.p ? <div key={j} className="text-[12px]" style={{ color: "var(--ink)", lineHeight: 1.8 }}><KeyText text={it.p} /></div> : (
+                  <div key={j} style={{ overflowX: "auto" }}><table style={{ borderCollapse: "collapse", width: "100%", fontSize: 11 }}><tbody>{it.tbl.map((r, a) => <tr key={a}>{r.map((c, b) => <td key={b} style={{ border: "1px solid var(--rule-soft)", padding: "3px 5px", verticalAlign: "top", color: "var(--ink)", fontWeight: a === 0 ? 700 : 400, background: a === 0 ? "var(--cream)" : "transparent" }}><KeyText text={c.join(" ")} /></td>)}</tr>)}</tbody></table></div>
+                ))}
+              </div>
+            ))}
+          </>)}
+        </div>
+      </Box>
+    </div>
+  );
+}
+// いちばん近い試験日までの日数（取得済みの資格は除く）
+function daysToExam(state) {
+  const qs = (state.qualifications || []).filter((q) => !q.acquired && q.examDate).sort((a, b) => (a.examDate < b.examDate ? -1 : 1));
+  return qs[0] ? daysUntil(qs[0].examDate) : null;
+}
 // ── 記述式の道場（周回の部屋） ──
 const KJ_MARKS = [["o", "○", 1], ["s", "△", 0.5], ["x", "✕", 0]];
 const kjDraftKey = (id) => `sq-kj-draft-${id}`;
@@ -16106,8 +16330,35 @@ function KjSection({ sec, tone }) {
     </div>
   );
 }
+// 答案の1つの欄（添付書類は☑、登記の目的は候補つき）
+function KjFieldInput({ k, ans, set, disabled }) {
+  if (k === "添付書類") {
+    const picked = ans[k] || [];
+    return (
+      <div className="space-y-1">
+        <div className="flex flex-wrap gap-1 text-[11px]">{DOC_LIST.map((d) => <button key={d} disabled={disabled} onClick={() => set(k, picked.includes(d) ? picked.filter((x) => x !== d) : [...picked, d])} className="px-2 py-0.5" style={chipSt(picked.includes(d))}>{picked.includes(d) ? "☑ " : ""}{d}</button>)}</div>
+        <input disabled={disabled} value={ans[`${k}.memo`] || ""} onChange={(e) => set(`${k}.memo`, e.target.value)} placeholder="件ごとに分けるときのメモ（例：1件目＝…）" style={{ ...pastInp, fontSize: 12, fontFamily: "inherit" }} />
+      </div>
+    );
+  }
+  if (k === "登記の目的") return (<><input disabled={disabled} list="kj-purposes" value={ans[k] || ""} onChange={(e) => set(k, e.target.value)} style={{ ...pastInp, fontSize: 13, fontFamily: "inherit" }} /><datalist id="kj-purposes">{KJ_PURPOSES.map((p) => <option key={p} value={p} />)}</datalist></>);
+  return <textarea disabled={disabled} value={ans[k] || ""} onChange={(e) => set(k, e.target.value)} rows={k.includes("原因") || k === "申請人" || k.includes("測定") ? 3 : 1} style={{ ...pastInp, fontSize: 13, fontFamily: "inherit", resize: "vertical" }} />;
+}
+function kjAutoHint(k, model, ans) {
+  const mv = model[k] || "";
+  if (k === "添付書類" && mv && isSingleApp(mv)) {
+    const want = docsIn(mv), got = ans[k] || [];
+    const miss = want.filter((d) => !got.includes(d)), extra = got.filter((d) => !want.includes(d));
+    return !miss.length && !extra.length ? "✔ 添付書類はぴったり" : `${miss.length ? `足りない：${miss.join("・")}` : ""}${miss.length && extra.length ? "　" : ""}${extra.length ? `余分：${extra.join("・")}` : ""}`;
+  }
+  if (k === "登記の目的" && mv && !mv.includes("\n")) {
+    const norm = (s) => String(s || "").replace(/[（(].*?[）)]/g, "").replace(/\s/g, "");
+    return norm(ans[k]) && norm(ans[k]) === norm(mv) ? "✔ 登記の目的は一致" : null;
+  }
+  return null;
+}
 // 1年分の答案づくり
-function KijutsuRun({ y, state, actions, onExit, startTimer, stopTimer, timerOn }) {
+function KijutsuRun({ y, state, actions, onExit, startTimer, stopTimer, timerOn, onScored, exitLabel = "記述式の道場へもどる" }) {
   const decide = decideOf(y);
   const [ans, setAns] = useState(() => readDraft(y.id));
   const [phase, setPhase] = useState("q");
@@ -16125,43 +16376,20 @@ function KijutsuRun({ y, state, actions, onExit, startTimer, stopTimer, timerOn 
   const hyojiModel = y.kind === "land" ? (y.secs || []).find((s) => s.h === "土地の表示欄") : (y.secs || []).find((s) => s.h === "申請書の要点");
   const shown = ["この年の論点", "地積更正の要否", "床面積 ― 測定基準と算入・不算入", "図面の注意点"];
   const calcLine = ((y.secs || []).find((s) => s.h === "この年に出た計算") || { items: [] }).items.map((i) => i.p).join(" ");
-  const field = (k) => {
-    if (k === "添付書類") {
-      const picked = ans[k] || [];
-      return (
-        <div className="space-y-1">
-          <div className="flex flex-wrap gap-1 text-[11px]">{DOC_LIST.map((d) => <button key={d} disabled={phase !== "q"} onClick={() => set(k, picked.includes(d) ? picked.filter((x) => x !== d) : [...picked, d])} className="px-2 py-0.5" style={chipSt(picked.includes(d))}>{picked.includes(d) ? "☑ " : ""}{d}</button>)}</div>
-          <input disabled={phase !== "q"} value={ans[`${k}.memo`] || ""} onChange={(e) => set(`${k}.memo`, e.target.value)} placeholder="件ごとに分けるときのメモ（例：1件目＝…）" style={{ ...pastInp, fontSize: 12, fontFamily: "inherit" }} />
-        </div>
-      );
-    }
-    if (k === "登記の目的") return (<><input disabled={phase !== "q"} list="kj-purposes" value={ans[k] || ""} onChange={(e) => set(k, e.target.value)} style={{ ...pastInp, fontSize: 13, fontFamily: "inherit" }} /><datalist id="kj-purposes">{KJ_PURPOSES.map((p) => <option key={p} value={p} />)}</datalist></>);
-    return <textarea disabled={phase !== "q"} value={ans[k] || ""} onChange={(e) => set(k, e.target.value)} rows={k.includes("原因") || k === "申請人" || k.includes("測定") ? 3 : 1} style={{ ...pastInp, fontSize: 13, fontFamily: "inherit", resize: "vertical" }} />;
-  };
-  const autoHint = (k) => {
-    const mv = model[k] || "";
-    if (k === "添付書類" && mv && isSingleApp(mv)) {
-      const want = docsIn(mv), got = ans[k] || [];
-      const miss = want.filter((d) => !got.includes(d)), extra = got.filter((d) => !want.includes(d));
-      return !miss.length && !extra.length ? "✔ 添付書類はぴったり" : `${miss.length ? `足りない：${miss.join("・")}` : ""}${miss.length && extra.length ? "　" : ""}${extra.length ? `余分：${extra.join("・")}` : ""}`;
-    }
-    if (k === "登記の目的" && mv && !mv.includes("\n")) {
-      const norm = (s) => String(s || "").replace(/[（(].*?[）)]/g, "").replace(/\s/g, "");
-      return norm(ans[k]) && norm(ans[k]) === norm(mv) ? "✔ 登記の目的は一致" : null;
-    }
-    return null;
-  };
+  const field = (k) => <KjFieldInput k={k} ans={ans} set={set} disabled={phase !== "q"} />;
+  const autoHint = (k) => kjAutoHint(k, model, ans);
   const save = () => {
-    actions.logKijutsu({ id: y.id, score, pits });
+    actions.logKijutsu({ id: y.id, score, pits, marks });
     clearDraft(y.id);
     if (mine.current) { stopTimer(); mine.current = false; }
     SFX.play(score >= 80 ? "result" : "defeat");
     setSaved(score);
+    if (onScored) onScored(score);
   };
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between jp text-xs">
-        <button onClick={onExit} style={{ color: "var(--ink-soft)", background: "none", border: "none" }}>← 記述式の道場へもどる</button>
+        <button onClick={onExit} style={{ color: "var(--ink-soft)", background: "none", border: "none" }}>← {exitLabel}</button>
         <span style={{ color: "var(--ink-soft)", fontWeight: 700 }}>{y.kind === "land" ? "土地" : "建物"}・{y.cat}</span>
       </div>
       <Box title={`${y.label}　${y.title}`} icon={<ScrollIcon size={18} />}>
@@ -16172,6 +16400,7 @@ function KijutsuRun({ y, state, actions, onExit, startTimer, stopTimer, timerOn 
             <div className="space-y-0.5">{y.asks.map(([q, t], i) => <div key={i} className="text-[12px] flex gap-2" style={{ color: "var(--ink)" }}><b style={{ minWidth: 44 }}>{q}</b><span>{t}</span></div>)}</div>
           )}
           <YearFigures figKey={y.id} state={state} actions={actions} />
+          <YearQuestionsButton y={y} state={state} />
           {y.kind === "land" && <button onClick={() => window.dispatchEvent(new CustomEvent("sq-open-past", { detail: { to: "calc", kind: "L", id: y.era } }))} className="btn-ghost w-full py-1.5 text-[11px]">📐 この年の座標計算を計算の部屋で解く</button>}
           {y.kind === "bldg" && <button onClick={() => window.dispatchEvent(new CustomEvent("sq-open-past", { detail: { to: "calc", kind: "F", id: y.era } }))} className="btn-ghost w-full py-1.5 text-[11px]">🏠 この年の床面積を計算の部屋で解く</button>}
         </div>
@@ -16210,7 +16439,8 @@ function KijutsuRun({ y, state, actions, onExit, startTimer, stopTimer, timerOn 
           <div className="jp space-y-2 text-center">
             <div style={{ fontFamily: "'Cinzel', serif", fontWeight: 900, fontSize: 30, color: score >= 80 ? "var(--gold)" : "var(--ink)" }}>{saved != null ? saved : score}<span className="text-sm">点</span></div>
             <div className="text-[11px]" style={{ color: "var(--ink-soft)" }}>○＝1・△＝0.5・✕（つけていない欄も）＝0 で {items.length}欄を100点に。80点以上で 80G</div>
-            {saved == null ? <button onClick={save} className="btn-primary w-full py-2">この点で記録する</button> : <button onClick={onExit} className="btn-primary w-full py-2">記述式の道場へもどる</button>}
+            {saved != null && <div className="text-[11px]" style={{ color: "var(--ink-soft)" }}>次にこの年を解く日：{kjNextDate({ d: todayStr(), last: saved, hist: [...(((normRpg(state.rpg).kijutsu || {}).res || {})[y.id] || {}).hist || []] })}（今日タブ・ホームでお知らせ）</div>}
+            {saved == null ? <button onClick={save} className="btn-primary w-full py-2">この点で記録する</button> : <button onClick={onExit} className="btn-primary w-full py-2">{exitLabel}</button>}
           </div>
         </Box>
       </>)}
@@ -16328,10 +16558,12 @@ function KijutsuDojo({ state, actions, pastReq, onPastOpened, startTimer, stopTi
   const [view, setView] = useState(null); // {mode: "run"|"cheat"|"rec", id}
   const rec = normRpg(state.rpg).kijutsu || {};
   const res = rec.res || {};
-  useEffect(() => { if (pastReq && pastReq.key) { setView({ mode: "run", id: pastReq.key, n: Date.now() }); setKind(pastReq.key.startsWith("B-") ? "bldg" : "land"); onPastOpened(); } }, [pastReq]);
+  useEffect(() => { if (pastReq && pastReq.key) { if (pastReq.key === "hayami") setView({ mode: "hayami" }); else { setView({ mode: "run", id: pastReq.key, n: Date.now() }); setKind(pastReq.key.startsWith("B-") ? "bldg" : "land"); } onPastOpened(); } }, [pastReq]);
   useEffect(() => { onFocus(!!view); }, [!!view]);
   const exit = () => { setView(null); window.scrollTo({ top: 0 }); };
   if (view && view.mode === "cheat") return <CheatQuiz actions={actions} onExit={exit} />;
+  if (view && view.mode === "hayami") return <HayamiCards onExit={exit} />;
+  if (view && view.mode === "field") { if (!kj) return <div className="jp text-center text-sm py-6" style={{ color: "var(--ink-soft)" }}>読み込んでいます…</div>; return <FieldDrill key={`${view.field}${view.n || ""}`} kj={kj} field={view.field} state={state} actions={actions} onExit={exit} />; }
   if (view && view.mode === "rec") return <RecordDrill actions={actions} onExit={exit} />;
   if (view && view.mode === "run") {
     const y = (kj || []).find((x) => x.id === view.id);
@@ -16350,6 +16582,7 @@ function KijutsuDojo({ state, actions, pastReq, onPastOpened, startTimer, stopTi
     return p ? { id, label: y.label, text: p.p.replace(/^・/, ""), n } : null;
   }).filter(Boolean);
   const cq = rec.cheat || {}, rd = rec.rec || {};
+  const due = kjDue(res, todayStr());
   return (
     <Box title="記述式の道場（本試験 H17〜R6）" icon={<ScrollIcon size={18} />}>
       <div className="jp space-y-2.5">
@@ -16375,6 +16608,13 @@ function KijutsuDojo({ state, actions, pastReq, onPastOpened, startTimer, stopTi
               </div>
             </div>
           ))}
+          {due.length > 0 && (
+            <div className="px-2 py-1.5 space-y-1" style={{ background: "rgba(214,181,106,0.12)", border: "1px solid var(--gold)", borderRadius: 8 }}>
+              <div className="text-[11px]" style={{ color: "var(--ink)", fontWeight: 800 }}>📅 今日の復習（{due.length}年）</div>
+              <div className="flex flex-wrap gap-1.5">{due.map((x) => <button key={x.id} onClick={() => setView({ mode: "run", id: x.id })} className="px-2 py-0.5 text-[11px]" style={chipSt(true)}>{kjLabel(x.id)} {x.r.last}点</button>)}</div>
+            </div>
+          )}
+          <KjFieldTable rec={rec} onDrill={(f) => setView({ mode: "field", field: f, n: Date.now() })} />
           {pitTop.length > 0 && (
             <div className="px-2 py-1.5" style={{ background: "rgba(201,86,78,0.05)", border: "1px solid #e0948a", borderRadius: 8 }}>
               <div className="text-[11px] mb-0.5" style={{ color: "#c9564e", fontWeight: 800 }}>よくはまる落とし穴</div>
@@ -16386,6 +16626,7 @@ function KijutsuDojo({ state, actions, pastReq, onPastOpened, startTimer, stopTi
           <button onClick={() => setView({ mode: "cheat" })} className="btn-ghost py-2 text-[11px]">📋 目的⇄原因⇄日付クイズ{cq.n ? `（${Math.round((cq.ok / cq.n) * 100)}%）` : ""}</button>
           <button onClick={() => setView({ mode: "rec" })} className="btn-ghost py-2 text-[11px]">📖 登記記録 申請前→後{rd.n ? `（${Object.keys(rd.done || {}).length}/${REC_CASES.length}）` : ""}</button>
         </div>
+        <button onClick={() => setView({ mode: "hayami" })} className="btn-ghost w-full py-2 text-[11px]">🗂 当日の確認カード（計算・土地・建物の早見表）</button>
       </div>
     </Box>
   );

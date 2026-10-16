@@ -189,6 +189,14 @@ state の主なキー：`player` / `qualifications` / `tasks` / `studyPlans`（�
   - 年度の図 `YearFigures`：問題の画像と同じく圧縮して userdata/{uid}/images に保存、どの年度かは rpg.kijutsu.figs[年度id]（L-R6・B-R6。道場と計算の部屋で共有）。講座の画面の写しなので public には置かない
   - 電卓の変数 x・y は KeySeq で等幅の斜体（Cinzel は小文字も大文字に見えるため）
   - 成果物の CSV の新旧の比較は 資格対策/CSVの整理表.md
+  - 追加（2026年10月16日その2）：
+    - 欄ごとの弱点 `KjFieldTable`（rpg.kijutsu.fields[欄]＝{n, pts}、欄の名前は `kjCanon`＝原因及びその日付をまとめる、`KJ_FIELDS`）と欄ドリル `FieldDrill`（1つの欄だけを10年、✕→△→未→○の順。記録 `logKijutsuField`、rpg.kijutsu.fdrill・res[id].fm）。入力欄は `KjFieldInput`、自動の判定は `kjAutoHint`（答案と欄ドリルで共通）
+    - 年度ごとの復習日 `kjNextDate`（50点未満1日・70点未満3日・80点未満7日・80点以上は続いた回数で14→30→60→120日）`kjDue` `kjLabel`。今日タブ `KijutsuDueCard`、ホームの道しるべの行 `kijutsu`、道場の「今日の復習」
+    - その年の一問一答 `YearQuestionsButton` `yearQuestionItems`（問題文の先頭の番号「記土R6-」「記論土-R6-」などで探す `yearQuestionRe`。sq-study-items の kind: "kijutsu-year"）
+    - 本番リハーサル（RehearsalRun）の記述で、道場の土地1年・建物1年を解く（KijutsuRun の `onScored`・`exitLabel`。100点→25点満点）。時間の内訳 split {mc, land, bldg} と years を rehearsal.log に記録、RehearsalCard に「時間配分」の帯
+    - 本試験の手順の早押し：CalcTab の早押しに `PAST_DRILL_TYPES`（放射・交点・内分点・点の移動・閉合調整・求積・その他）`pastDrillTasks` `pastDrillOf` `PAST_PAD`（複素数モードのキーと変数。drill.past のとき6列）
+    - 当日の確認カード `HayamiCards`（public/data/hayami.json＝計算マニュアル共通編 第9部・土地論点編 第10部・建物攻略本 第10部。build_data.py で作る）。`KeyText` は電卓のキーの名前のときだけキーの形（数式の［ ］はそのまま）。道場・計算の部屋の準備欄から開き、試験日の14日前からホームの行 `hayami`（`daysToExam`）
+    - 択一の一問一答CSV：`py scripts/kijutsu/build_takuitsu_csv.py` で 資格対策/成果物/StudyQuest_択一_民法_過去問300肢.csv（民法の強化書H17-R6 第5部の300肢・○×・ひとこと・解説・根拠）と StudyQuest_択一_判例と言い回し.csv（図解版などの判例・ひっかけの言い回し、調査士法を含む）を作る。アプリには利用者が問題タブから取り込む
 - 試し表示：.claude/launch.json に demo（5174）と preview（公開版と同じビルドを 4173 で。本番の Firebase につながるのでログインはしない）
 - テーマ：`DISPLAY_DEFAULTS`（既定は white）`THEME_PAL`（classic/white の配色）`CLASSIC_CSS` `WHITE_CSS` `ClassicThemeStyle` `TitleScreen` `ClassicInfoBar` `MenuHome`（クラシック）`SignpostHome`（白金・道しるべ）`migrateDisplay`
 

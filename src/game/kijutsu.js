@@ -207,3 +207,38 @@ export const REC_CASES = [
     opts: ["令和6年4月2日取壊し", "③令和6年4月2日一部取壊し", "取壊し", "令和6年4月2日滅失（日付は申請日）"], after: ["", "", "", "令和6年4月2日取壊し（登記記録を閉鎖）"],
     why: "全部の取壊しは建物滅失登記。原因は「年月日取壊し」で、表題部の記録に下線を引いて登記記録を閉鎖する。" },
 ];
+
+// ── 欄ごとの弱点・年度ごとの復習日 ──
+// 欄の名前をそろえる（土地の「原因及びその日付・冠記」と建物の「原因及びその日付」は同じ欄として数える）
+export const kjCanon = (k) => (String(k).startsWith("原因") ? "原因及びその日付" : k);
+export const KJ_FIELDS = ["登記の目的", "申請の件数", "申請人", "原因及びその日付", "添付書類", "地積更正の要否", "登録免許税", "床面積（測定基準）", "床面積（答え）", "表示欄"];
+const pad2 = (n) => String(n).padStart(2, "0");
+function addDaysStr(s, n) {
+  const [y, m, d] = String(s).split("-").map(Number);
+  const t = new Date(y, (m || 1) - 1, (d || 1) + n);
+  return `${t.getFullYear()}-${pad2(t.getMonth() + 1)}-${pad2(t.getDate())}`;
+}
+// 次にその年を解く日：点が低いほど早く。80点以上が続くと 14→30→60→120日
+export function kjNextDate(r) {
+  if (!r || !r.d) return null;
+  const hist = r.hist || [];
+  let streak = 0;
+  for (let i = hist.length - 1; i >= 0 && hist[i].s >= 80; i--) streak++;
+  const s = r.last || 0;
+  const days = s < 50 ? 1 : s < 70 ? 3 : s < 80 ? 7 : [14, 30, 60, 120][Math.min(Math.max(streak, 1), 4) - 1];
+  return addDaysStr(r.d, days);
+}
+// 今日までに復習の日が来た年度（古い順）
+export function kjDue(res, today) {
+  return Object.entries(res || {}).map(([id, r]) => ({ id, r, next: kjNextDate(r) })).filter((x) => x.next && x.next <= today).sort((a, b) => (a.next < b.next ? -1 : 1));
+}
+export function kjLabel(id) {
+  const m = /^([LB])-([HR])(\d+)$/.exec(id || "");
+  if (!m) return id;
+  return `${m[2] === "H" ? "平成" : "令和"}${m[2] === "R" && m[3] === "1" ? "元" : m[3]}年度（${m[1] === "L" ? "土地" : "建物"}）`;
+}
+// その年の一問一答（成果物の年度別・穴埋めCSVの問題番号「記土R6-01」「記論土-R6-01」などで探す）
+export function yearQuestionRe(y) {
+  const k = y.kind === "land" ? "土" : "建";
+  return new RegExp(`^(記${k}${y.era}-|記論${k}-${y.era}-)`);
+}

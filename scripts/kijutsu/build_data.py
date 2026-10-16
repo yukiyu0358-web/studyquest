@@ -220,3 +220,26 @@ bldg = parse('土地家屋調査士_記述式_建物_攻略本_H17-R6_A5.docx', 
 allv = land + bldg
 json.dump(allv, open(os.path.join(OUTDIR, 'kijutsu.json'), 'w', encoding='utf-8'), ensure_ascii=False, separators=(',', ':'))
 print('kijutsu', len(land), len(bldg))
+
+# ── 当日の確認カード（3冊の「早見表と当日の確認」） ──
+def hayami(fname, title):
+    B = blocks(os.path.join(SRC, fname))
+    start = None
+    for i, (t, v) in enumerate(B):
+        if t == 'p' and re.match(r'^第\d+部　早見表と当日の確認', v): start = i
+    if start is None: return None
+    secs, cur = [], None
+    for t, v in B[start + 1:]:
+        if t == 'p' and (re.match(r'^\d+-\d+　', v) or v in ('式の早見表', 'キーの早見表', '試験当日の確認')):
+            cur = {'h': re.sub(r'^\d+-\d+　', '', v), 'items': []}; secs.append(cur); continue
+        if t == 'p' and (v.startswith('本書の数値は') or v.startswith('例題の数値は')): continue
+        if cur is None: continue
+        cur['items'].append({'p': v} if t == 'p' else {'tbl': v})
+    return {'title': title, 'secs': secs}
+cards = [c for c in [
+    hayami('土地計算マニュアル_0_共通編_fx-JP500_A5.docx', '計算（fx-JP500）'),
+    hayami('土地家屋調査士_記述式_土地_論点編_H17-R6_A5.docx', '土地（問21）'),
+    hayami('土地家屋調査士_記述式_建物_攻略本_H17-R6_A5.docx', '建物（問22）'),
+] if c]
+json.dump(cards, open(os.path.join(OUTDIR, 'hayami.json'), 'w', encoding='utf-8'), ensure_ascii=False, separators=(',', ':'))
+print('hayami', [(c['title'], [s['h'] for s in c['secs']]) for c in cards])
