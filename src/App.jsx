@@ -16778,7 +16778,7 @@ function SankoTab({ state, actions, onCreateBank }) {
       <Box title="参考書道場" icon={<BookOpen size={18} />}>
         <div className="jp space-y-2">
           <p className="text-[12px]" style={{ color: "var(--ink-soft)", lineHeight: 1.7 }}>暗記に特化した参考書です。表で読み、答えの欄を隠して覚え、クイズで確かめます。中身はアプリの条文データ（e-Gov の法令）で確かめたもので、各項目の 📜 から条文が開きます。</p>
-          <div className="flex flex-wrap gap-1.5">{SANKO_SUBJECTS.map((s) => <button key={s.id} onClick={() => setSubj(s.id)} className="px-2.5 py-0.5 text-[12px]" style={chipSt(subj === s.id)}>{s.name}</button>)}<span className="text-[10px] self-center" style={{ color: "var(--ink-mute)" }}>（民法・調査士法・区分所有法はこれから）</span></div>
+          <div className="flex flex-wrap gap-1.5">{SANKO_SUBJECTS.map((s) => <button key={s.id} onClick={() => setSubj(s.id)} className="px-2.5 py-0.5 text-[12px]" style={chipSt(subj === s.id)}>{s.name}</button>)}</div>
           <div className="grid grid-cols-3 gap-2 text-center">
             {[["覚えた", `${done}/${total}`], ["クイズ", quiz.n ? `${Math.round((quiz.ok / quiz.n) * 100)}%` : "－"], ["章", `${S.chapters.length}`]].map(([k, v]) => <div key={k} style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)", borderRadius: 8, padding: "5px 2px" }}><div className="text-[10px]" style={{ color: "var(--ink-mute)" }}>{k}</div><div className="text-sm" style={{ fontWeight: 800, color: "var(--ink)" }}>{v}</div></div>)}
           </div>
