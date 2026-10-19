@@ -20,6 +20,14 @@ export const LAW_SOURCES = [
   { key: "minpo",          name: "民法",                           lawId: "129AC0000000089", lawNum: "明治二十九年法律第八十九号" },
   { key: "kubun",          name: "建物の区分所有等に関する法律",   lawId: "337AC0000000069", lawNum: "昭和三十七年法律第六十九号" },
   { key: "chosashi",       name: "土地家屋調査士法",               lawId: "325AC0000000228", lawNum: "昭和二十五年法律第二百二十八号" },
+  // 第二級陸上特殊無線技士（二陸特）の法規
+  { key: "denpa-ho",       name: "電波法",                         lawId: "325AC0000000131", lawNum: "昭和二十五年法律第百三十一号" },
+  { key: "denpa-rei",      name: "電波法施行令",                   lawId: "413CO0000000245", lawNum: "平成十三年政令第二百四十五号" },
+  { key: "denpa-kisoku",   name: "電波法施行規則",                 lawId: "325M50080000014", lawNum: "昭和二十五年電波監理委員会規則第十四号" },
+  { key: "musen-jujisha",  name: "無線従事者規則",                 lawId: "402M50001000018", lawNum: "平成二年郵政省令第十八号" },
+  { key: "musen-unyo",     name: "無線局運用規則",                 lawId: "325M50080000017", lawNum: "昭和二十五年電波監理委員会規則第十七号" },
+  { key: "musen-setsubi",  name: "無線設備規則",                   lawId: "325M50080000018", lawNum: "昭和二十五年電波監理委員会規則第十八号" },
+  { key: "musen-menkyo",   name: "無線局免許手続規則",             lawId: "325M50080000015", lawNum: "昭和二十五年電波監理委員会規則第十五号" },
 ];
 
 const API = "https://laws.e-gov.go.jp/api/2/law_data/";
@@ -63,6 +71,13 @@ const subitemLines = (n, level = 1, out = []) => {
   return out;
 };
 
+// 表（TableStruct）：行ごとに、欄の文章（文ごとに改行）の配列にする
+const tableRows = (ts) => {
+  const tb = findFirst(ts, "Table");
+  return kids(tb, "TableRow").map((r) => kids(r, "TableColumn").map((c) => (c.children || []).filter(isNode).map(textOf).join("\n")));
+};
+const tablesOf = (n) => kids(n, "TableStruct").map(tableRows).filter((t) => t.length);
+
 export function extractArticles(lawFullText) {
   const main = findFirst(lawFullText, "MainProvision");
   if (!main) return [];
@@ -79,9 +94,13 @@ export function extractArticles(lawFullText) {
         const item = { n: String((it.attr && it.attr.Num) || ""), t: textOf(kids(it, "ItemTitle")[0]), s: sentenceText(kids(it, "ItemSentence")[0]) };
         const subs = subitemLines(it);
         if (subs.length) item.x = subs;
+        const itb = tablesOf(it);
+        if (itb.length) item.tb = itb;
         p.i.push(item);
       }
       if (p.i.length === 0) delete p.i;
+      const tb = tablesOf(para);
+      if (tb.length) p.tb = tb;
       art.p.push(p);
     }
     return art;
@@ -126,12 +145,14 @@ async function main() {
       const { title, articles } = await fetchLaw(src);
       const prev = await readJson(`${src.key}.json`);
       if (prev && Array.isArray(prev.articles)) {
-        const old = new Map(prev.articles.map((a) => [a.n, JSON.stringify(a)]));
+        // 表を読むようになる前のデータと比べるときは、表を除いて比べる（表が増えただけで「法改正」にしない）
+        const key = prev.tables ? JSON.stringify : (a) => JSON.stringify(a, (k, v) => (k === "tb" ? undefined : v));
+        const old = new Map(prev.articles.map((a) => [a.n, key(a)]));
         for (const a of articles) {
-          if (old.get(a.n) !== JSON.stringify(a)) { (changes[src.key] = changes[src.key] || {})[a.n] = fetchedAt; changedN++; }
+          if (old.get(a.n) !== key(a)) { (changes[src.key] = changes[src.key] || {})[a.n] = fetchedAt; changedN++; }
         }
       }
-      const data = { key: src.key, name: src.name, title, lawId: src.lawId, lawNum: src.lawNum, fetchedAt, articles };
+      const data = { key: src.key, name: src.name, title, lawId: src.lawId, lawNum: src.lawNum, fetchedAt, tables: true, articles };
       await writeFile(join(outDir, `${src.key}.json`), JSON.stringify(data));
       index.push({ key: src.key, name: src.name, count: articles.length, fetchedAt });
       console.log(`OK（${articles.length}条：${articles[0].t}〜${articles[articles.length - 1].t}）`);

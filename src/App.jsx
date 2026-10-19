@@ -14,6 +14,7 @@ import { loadData, DOC_LIST, docsIn, isSingleApp, modelAnswers, decideOf, floorR
 import { SHINSEI_CASES, SHINSEI_PURPOSES, SHINSEI_CAUSES, SHINSEI_DEADLINES, SHINSEI_ATTACH } from "./data/shinsei"; // 申請書の穴埋めの場面
 import { STUDY_QUOTES } from "./data/quotes"; // 名言
 import { SANKO_SUBJECTS } from "./data/sankosho"; // 参考書道場（暗記の参考書）
+import { NIRIKUTOKU_SUBJECTS } from "./data/sankosho-radio"; // 参考書道場：二陸特
 import { REGION_TALK, STORY_TALKS, REGION_ARC, regionArc, TRINITY_REGIONS, TRINITY_TALK, BOND_TALKS, COUNTDOWN_TALKS, ACADEMY_MEET, STUDY_GROUP_TALK } from "./data/story"; // 物語の会話
 
 
@@ -7638,6 +7639,14 @@ const LAWS = [
   { key: "minpo",          name: "民法",           short: "民法",     aliases: ["民法"] },
   { key: "kubun",          name: "区分所有法",     short: "区分所有法", aliases: ["建物の区分所有等に関する法律", "区分所有法", "区分法"] },
   { key: "chosashi",       name: "土地家屋調査士法", short: "調査士法", aliases: ["土地家屋調査士法", "調査士法"] },
+  // 第二級陸上特殊無線技士（二陸特）の法規
+  { key: "denpa-ho",       name: "電波法",           short: "電波法",   aliases: ["電波法"] },
+  { key: "denpa-rei",      name: "電波法施行令",     short: "施行令",   aliases: ["電波法施行令"] },
+  { key: "denpa-kisoku",   name: "電波法施行規則",   short: "施行規則", aliases: ["電波法施行規則"] },
+  { key: "musen-jujisha",  name: "無線従事者規則",   short: "従事者規則", aliases: ["無線従事者規則", "従事者規則"] },
+  { key: "musen-unyo",     name: "無線局運用規則",   short: "運用規則", aliases: ["無線局運用規則", "運用規則"] },
+  { key: "musen-setsubi",  name: "無線設備規則",     short: "設備規則", aliases: ["無線設備規則", "設備規則"] },
+  { key: "musen-menkyo",   name: "無線局免許手続規則", short: "免許手続規則", aliases: ["無線局免許手続規則", "免許手続規則"] },
 ];
 const LAW_BY_KEY = Object.fromEntries(LAWS.map((l) => [l.key, l]));
 const LAW_ALIAS_LIST = LAWS.flatMap((l) => l.aliases.map((a) => ({ alias: a, key: l.key }))).sort((a, b) => b.alias.length - a.alias.length);
@@ -7669,14 +7678,19 @@ function normalizeLawText(t) {
     .replace(/(\d+条)の([一二三四五六七八九十]+)/g, (m, a, b) => `${a}の${kanjiToNum(b)}`);
 }
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-const LAW_REF_RE = new RegExp(`(${LAW_ALIAS_LIST.map((x) => escapeRe(x.alias)).join("|")})?(?:第?(\\d+)条|(同)条)(?:の(\\d+))?(?:第?(\\d+)項)?(?:第?(\\d+)号)?`, "g");
+const LAW_REF_RE = new RegExp(`(${LAW_ALIAS_LIST.map((x) => escapeRe(x.alias)).join("|")})?(?:第?(\\d+)条|(同)条)(?:の(\\d+)(?![つ\\d]))?(?:第?(\\d+)項)?(?:第?(\\d+)号)?`, "g");
 const isJaChar = (c) => !!c && /[\u3040-\u30ff\u3400-\u9fff]/.test(c);
+const RADIO_LAW_RE = /(\u96fb\u6ce2\u6cd5\u65bd\u884c\u898f\u5247|\u96fb\u6ce2\u6cd5\u65bd\u884c\u4ee4|\u96fb\u6ce2\u6cd5|\u7121\u7dda\u5f93\u4e8b\u8005\u898f\u5247|\u7121\u7dda\u5c40\u904b\u7528\u898f\u5247|\u7121\u7dda\u8a2d\u5099\u898f\u5247|\u7121\u7dda\u5c40\u514d\u8a31\u624b\u7d9a\u898f\u5247)/;
 
 // 文章から「規則35条3号」などの条文の参照を取り出す
 function extractLawRefs(texts) {
   const refs = [];
   const seen = new Set();
   let lastLaw = null, lastArt = null;
+  // 法令名のない「第1条」は不動産登記法とみなす。ただし電波関係の法令が出てくる文章（二陸特の問題）では、【根拠】に書かれた（なければ最初に出てくる）電波関係の法令とみなす
+  const joined = texts.map(normalizeLawText).join(" ");
+  const radioM = RADIO_LAW_RE.exec(joined.slice(Math.max(0, joined.indexOf("【根拠】")))) || RADIO_LAW_RE.exec(joined); // 【根拠】に書かれた法令を優先
+  const defaultLaw = radioM ? LAW_ALIAS_LIST.find((x) => x.alias === radioM[1]).key : "fudosan-ho";
   for (const raw of texts) {
     const t = normalizeLawText(raw);
     LAW_REF_RE.lastIndex = 0;
@@ -7689,7 +7703,7 @@ function extractLawRefs(texts) {
         if (SHORT_ALIASES.has(alias) && isJaChar(prev)) continue; // 「命令」「手続法」などは対象外
         lawKey = LAW_ALIAS_LIST.find((x) => x.alias === alias).key;
       } else {
-        lawKey = lastLaw || "fudosan-ho";
+        lawKey = lastLaw || defaultLaw;
       }
       let art;
       if (dou) { if (!lastArt || lawKey !== lastLaw) continue; art = lastArt; }
@@ -7707,7 +7721,25 @@ function extractLawRefs(texts) {
   return refs;
 }
 const sameArticle = (a, b) => a.law === b.law && a.art === b.art;
-const articleFullText = (a) => [a.c, ...(a.p || []).flatMap((p) => [p.s, ...(p.i || []).flatMap((it) => [it.t + " " + it.s, ...(it.x || [])])])].join(" ");
+const tableText = (tb) => (tb || []).flatMap((t) => t.map((r) => r.join(" ")));
+const articleFullText = (a) => [a.c, ...(a.p || []).flatMap((p) => [p.s, ...tableText(p.tb), ...(p.i || []).flatMap((it) => [it.t + " " + it.s, ...(it.x || []), ...tableText(it.tb)])])].join(" ");
+// 条文の中の表（電波法施行令第3条の操作範囲など。scripts/fetch-laws.mjs が p.tb・item.tb に入れる）
+function LawTables({ tb }) {
+  if (!tb || !tb.length) return null;
+  return tb.map((t, ti) => (
+    <div key={ti} className="mt-1" style={{ overflowX: "auto" }}>
+      <table className="text-[12px]" style={{ borderCollapse: "collapse", width: "100%" }}>
+        <tbody>
+          {t.map((r, ri) => (
+            <tr key={ri} style={{ background: ri === 0 ? "var(--cream)" : "transparent" }}>
+              {r.map((c, ci) => <td key={ci} style={{ border: "1px solid var(--rule-soft)", padding: "3px 5px", verticalAlign: "top", whiteSpace: "pre-line", fontWeight: ri === 0 || (ci === 0 && r.length > 1) ? 700 : 400, minWidth: ci === 0 && r.length > 1 ? 72 : undefined }}>{c}</td>)}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  ));
+}
 
 // 条文の表示（画面全体）
 function LawArticleModal({ target, onClose }) {
@@ -7760,12 +7792,14 @@ function LawArticleModal({ target, onClose }) {
                   return (
                     <div key={pi} ref={on && !cur.item ? hlRef : null} className="mb-2 p-1" style={{ background: on && !cur.item ? "var(--hl, #fff3b0)" : "transparent" }}>
                       <span style={{ fontWeight: "bold" }}>{art.p.length > 1 ? `${p.n}　` : ""}</span>{p.s}
+                      <LawTables tb={p.tb} />
                       {(p.i || []).map((it, ii) => {
                         const ion = on && cur.item && String(it.n) === String(cur.item);
                         return (
                           <div key={ii} ref={ion ? hlRef : null} className="ml-3 mt-1 p-1" style={{ background: ion ? "var(--hl, #fff3b0)" : "transparent" }}>
                             {it.t}　{it.s}
                             {(it.x || []).map((x, xi) => <div key={xi} className="ml-3">{x}</div>)}
+                            <LawTables tb={it.tb} />
                           </div>
                         );
                       })}
@@ -9013,6 +9047,8 @@ function passPower(state, qualId) {
   passCache.set(key, { banks: state.questionBanks, folders: state.folders, day, sr: state.srSettings, res });
   return res;
 }
+// 無線の資格（二陸特・アマチュア無線など）か：見出しの絵を切り替えるのに使う
+function isRadioQual(q) { return !!q && /無線|陸特|海特|航特/.test(q.name || ""); }
 // いちばん近い試験日の資格（取得済みは除く）。問題集が1つも紐づいていなければ全問題で計算する
 // 目標の資格：星詠みの書（タイトル画面）で選んだ資格。「すべての資格」か未選択なら、試験日がいちばん近い資格
 function autoMainQual(state) {
@@ -13972,11 +14008,12 @@ function LapRoom({ state, actions, rpgActions, pastReq, onPastOpened, startTimer
   const left = active.reduce((a, p) => a + planToday(p).pending.length, 0);
   const stamps = state.questionBanks.reduce((a, b) => a + (b.clears || 0), 0);
   const show = !dojoFocus;
+  const radio = isRadioQual(mainQual(state)); // 星詠みの書で無線の資格を選んでいるときは、無線の見出しの絵
   return (
     <div className="space-y-4">
       {show && (
         <div className="relative overflow-hidden" style={{ borderRadius: 12, border: "1px solid #b08a3e", boxShadow: "inset 0 0 0 3px #fdfbf5, inset 0 0 0 4px rgba(176,138,62,.45)", width: "100%", aspectRatio: "16 / 9" }}>
-          <img src={`${ART_URL}laproom.webp`} alt="周回の部屋 ― くり返し解いて、知識を定着" className="w-full h-full" style={{ objectFit: "cover", objectPosition: "center 40%" }} />
+          <img src={`${ART_URL}${radio ? "laproom-radio.webp" : "laproom.webp"}`} alt={radio ? "周回の部屋 ― 電波と回路を、学びの力に（特殊陸上無線技士 試験対策）" : "周回の部屋 ― 測って、解いて、力にする（土地家屋調査士 試験対策）"} className="w-full h-full" style={{ objectFit: "cover", objectPosition: "center 40%" }} />
         </div>
       )}
       {show && (
@@ -15699,7 +15736,7 @@ function CalcTab({ state, actions, startTimer, stopTimer, pastReq, onPastOpened 
   const head = (
     <div className="mb-3 jp">
       <div className="relative overflow-hidden" style={{ borderRadius: 12, border: "1px solid #b08a3e", boxShadow: "inset 0 0 0 3px #fdfbf5, inset 0 0 0 4px rgba(176,138,62,.45)", width: "100%", maxWidth: 680, margin: "0 auto", aspectRatio: "1672 / 941", background: "#34508c" }}>
-        <img src={`${ART_URL}calcroom.webp`} alt="計算問題 周回の部屋 ― 関数電卓で、解く力を磨く" className="w-full h-full" style={{ objectFit: "cover", objectPosition: "center 35%" }} />
+        <img src={`${ART_URL}calcroom.webp`} alt="計算の部屋（土地家屋調査士 試験対策）" className="w-full h-full" style={{ objectFit: "cover", objectPosition: "center 35%" }} />
       </div>
       <div className="text-[11px] mt-1 text-center" style={{ color: "var(--ink-soft)" }}>関数電卓（カシオ fx-JP500）のキー操作つき。記述式の流れ・座標・交点・面積・三角形・端数処理を周回。</div>
     </div>
@@ -16741,6 +16778,9 @@ function KijutsuDojo({ state, actions, pastReq, onPastOpened, startTimer, stopTi
 
 // ── 参考書道場（下のタブ「参考書」）：暗記に特化した参考書。src/data/sankosho.js の章を「読む・隠して覚える・クイズ・問題集に書き出す」 ──
 const sankoKey = (subj, ch, i) => `${subj}:${ch}:${i}`;
+// 資格ごとの科目のまとまり（目標の資格が無線なら二陸特を先に）
+const SANKO_GROUPS = [{ id: "chosashi", name: "土地家屋調査士", subjects: SANKO_SUBJECTS }, { id: "radio", name: "第二級陸上特殊無線技士", subjects: NIRIKUTOKU_SUBJECTS }];
+const SANKO_ALL = SANKO_GROUPS.flatMap((g) => g.subjects);
 function SankoRef({ refText }) {
   const [open, setOpen] = useState(null);
   if (!refText) return null;
@@ -16803,7 +16843,7 @@ function SankoChapter({ subj, ch, state, actions, onExit, onQuiz, onCreateBank }
   const miss = (rec.quiz || {}).miss || {};
   useEffect(() => { actions.sankoRead(`${subj}:${ch.id}`); }, [ch.id]);
   const rows = ch.rows.map((r, i) => ({ r, i, key: sankoKey(subj, ch.id, i) })).filter((x) => !(mode === "hide" && onlyNew && known[x.key]));
-  const bankName = `参考書：${SANKO_SUBJECTS.find((s) => s.id === subj).name}・${ch.title}`;
+  const bankName = `参考書：${SANKO_ALL.find((s) => s.id === subj).name}・${ch.title}`;
   const exists = state.questionBanks.some((b) => b.name === bankName);
   const exportBank = () => {
     const cols = ch.ask && ch.ask.length ? ch.ask : ch.cols.map((_, k) => k).slice(1);
@@ -16858,9 +16898,11 @@ function SankoChapter({ subj, ch, state, actions, onExit, onQuiz, onCreateBank }
   );
 }
 function SankoTab({ state, actions, onCreateBank }) {
-  const [subj, setSubj] = useState(SANKO_SUBJECTS[0].id);
+  const radio = isRadioQual(mainQual(state));
+  const groups = radio ? [...SANKO_GROUPS].reverse() : SANKO_GROUPS;
+  const [subj, setSubj] = useState(groups[0].subjects[0].id);
   const [view, setView] = useState(null); // {ch} | {quiz: chapters}
-  const S = SANKO_SUBJECTS.find((s) => s.id === subj);
+  const S = SANKO_ALL.find((s) => s.id === subj);
   const rec = normRpg(state.rpg).sanko || {};
   const known = rec.known || {};
   const quiz = rec.quiz || {};
@@ -16874,8 +16916,13 @@ function SankoTab({ state, actions, onCreateBank }) {
     <div className="space-y-3">
       <Box title="参考書道場" icon={<BookOpen size={18} />}>
         <div className="jp space-y-2">
-          <p className="text-[12px]" style={{ color: "var(--ink-soft)", lineHeight: 1.7 }}>暗記に特化した参考書です。表で読み、答えの欄を隠して覚え、クイズで確かめます。中身はアプリの条文データ（e-Gov の法令）で確かめたもので、各項目の 📜 から条文が開きます。</p>
-          <div className="flex flex-wrap gap-1.5">{SANKO_SUBJECTS.map((s) => <button key={s.id} onClick={() => setSubj(s.id)} className="px-2.5 py-0.5 text-[12px]" style={chipSt(subj === s.id)}>{s.name}</button>)}</div>
+          <p className="text-[12px]" style={{ color: "var(--ink-soft)", lineHeight: 1.7 }}>暗記に特化した参考書です。表で読み、答えの欄を隠して覚え、クイズで確かめます。法令の項目はアプリの条文データ（e-Gov の法令）で確かめたもので、各項目の 📜 から条文が開きます。</p>
+          {groups.map((g) => (
+            <div key={g.id}>
+              <div className="text-[10px] mb-0.5" style={{ color: "var(--ink-mute)", fontWeight: 700 }}>{g.name}</div>
+              <div className="flex flex-wrap gap-1.5">{g.subjects.map((s) => <button key={s.id} onClick={() => setSubj(s.id)} className="px-2.5 py-0.5 text-[12px]" style={chipSt(subj === s.id)}>{s.name}</button>)}</div>
+            </div>
+          ))}
           <div className="grid grid-cols-3 gap-2 text-center">
             {[["覚えた", `${done}/${total}`], ["クイズ", quiz.n ? `${Math.round((quiz.ok / quiz.n) * 100)}%` : "－"], ["章", `${S.chapters.length}`]].map(([k, v]) => <div key={k} style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)", borderRadius: 8, padding: "5px 2px" }}><div className="text-[10px]" style={{ color: "var(--ink-mute)" }}>{k}</div><div className="text-sm" style={{ fontWeight: 800, color: "var(--ink)" }}>{v}</div></div>)}
           </div>
