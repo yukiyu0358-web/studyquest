@@ -887,7 +887,7 @@ function PushSettings({ uid: userId }) {
     setBusy(false);
   };
   const save = async (patch) => { const data = { ...doc, ...patch, updatedAt: new Date().toISOString() }; setDoc(data); try { await ref.set(data); } catch (e) { setMsg("保存できませんでした。通信状態を確かめてください。"); } };
-  const test = async () => { try { const reg = await navigator.serviceWorker.ready; await reg.showNotification("Study Quest（ためし）", { body: "通知はこのように表示されます。", icon: "icon-192.png", tag: "sq-test" }); } catch (e) { setMsg("ためしの通知を出せませんでした。"); } };
+  const test = async () => { try { const reg = await navigator.serviceWorker.ready; await reg.showNotification("Study Quest（ためし）", { body: "通知はこのように表示されます。", icon: "icon-v2-192.png", tag: "sq-test" }); } catch (e) { setMsg("ためしの通知を出せませんでした。"); } };
   const box = { background: "var(--cream)", border: "1px solid var(--rule-soft)", borderRadius: 8, color: "var(--ink-soft)", lineHeight: 1.7 };
   return (
     <div className="jp mb-3">
