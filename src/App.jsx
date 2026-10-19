@@ -6769,8 +6769,21 @@ function QStudySession({ bank, state, recordAnswer, awardXp, startTimer, stopTim
   );
 }
 
+// CSV の行 → 問題（1列目=問題、2列目=答え。1行目が見出しなら飛ばす）
+function csvRowsToQuestions(data) {
+  const rows = data.filter((r) => Array.isArray(r) && r.length >= 2 && String(r[0]).trim() && String(r[1]).trim());
+  if (rows.length === 0) return [];
+  const first = rows[0];
+  const looksLikeHeader = /^(問題|質問|q|question)$/i.test(String(first[0]).trim()) || /^(答え|解答|a|answer)$/i.test(String(first[1]).trim());
+  return (looksLikeHeader ? rows.slice(1) : rows).map((r) => ({ id: uid(), q: String(r[0]).trim(), a: String(r[1]).trim(), correct: 0, wrong: 0 }));
+}
+// ファイル名から年度（「令和6年度」「R6」「H30」「2024年度」など。番号の「01」は年度にしない）
+const yearFromFileName = (fname) => { const m = fname.match(/(令和|平成|R|H)\s*\d{1,2}\s*年?度?|\d{4}\s*年度?/); return m ? m[0].trim() : ""; };
+const parseCsvFile = (file) => new Promise((resolve) => Papa.parse(file, { complete: (res) => resolve(csvRowsToQuestions(res.data)), error: () => resolve(null) }));
+
 function ImportPanel({ state, onCancel, onImport }) {
   const [name, setName] = useState("");
+  const [bulk, setBulk] = useState(null); // 複数のファイルをまとめて：[{key, name, year, questions, on, dup}]
   const [year, setYear] = useState("");
   const [qualId, setQualId] = useState("");
   const [parsed, setParsed] = useState(null);
@@ -6786,27 +6799,38 @@ function ImportPanel({ state, onCancel, onImport }) {
     setParsed(qs);
   };
   const editQ = (id, k, v) => setParsed((ps) => ps.map((x) => (x.id === id ? { ...x, [k]: v } : x)));
-  const handleFile = (file) => {
-    setErr("");
-    Papa.parse(file, {
-      complete: (res) => {
-        const rows = res.data.filter((r) => Array.isArray(r) && r.length >= 2 && String(r[0]).trim() && String(r[1]).trim());
-        if (rows.length === 0) { setErr("有効な問題が見つかりませんでした。1列目=問題、2列目=答えを確認してください。"); return; }
-        const first = rows[0];
-        const looksLikeHeader = /^(問題|質問|q|question)$/i.test(String(first[0]).trim()) || /^(答え|解答|a|answer)$/i.test(String(first[1]).trim());
-        const data = looksLikeHeader ? rows.slice(1) : rows;
-        const questions = data.map((r) => ({ id: uid(), q: String(r[0]).trim(), a: String(r[1]).trim(), correct: 0, wrong: 0 }));
-        setParsed(questions);
-        if (!name) { const fname = file.name.replace(/\.csv$/i, ""); const yearMatch = fname.match(/(令和|平成|R)?\s*\d{1,4}\s*年?度?/); if (yearMatch && !year) setYear(yearMatch[0].trim()); setName(fname); }
-      },
-      error: () => setErr("CSVの読み込みに失敗しました。"),
-    });
+  const handleFile = async (file) => {
+    setErr(""); setBulk(null);
+    const questions = await parseCsvFile(file);
+    if (questions === null) { setErr("CSVの読み込みに失敗しました。"); return; }
+    if (questions.length === 0) { setErr("有効な問題が見つかりませんでした。1列目=問題、2列目=答えを確認してください。"); return; }
+    setParsed(questions);
+    if (!name) { const fname = file.name.replace(/\.csv$/i, ""); if (!year) setYear(yearFromFileName(fname)); setName(fname); }
   };
-  const confirmImport = () => { if (!parsed || !name.trim()) return; onImport({ id: uid(), name: name.trim(), year: year.trim() || null, qualId: qualId || null, questions: parsed }); };
+  // 複数のファイル：ファイル名の順に並べ、それぞれ問題集にする。同じ名前の問題集がすでにあるものは、最初は外しておく（二重に取り込まないように）
+  const handleFiles = async (files) => {
+    setErr(""); setParsed(null);
+    const list = [...files].sort((a, b) => a.name.localeCompare(b.name, "ja", { numeric: true }));
+    const have = new Set(state.questionBanks.map((b) => b.name));
+    const out = [];
+    for (const f of list) {
+      const questions = await parseCsvFile(f);
+      const nm = f.name.replace(/\.csv$/i, "");
+      const dup = have.has(nm);
+      out.push({ key: f.name, name: nm, year: yearFromFileName(nm), questions: questions || [], bad: !questions || !questions.length, on: !!(questions && questions.length) && !dup, dup });
+    }
+    setBulk(out);
+  };
+  const editBulk = (key, patch) => setBulk((bs) => bs.map((b) => (b.key === key ? { ...b, ...patch } : b)));
+  const bulkOn = (bulk || []).filter((b) => b.on && !b.bad && b.name.trim());
+  const confirmImport = () => {
+    if (bulk) { bulkOn.forEach((b) => onImport({ id: uid(), name: b.name.trim(), year: b.year.trim() || null, qualId: qualId || null, questions: b.questions })); return; }
+    if (!parsed || !name.trim()) return; onImport({ id: uid(), name: name.trim(), year: year.trim() || null, qualId: qualId || null, questions: parsed });
+  };
   return (
     <Box title={src === "csv" ? "CSVをインポート" : "文章を貼り付けて問題を作る"} icon={<Upload size={18} />}>
       <div className="grid grid-cols-2 gap-1 p-1 mb-3" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)", borderRadius: 999 }}>
-        {[["csv", "CSVファイル"], ["paste", "文章を貼り付け（写真から）"]].map(([id, l]) => <button key={id} onClick={() => { setSrc(id); setParsed(null); setErr(""); }} className="jp py-1.5 text-[11px]" style={{ borderRadius: 999, border: "none", fontWeight: 700, cursor: "pointer", background: src === id ? "linear-gradient(180deg, #cfae62, #a8833a)" : "transparent", color: src === id ? "#fffdf6" : "var(--ink-soft)" }}>{l}</button>)}
+        {[["csv", "CSVファイル"], ["paste", "文章を貼り付け（写真から）"]].map(([id, l]) => <button key={id} onClick={() => { setSrc(id); setParsed(null); setBulk(null); setErr(""); }} className="jp py-1.5 text-[11px]" style={{ borderRadius: 999, border: "none", fontWeight: 700, cursor: "pointer", background: src === id ? "linear-gradient(180deg, #cfae62, #a8833a)" : "transparent", color: src === id ? "#fffdf6" : "var(--ink-soft)" }}>{l}</button>)}
       </div>
       {src === "paste" && (
         <div className="jp mb-3 space-y-2">
@@ -6825,10 +6849,43 @@ function ImportPanel({ state, onCancel, onImport }) {
         </div>
       )}
       {src === "csv" && (<>
-      <div className="jp text-[11px] mb-3 leading-relaxed p-2" style={{ background: "var(--sky-pale)", border: "1px solid var(--rule-soft)", color: "var(--ink-soft)" }}>📋 対応形式（CSV）<br />1列目=問題、2列目=答え。1行目がヘッダーなら自動でスキップ。</div>
-      <input ref={fileRef} type="file" accept=".csv,text/csv" onChange={(e) => e.target.files[0] && handleFile(e.target.files[0])} className="jp w-full mb-2 text-sm file:mr-2 file:py-1 file:px-3 file:bg-yellow-600 file:text-white file:border-0 file:font-bold file:cursor-pointer" style={{ color: "var(--ink)" }} />
+      <div className="jp text-[11px] mb-3 leading-relaxed p-2" style={{ background: "var(--sky-pale)", border: "1px solid var(--rule-soft)", color: "var(--ink-soft)" }}>📋 対応形式（CSV）<br />1列目=問題、2列目=答え。1行目がヘッダーなら自動でスキップ。<br />📚 <b>いくつかまとめて選べます</b>（Ctrl や Shift を押しながら選ぶ。iPhone・iPad は「選択」から）。ファイル1つが問題集1つになり、名前はファイル名になります。</div>
+      <input ref={fileRef} type="file" multiple accept=".csv,text/csv" onChange={(e) => { const fs = e.target.files; if (!fs || !fs.length) return; if (fs.length === 1) handleFile(fs[0]); else handleFiles(fs); }} className="jp w-full mb-2 text-sm file:mr-2 file:py-1 file:px-3 file:bg-yellow-600 file:text-white file:border-0 file:font-bold file:cursor-pointer" style={{ color: "var(--ink)" }} />
       </>)}
       {err && <div className="jp text-xs p-2 mb-2" style={{ background: "rgba(160,72,72,0.15)", border: "1px solid var(--brick)", color: "var(--brick)" }}>{err}</div>}
+      {bulk && (
+        <div className="jp mb-3">
+          <div className="flex items-center gap-2 mb-1">
+            <div className="text-xs flex-1" style={{ color: "var(--sage)" }}>✓ {bulk.length}ファイルを読み込みました（取り込むのは ☑ の{bulkOn.length}つ・{bulkOn.reduce((t, b) => t + b.questions.length, 0)}問）</div>
+            <button onClick={() => setBulk((bs) => bs.map((b) => ({ ...b, on: !b.bad })))} className="text-[10px] underline" style={{ background: "none", border: "none", color: "var(--ink-soft)", cursor: "pointer" }}>すべて選ぶ</button>
+            <button onClick={() => setBulk((bs) => bs.map((b) => ({ ...b, on: false })))} className="text-[10px] underline" style={{ background: "none", border: "none", color: "var(--ink-soft)", cursor: "pointer" }}>すべて外す</button>
+          </div>
+          <div className="p-1.5 max-h-80 overflow-y-auto space-y-1" style={{ background: "var(--sky-pale)", border: "1px solid var(--rule-soft)" }}>
+            {bulk.map((b) => (
+              <div key={b.key} className="flex items-center gap-1.5 p-1" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)", borderRadius: 6, opacity: b.on ? 1 : 0.6 }}>
+                <input type="checkbox" checked={b.on} disabled={b.bad} onChange={(e) => editBulk(b.key, { on: e.target.checked })} />
+                <div className="flex-1" style={{ minWidth: 0 }}>
+                  <input className="rpg-input text-[12px]" style={{ padding: "2px 6px" }} value={b.name} onChange={(e) => editBulk(b.key, { name: e.target.value })} />
+                  <div className="text-[10px] mt-0.5" style={{ color: b.bad ? "var(--brick)" : "var(--ink-mute)" }}>
+                    {b.bad ? "問題が見つかりません（1列目=問題、2列目=答え）" : `${b.questions.length}問`}
+                    {b.year ? `・年度 ${b.year}` : ""}
+                    {b.dup && <span style={{ color: "var(--brick)" }}>・同じ名前の問題集がもうあります</span>}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+          {state.qualifications.length > 0 && (
+            <>
+              <label className="text-[10px] block mt-2 mb-1" style={{ color: "var(--ink-soft)" }}>紐付ける資格（全部に同じ資格を付けます）</label>
+              <select className="rpg-input mb-2" value={qualId} onChange={(e) => setQualId(e.target.value)}>
+                <option value="">— 資格に紐付けない —</option>
+                {state.qualifications.map((q) => <option key={q.id} value={q.id}>{q.name}{q.acquired ? "（取得済）" : ""}</option>)}
+              </select>
+            </>
+          )}
+        </div>
+      )}
       {parsed && (
         <>
           <div className="jp text-xs mb-2" style={{ color: "var(--sage)" }}>✓ {parsed.length}問を読み込みました</div>
@@ -6865,7 +6922,7 @@ function ImportPanel({ state, onCancel, onImport }) {
         </>
       )}
       <div className="flex gap-2">
-        <button onClick={confirmImport} disabled={!parsed || !name.trim()} className="jp btn-primary flex-1 py-2">インポート</button>
+        <button onClick={confirmImport} disabled={bulk ? !bulkOn.length : !parsed || !name.trim()} className="jp btn-primary flex-1 py-2">{bulk ? `${bulkOn.length}つの問題集をインポート` : "インポート"}</button>
         <button onClick={onCancel} className="jp btn-ghost px-4 py-2">キャンセル</button>
       </div>
     </Box>
