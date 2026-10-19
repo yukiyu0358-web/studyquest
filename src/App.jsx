@@ -258,18 +258,28 @@ function ClassicGauge({ label, value, max, text, colors, compact = false, theme 
 }
 
 // ── タイトル画面（起動時の待ち受け）：テーマごとに配色・絵・ロゴが変わる ──
-function TitleScreen({ loading, saveInfo, onContinue, onSettings, onLogout, theme = "classic" }) {
+function TitleScreen({ loading, saveInfo, books = [], onPickBook, onNewBook, onContinue, onSettings, onLogout, theme = "classic" }) {
   const P = THEME_PAL[theme] || THEME_PAL.classic;
   const T = P.title;
-  const [stage, setStage] = useState("press"); // press | menu
+  const [stage, setStage] = useState("press"); // press | menu | books
   const [sel, setSel] = useState("continue");
-  const items = ["continue", "settings", "logout"];
-  const choose = (id) => { if (id === "continue") onContinue(); else if (id === "settings") onSettings(); else onLogout(); };
+  const bookIds = [...books.map((b) => `book:${b.id}`), "book:all", "book:new", "book:back"];
+  const items = stage === "books" ? bookIds : ["continue", "settings", "logout"];
+  const openBooks = () => { setStage("books"); const a = books.find((b) => b.active); setSel(a ? `book:${a.id}` : "book:all"); };
+  const choose = (id) => {
+    if (id === "continue") { if (onPickBook) openBooks(); else onContinue(); }
+    else if (id === "settings") onSettings();
+    else if (id === "logout") onLogout();
+    else if (id === "book:back") { setStage("menu"); setSel("continue"); }
+    else if (id === "book:new") onNewBook && onNewBook();
+    else if (id.startsWith("book:")) onPickBook(id.slice(5));
+  };
   useEffect(() => {
     const onKey = (e) => {
       if (loading) return;
       if (stage === "press" && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); setStage("menu"); return; }
-      if (stage !== "menu") return;
+      if (stage !== "menu" && stage !== "books") return;
+      if (e.key === "Escape" && stage === "books") { e.preventDefault(); setStage("menu"); setSel("continue"); return; }
       if (e.key === "ArrowDown") { e.preventDefault(); setSel((s) => items[(items.indexOf(s) + 1) % items.length]); }
       else if (e.key === "ArrowUp") { e.preventDefault(); setSel((s) => items[(items.indexOf(s) + items.length - 1) % items.length]); }
       else if (e.key === "Enter") { e.preventDefault(); choose(sel); }
@@ -334,12 +344,31 @@ function TitleScreen({ loading, saveInfo, onContinue, onSettings, onLogout, them
             <div className="rpg-box p-2 flex flex-col gap-0.5" style={{ animation: "sqFadeIn .35s ease-out" }}>
               {row("continue", (
                 <span className="flex flex-col gap-0.5">
-                  <span className="text-[18px]" style={{ ...P.heading, fontWeight: 800, letterSpacing: "0.1em" }}>つづきから</span>
-                  <span className="text-[11px]" style={{ color: P.sub }}>{saveInfo}</span>
+                  <span className="text-[18px]" style={{ ...P.heading, fontWeight: 800, letterSpacing: "0.1em" }}>{onPickBook ? "星詠みの書" : "つづきから"}</span>
+                  <span className="text-[11px]" style={{ color: P.sub }}>{onPickBook ? "資格をえらんで、冒険をつづける" : saveInfo}</span>
                 </span>
               ), 60)}
               {row("settings", <span className="text-[16px]" style={{ ...P.heading, fontWeight: 700, letterSpacing: "0.1em" }}>設定</span>, 46)}
               {row("logout", <span className="text-[16px]" style={{ ...P.heading, fontWeight: 700, letterSpacing: "0.1em" }}>ログアウト</span>, 46)}
+            </div>
+          )}
+          {!loading && stage === "books" && (
+            <div className="rpg-box p-2 flex flex-col gap-0.5" style={{ animation: "sqFadeIn .35s ease-out", maxHeight: "58vh", overflowY: "auto" }}>
+              <div className="jp text-center py-1 text-[13px]" style={{ ...P.heading, fontWeight: 800, letterSpacing: "0.3em" }}>✦ 星詠みの書 ✦</div>
+              {books.map((b) => row(`book:${b.id}`, (
+                <span className="flex items-center gap-2.5 w-full">
+                  <span className="text-[18px]" style={{ fontFamily: "'Cinzel', 'Shippori Mincho B1', serif", fontWeight: 800, color: b.acquired ? P.sub : "#b08a3e", width: 26, textAlign: "center" }}>{b.no}</span>
+                  <span className="flex flex-col gap-0.5 min-w-0 flex-1">
+                    <span className="text-[15px] truncate" style={{ ...P.heading, fontWeight: 800 }}>{b.name}{b.active ? <span className="text-[10px] ml-1.5" style={{ color: "#b08a3e" }}>いまの書</span> : null}</span>
+                    <span className="text-[11px]" style={{ color: P.sub }}>{b.acquired ? "合格済み" : b.days == null ? "試験日未定" : b.days >= 0 ? `試験まで ${b.days}日` : "試験日を過ぎました"}{b.power != null ? `・合格力 ${Math.round(b.power * 100)}%` : b.banks ? "" : "・問題集なし"}</span>
+                  </span>
+                </span>
+              ), 54))}
+              {row("book:all", (
+                <span className="flex flex-col gap-0.5"><span className="text-[15px]" style={{ ...P.heading, fontWeight: 700 }}>✦ すべての資格</span><span className="text-[11px]" style={{ color: P.sub }}>試験日がいちばん近い資格を目標にする（これまでどおり）</span></span>
+              ), 48)}
+              {row("book:new", <span className="text-[14px]" style={{ ...P.heading, fontWeight: 700 }}>＋ 新しい書（資格を登録）</span>, 42)}
+              {row("book:back", <span className="text-[13px]" style={{ color: P.sub }}>← もどる</span>, 38)}
             </div>
           )}
         </div>
@@ -351,6 +380,38 @@ function TitleScreen({ loading, saveInfo, onContinue, onSettings, onLogout, them
   );
 }
 
+// ホームのいちばん上：いまの星詠みの書（目標の資格）と切り替え
+function StarBookBar({ state, onPick, onNew }) {
+  const [open, setOpen] = useState(false);
+  const books = starBooks(state);
+  const cur = mainQual(state);
+  const auto = !((state.displaySettings || {}).activeQual) || (state.displaySettings || {}).activeQual === "all";
+  const b = cur && books.find((x) => x.id === cur.id);
+  return (
+    <div className="jp mb-3" style={{ background: "var(--paper)", border: "1px solid var(--gold)", borderRadius: 10, padding: "6px 10px" }}>
+      <button onClick={() => setOpen(!open)} className="w-full flex items-center gap-2 text-left" style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink)" }}>
+        <span className="text-[11px]" style={{ color: "var(--gold)", fontWeight: 800, letterSpacing: "0.1em", flexShrink: 0 }}>✦ 星詠みの書{b ? ` ${b.no}` : ""}</span>
+        <span className="flex-1 min-w-0 text-[13px] truncate" style={{ fontWeight: 800 }}>{cur ? cur.name : "資格が登録されていません"}{auto ? <span className="text-[10px] ml-1" style={{ color: "var(--ink-mute)", fontWeight: 500 }}>（すべての資格）</span> : null}</span>
+        <span className="text-[11px] flex-shrink-0" style={{ color: "var(--ink-soft)" }}>{b && b.days != null && b.days >= 0 ? `試験まで${b.days}日　` : ""}{open ? "▴" : "切り替え ▾"}</span>
+      </button>
+      {open && (
+        <div className="mt-1.5 space-y-1">
+          {books.map((x) => (
+            <button key={x.id} onClick={() => { onPick(x.id); setOpen(false); }} className="w-full text-left text-[12px] px-2 py-1 flex items-center gap-2" style={{ borderRadius: 8, border: `1px solid ${x.active ? "var(--gold)" : "var(--rule-soft)"}`, background: x.active ? "var(--cream)" : "transparent", color: "var(--ink)", cursor: "pointer", opacity: x.acquired ? 0.6 : 1 }}>
+              <span style={{ fontFamily: "'Cinzel', serif", fontWeight: 800, color: "#b08a3e", width: 20 }}>{x.no}</span>
+              <span className="flex-1 truncate" style={{ fontWeight: 700 }}>{x.name}</span>
+              <span className="text-[10px]" style={{ color: "var(--ink-mute)" }}>{x.acquired ? "合格済み" : x.days == null ? "試験日未定" : x.days >= 0 ? `あと${x.days}日` : ""}{x.power != null ? `・${Math.round(x.power * 100)}%` : ""}</span>
+            </button>
+          ))}
+          <div className="flex gap-1.5">
+            <button onClick={() => { onPick("all"); setOpen(false); }} className="flex-1 text-[11px] py-1" style={{ borderRadius: 8, border: `1px solid ${auto ? "var(--gold)" : "var(--rule-soft)"}`, background: auto ? "var(--cream)" : "transparent", color: "var(--ink)", cursor: "pointer" }}>✦ すべての資格</button>
+            <button onClick={onNew} className="flex-1 text-[11px] py-1" style={{ borderRadius: 8, border: "1px dashed var(--rule-soft)", background: "transparent", color: "var(--ink-soft)", cursor: "pointer" }}>＋ 新しい書（資格を登録）</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 // ── 上部の情報ウィンドウ（現在地・レベル・所持金・タイマー） ──
 function ClassicInfoBar({ state, liveSeconds, onStatus, theme = "classic" }) {
   const P = THEME_PAL[theme] || THEME_PAL.classic;
@@ -2481,16 +2542,26 @@ function StudyRPG({ user }) {
     const r = normRpg(state.rpg);
     const d = todayStr();
     const p = Math.round(pp.power * 1000) / 1000;
-    const last = r.powerLog[r.powerLog.length - 1];
-    if (!(last && last.d === d && Math.abs(last.p - p) < 0.001)) {
+    const qid = (qual || {}).id || "";
+    const legacy = (autoMainQual(state) || {}).id || "";
+    const mine = r.powerLog.filter((e) => (e.q || legacy) === qid);
+    const last = mine[mine.length - 1];
+    if (r.powerLog.some((e) => !e.q) || !(last && last.d === d && Math.abs(last.p - p) < 0.001)) {
       const g = Object.fromEntries(pp.regions.filter((x) => x.total > 0).map((x) => [x.name, Math.round(x.power * 1000) / 1000]));
-      updateRpg((x) => { const lg = [...(x.powerLog || [])]; const e = { d, p, g }; if (lg.length && lg[lg.length - 1].d === d) lg[lg.length - 1] = e; else lg.push(e); return { ...x, powerLog: lg.slice(-400) }; });
+      updateRpg((x) => {
+        const lg = (x.powerLog || []).map((e) => (e.q ? e : { ...e, q: legacy }));
+        const e = { d, p, g, q: qid };
+        const at = lg.findIndex((y) => y.d === d && y.q === qid);
+        if (at >= 0) lg[at] = e; else lg.push(e);
+        return { ...x, powerLog: lg.slice(-1200) };
+      });
     }
     // 影の受験生：試験日が決まったら現れる。追い抜いた・抜かれたときに会話
     if (qual && qual.examDate && daysUntil(qual.examDate) > 0) {
       const rv = r.rival;
       if (!rv || rv.exam !== qual.examDate) {
-        updateRpg((x) => ({ ...x, rival: { exam: qual.examDate, t0: d, p0: p, last: "tie", lastEvent: d } }));
+        const saved = (r.rivalByExam || {})[qual.examDate];
+        updateRpg((x) => ({ ...x, rival: saved || { exam: qual.examDate, t0: d, p0: p, last: "tie", lastEvent: d }, rivalByExam: { ...(x.rivalByExam || {}), ...(x.rival && x.rival.exam ? { [x.rival.exam]: x.rival } : {}) } }));
         if (!rv) setTimeout(() => setTalk({ title: "影の受験生", lines: RIVAL_TALK.appear }), 4000);
       } else {
         const st = rivalStatus(state, pp, qual);
@@ -2527,7 +2598,7 @@ function StudyRPG({ user }) {
     const qual = mainQual(state);
     const days = daysUntil(examDateOfMain);
     const r = normRpg(state.rpg);
-    const cd = r.countdown && r.countdown.exam === examDateOfMain ? r.countdown : { exam: examDateOfMain, seen: [] };
+    const cd = r.countdown && r.countdown.exam === examDateOfMain ? r.countdown : { exam: examDateOfMain, seen: (r.countdownByExam || {})[examDateOfMain] || [] };
     const seen = new Set(cd.seen || []);
     const m = days < 0 ? (days >= -7 ? COUNTDOWN_TALKS.find((x) => x.d === -1) : null)
       : COUNTDOWN_TALKS.filter((x) => x.d >= days && x.d >= 0).sort((a, b) => a.d - b.d)[0];
@@ -2536,7 +2607,7 @@ function StudyRPG({ user }) {
     const passed = COUNTDOWN_TALKS.filter((x) => (days < 0 ? true : x.d >= days)).map((x) => x.d);
     if (passed.some((d) => !seen.has(d)) || !r.countdown || r.countdown.exam !== examDateOfMain) {
       const gold = ok ? (m.d === -1 ? 300 : 100) : 0;
-      updateRpg((x) => ({ ...x, gold: x.gold + gold, goldEarned: x.goldEarned + gold, countdown: { exam: examDateOfMain, seen: [...new Set([...seen, ...passed])] } }));
+      updateRpg((x) => ({ ...x, gold: x.gold + gold, goldEarned: x.goldEarned + gold, countdown: { exam: examDateOfMain, seen: [...new Set([...seen, ...passed])] }, countdownByExam: { ...(x.countdownByExam || {}), ...(x.countdown && x.countdown.exam ? { [x.countdown.exam]: x.countdown.seen || [] } : {}), [examDateOfMain]: [...new Set([...seen, ...passed])] } }));
       if (ok) {
         const big = m.d >= 2 ? `あと${days}日` : m.big;
         setTimeout(() => {
@@ -3425,6 +3496,9 @@ function StudyRPG({ user }) {
           loading={false}
           theme={themeNow}
           saveInfo={`${(RPG_SCENES[getCharacterTier(player.level)] || RPG_SCENES.tier1).name}　Lv${player.level}　${displayTitle}　連続${calculateStatus(state).currentStreak}日`}
+          books={starBooks(state)}
+          onPickBook={(id) => { updateDisplaySettings({ activeQual: id }); setTitleOpen(false); setTab("home"); }}
+          onNewBook={() => { setTitleOpen(false); setTab("qual"); }}
           onContinue={() => setTitleOpen(false)}
           onSettings={() => { setTitleOpen(false); setShowDisplaySettings(true); }}
           onLogout={logout}
@@ -3518,6 +3592,7 @@ function StudyRPG({ user }) {
               else if (id === "events" || id === "guide" || id === "quest") out.push(dash(id));
               else if (id === "quals") out.push(<div key="quals"><HomeTab state={state} liveSeconds={liveSeconds} setMainTitle={setMainTitle} setTab={setTab} todayCount={getTodayReviewItems().length} hideBanner dashboard /></div>);
             }
+            if ((state.qualifications || []).length) out.unshift(<StarBookBar key="book" state={state} onPick={(id) => updateDisplaySettings({ activeQual: id })} onNew={() => setTab("qual")} />);
             return out;
           })()}
           {tab === "today" && <TodayTab state={state} recordSRAnswer={recordSRAnswer} updateSrSettings={updateSrSettings} startTimer={startTimer} stopTimer={stopTimer} toggleQuestionMark={toggleQuestionMark} rpgActionsForPairs={rpgActions} preset={quickPreset} onPresetUsed={() => setQuickPreset(null)} planActions={planActions} />}
@@ -8939,9 +9014,31 @@ function passPower(state, qualId) {
   return res;
 }
 // いちばん近い試験日の資格（取得済みは除く）。問題集が1つも紐づいていなければ全問題で計算する
-function mainQual(state) {
+// 目標の資格：星詠みの書（タイトル画面）で選んだ資格。「すべての資格」か未選択なら、試験日がいちばん近い資格
+function autoMainQual(state) {
   const qs = (state.qualifications || []).filter((q) => !q.acquired);
   return qs.filter((q) => q.examDate).sort((a, b) => (a.examDate < b.examDate ? -1 : 1))[0] || qs[0] || null;
+}
+function mainQual(state) {
+  const id = (state.displaySettings || {}).activeQual;
+  if (id && id !== "all") { const q = (state.qualifications || []).find((x) => x.id === id && !x.acquired); if (q) return q; }
+  return autoMainQual(state);
+}
+// 合格力の推移は資格ごと（記録の q）。いまの目標の資格の分だけ
+function powerLogOf(state) {
+  const qid = (mainQual(state) || {}).id || "";
+  return (normRpg(state.rpg).powerLog || []).filter((e) => (e.q || "") === qid);
+}
+const BOOK_NO = ["Ⅰ", "Ⅱ", "Ⅲ", "Ⅳ", "Ⅴ", "Ⅵ", "Ⅶ", "Ⅷ", "Ⅸ", "Ⅹ", "Ⅺ", "Ⅻ"];
+// 星詠みの書の一覧（資格ごと）：試験までの日数・合格力・問題集の数
+function starBooks(state) {
+  const active = (state.displaySettings || {}).activeQual || "all";
+  const qs = [...(state.qualifications || [])].sort((a, b) => (a.acquired === b.acquired ? 0 : a.acquired ? 1 : -1));
+  return qs.map((q, i) => {
+    const banks = state.questionBanks.filter((b) => b.qualId === q.id);
+    const pp = banks.length ? passPower(state, q.id) : null;
+    return { id: q.id, no: BOOK_NO[i] || String(i + 1), name: q.name, color: q.color, acquired: !!q.acquired, days: q.examDate ? daysUntil(q.examDate) : null, power: pp && pp.total ? pp.power : null, banks: banks.length, active: active === q.id };
+  });
 }
 const pctTxt = (v) => `${(Math.round(v * 1000) / 10).toFixed(1)}%`;
 
@@ -9087,7 +9184,7 @@ function RivalCard({ state, pp, qual, compact = false }) {
 // ── 合格力の推移：毎日の合格力を rpg.powerLog に記録し（{d:日付, p:合格力, g:{地域:合格力}}）、折れ線グラフで見せる ──
 const addDays = (str, n) => { const d = parseLocalDate(str); d.setDate(d.getDate() + n); return localDateStr(d); };
 function PowerChart({ state }) {
-  const log = normRpg(state.rpg).powerLog || [];
+  const log = powerLogOf(state);
   const [range, setRange] = useState(30);
   const today = todayStr();
   const from = range ? addDays(today, -range + 1) : (log[0] ? log[0].d : today);
@@ -9130,7 +9227,7 @@ function PowerChart({ state }) {
 // 週報：先週（月〜日）の合格力の変化・伸びた科目・弱い科目・学習時間から、主人公の会話を作る
 function weeklyReport(state, weekStart) {
   const r = normRpg(state.rpg);
-  const log = r.powerLog || [];
+  const log = powerLogOf(state);
   const prevStart = addDays(weekStart, -7);
   const endE = [...log].reverse().find((e) => e.d < weekStart);
   if (!endE || endE.d < prevStart) return null;
