@@ -3,7 +3,7 @@
 // ・絵・プログラム・条文データなどは「保管していたものをすぐ出し、裏で新しいものに入れ替える」
 // ・Google Fonts（文字の形）だけは保管して、電波がなくても文字がくずれないようにする
 // ・Firebase など、そのほかのサイトへの通信には一切さわらない（学習記録の保存はこれまでどおり）
-const CACHE = "sq-cache-v4";
+const CACHE = "sq-cache-v5";
 const FONT_HOSTS = ["fonts.googleapis.com", "fonts.gstatic.com"];
 
 self.addEventListener("install", () => self.skipWaiting());
