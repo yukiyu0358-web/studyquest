@@ -2164,7 +2164,7 @@ function StudyRPG({ user }) {
       });
       if (first) {
         setTimeout(() => awardXp(50), 200);
-        setTimeout(() => showEvolution({ big: "節を制覇", from: null, to: bankName, sub: "200G・星霊石×1", stage: heroStage(stateRef.current.player.level), afterTalk: { title: `${region}　${bankName}`, lines: regionArc(region).sec(bankName) } }), 900);
+        setTimeout(() => showEvolution({ big: "節を制覇", from: null, to: bankName, sub: "200G・星霊石×1", stage: heroStage(stateRef.current.player.level), afterTalk: { title: `${region}　${bankName}`, lines: worldArc(region).sec(bankName) } }), 900);
       }
       return { headline: first ? `「${bankName}」の守護者を倒した！ 節を制覇しました。` : passed ? "守護者を倒しました。" : null, msg: first ? "報酬：200G・星霊石×1・EXP50" : "" };
     },
@@ -2736,7 +2736,7 @@ function StudyRPG({ user }) {
       const g = newly[0];
       const short = g.name.replace(/の(王都|古の森|双子塔|砦|星見台|迷宮|地)$/, "").replace(/^未踏$/, "未踏の地");
       updateRpg((x) => ({ ...x, gold: x.gold + 500, goldEarned: x.goldEarned + 500, materials: { ...x.materials, "m-sage": (x.materials["m-sage"] || 0) + 2 }, conquered: { ...x.conquered, [g.name]: todayStr() } }));
-      setTimeout(() => showEvolution({ big: "地域制覇", from: null, to: g.name, sub: "すべての話・節・守護者を制覇！ 500G・賢者の結晶×2", stage: heroStage(state.player.level), afterTalk: { title: `${g.name}　制覇`, lines: regionArc(g.name).finale } }), 1200);
+      setTimeout(() => showEvolution({ big: "地域制覇", from: null, to: g.name, sub: "すべての話・節・守護者を制覇！ 500G・賢者の結晶×2", stage: heroStage(state.player.level), afterTalk: { title: `${g.name}　制覇`, lines: worldArc(g.name).finale } }), 1200);
       awardAchievement({ id: `conquer-${g.name}`, title: `${short}マスター`, job: "地域の覇者", icon: "🏆", color: "#b08a3e", source: "rpg", description: `${g.name}のストーリー・節の守護者・地域の守護者をすべて制覇した証。`, earnedAt: new Date().toISOString() });
       return;
     }
@@ -10074,6 +10074,8 @@ const REGION_INFO = {
 const PRESET_REGIONS = new Map(WORLD_PRESETS.flatMap((w) => w.regions.map((x) => [x.name, x])));
 const genericRegionInfo = (name) => ({ guardian: `${name}の番人`, icon: "🟢", boss: "slime", emblem: { name: `${String(name).replace(/の地$/, "")}の紋章`, fx: { hpPlus: 5 } } });
 const regionInfo = (name) => REGION_INFO[name] || PRESET_REGIONS.get(name) || genericRegionInfo(name);
+// 地域の物語（はじまり・節・制覇）：資格の世界の設定に arc があればそれ、なければ src/data/story.js の regionArc
+const worldArc = (name) => (PRESET_REGIONS.get(name) || {}).arc || regionArc(name);
 const regionCleared = (r, name) => !!(r.regions && r.regions[name] && r.regions[name].cleared);
 // 地域の状態：fog（霧：まだ2割も出会っていない）| explore（探索中）| ready（守護者に挑める）| cleared（解放済み）
 function regionStatus(g, r) {
@@ -10615,7 +10617,7 @@ const SMAP_ORDER = [0, 1, 5, 6, 8, 10, 11, 13, 14, 7, 9, 12, 15, 16, 18, 20, 21,
 const SMAP_PER = SMAP_ORDER.length;
 const HEX_CLIP = "polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%)";
 function StoryRoadMap({ quests, r, sel, setSel, nextQ, regionName, world }) {
-  const M = (world && world.map) || { url: `${ART_URL}storymap.webp`, nodes: SMAP_NODES, order: SMAP_ORDER, box: SMAP };
+  const M = world && world.map ? { ...world.map, url: `${ART_URL}${world.map.file}` } : { url: `${ART_URL}storymap.webp`, nodes: SMAP_NODES, order: SMAP_ORDER, box: SMAP };
   const SMAP_PER = M.order.length;
   const hue = world && !world.map && world.mapHue ? `hue-rotate(${world.mapHue}deg) saturate(1.15)` : undefined;
   const pages = Math.max(1, Math.ceil(quests.length / SMAP_PER));
@@ -10650,6 +10652,7 @@ function StoryRoadMap({ quests, r, sel, setSel, nextQ, regionName, world }) {
             const q = quests[pg * SMAP_PER + k];
             const at = pct(M.nodes[ni]);
             const base = { position: "absolute", ...at, width: "4%", aspectRatio: "1 / 1.12", transform: "translate(-50%, -50%)" };
+            if (!q && M.fog) return <div key={k} style={{ ...base, width: "6%", borderRadius: "50%", background: "radial-gradient(circle, rgba(255,255,255,0.97) 0%, rgba(250,252,255,0.9) 42%, rgba(255,255,255,0) 72%)" }} />; // この地域にない場所（絵の印を雲で隠す）
             if (!q) return <div key={k} style={{ ...base, clipPath: HEX_CLIP, background: "radial-gradient(circle, #ece2c6 0%, #e2d5b2 100%)", opacity: 0.96, filter: hue }} />; // この地域にない場所（絵の印を消す）
             const st = sqStars(r, q.key), open = sqOpen(r, q), isSel = sel === q.key, isNext = nextQ && q.key === nextQ.key;
             if (st < 1 && !open) return (
@@ -10669,7 +10672,7 @@ function StoryRoadMap({ quests, r, sel, setSel, nextQ, regionName, world }) {
           })}
         </div>
       </div>
-      <p className="jp text-[10px] mt-1 text-center" style={{ color: "var(--ink-mute)" }}>光っている「！」が、いま挑めるクエストです。はじまりの町から道をたどり、{world && world.id !== "home" ? world.castle : "魔王の城"}をめざしましょう。{pages > 1 ? `1枚の地図に${SMAP_PER}話。◀▶で地図を切りかえられます。` : ""}</p>
+      <p className="jp text-[10px] mt-1 text-center" style={{ color: "var(--ink-mute)" }}>光っている「！」が、いま挑めるクエストです。{M.start || "はじまりの町"}から道をたどり、{world && world.id !== "home" ? world.castle : "魔王の城"}をめざしましょう。{pages > 1 ? `1枚の地図に${SMAP_PER}話。◀▶で地図を切りかえられます。` : ""}</p>
     </div>
   );
 }
@@ -10697,7 +10700,7 @@ function StoryQuestView({ state, pp, onStart, actions, onGuardian, onSecBoss }) 
   }, [g && g.name]);
   // 地域に初めて入ったときの物語（フックは早期の return より前に置く）
   useEffect(() => {
-    if (actions && g && !r.arcSeen[`${g.name}:intro`]) { actions.markArc(g.name, "intro"); actions.openTalk({ title: `${g.name}　はじまり`, lines: regionArc(g.name).intro }); }
+    if (actions && g && !r.arcSeen[`${g.name}:intro`]) { actions.markArc(g.name, "intro"); actions.openTalk({ title: `${g.name}　はじまり`, lines: worldArc(g.name).intro }); }
   }, [g && g.name]);
   if (!g) return <Box title="ストーリー" icon={<BookOpen size={18} />}><p className="jp text-sm" style={{ color: "var(--ink-mute)" }}>問題集をフォルダ（科目）に入れると、ストーリーが始まります。</p></Box>;
   const cleared = quests.filter((q) => sqStars(r, q.key) >= 1).length;
