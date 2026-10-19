@@ -15,6 +15,7 @@ import { SHINSEI_CASES, SHINSEI_PURPOSES, SHINSEI_CAUSES, SHINSEI_DEADLINES, SHI
 import { STUDY_QUOTES } from "./data/quotes"; // 名言
 import { SANKO_SUBJECTS } from "./data/sankosho"; // 参考書道場（暗記の参考書）
 import { NIRIKUTOKU_SUBJECTS } from "./data/sankosho-radio"; // 参考書道場：二陸特
+import { HOME_WORLD, WORLD_PRESETS, genericChapters } from "./data/worlds"; // 冒険の世界（資格ごと）
 import { REGION_TALK, STORY_TALKS, REGION_ARC, regionArc, TRINITY_REGIONS, TRINITY_TALK, BOND_TALKS, COUNTDOWN_TALKS, ACADEMY_MEET, STUDY_GROUP_TALK } from "./data/story"; // 物語の会話
 
 
@@ -2043,11 +2044,12 @@ function StudyRPG({ user }) {
       const gold = Math.round(n * 3 * acc) + (passed ? 100 : 0);
       const frag = Math.round(n * acc / 5);
       const fid = FRAG_IDS[Math.floor(Math.random() * FRAG_IDS.length)];
+      const wid = curWorld(stateRef.current).id;
       updateRpg((x) => {
         const dg = x.dungeon || {};
-        const best = { ...(dg.best || {}) };
+        const best = { ...dungeonBestOf(x, wid) };
         best[n] = Math.max(best[n] || 0, Math.round(acc * 1000) / 1000);
-        return { ...x, gold: x.gold + gold, goldEarned: x.goldEarned + gold, materials: frag ? { ...x.materials, [fid]: (x.materials[fid] || 0) + frag } : x.materials, dungeon: { ...dg, best, runs: (dg.runs || 0) + 1, clears: (dg.clears || 0) + (passed ? 1 : 0) } };
+        return { ...x, gold: x.gold + gold, goldEarned: x.goldEarned + gold, materials: frag ? { ...x.materials, [fid]: (x.materials[fid] || 0) + frag } : x.materials, dungeon: { ...dg, ...(wid === "home" ? { best } : { bestW: { ...(dg.bestW || {}), [wid]: best } }), runs: (dg.runs || 0) + 1, clears: (dg.clears || 0) + (passed ? 1 : 0) } };
       });
       if (passed) setTimeout(() => grantItem(rollRpgItem(1.5), "模試の塔の踏破"), 800);
       return `報酬：${gold}G${frag ? `・${(matById(fid) || {}).name}×${frag}` : ""}${passed ? "・踏破の装備" : ""}`;
@@ -2098,6 +2100,8 @@ function StudyRPG({ user }) {
         if (newAlly) setTimeout(() => showRpgToast(`${newAlly.name}（${newAlly.role}）が仲間になった！ ${fxText(newAlly.fx)}`, "#b08a3e"), 1800);
       }
     },
+    // 冒険の世界（星詠みの書）を切り替える
+    setActiveQual: (id) => updateDisplaySettings({ activeQual: id }),
     // 魔王城を1階攻略する（条件を満たしたときだけ）
     castleClimb: () => {
       const cur = stateRef.current;
@@ -2105,14 +2109,16 @@ function StudyRPG({ user }) {
       const qual = mainQual(cur);
       const linked = qual && cur.questionBanks.some((b) => b.qualId === qual.id);
       const pp = passPower(cur, linked ? qual.id : null);
-      const floor = r.castle.floor || 0;
+      const wid = curWorld(cur).id;
+      const floor = castleFloorOf(r, wid);
       const f = CASTLE_FLOORS[floor];
       if (!f || !f.test(castleCtx(cur, pp))) return;
       const rw = f.reward;
       updateRpg((x) => ({
         ...x, gold: x.gold + (rw.gold || 0), goldEarned: x.goldEarned + (rw.gold || 0),
         materials: { ...x.materials, "m-star": (x.materials["m-star"] || 0) + (rw.star || 0), "m-sage": (x.materials["m-sage"] || 0) + (rw.sage || 0) },
-        castle: { ...x.castle, floor: Math.max(x.castle.floor || 0, floor + 1), [`f${floor + 1}`]: todayStr() },
+        ...(wid === "home" ? { castle: { ...x.castle, floor: Math.max(x.castle.floor || 0, floor + 1), [`f${floor + 1}`]: todayStr() } }
+          : { castleByWorld: { ...(x.castleByWorld || {}), [wid]: { ...((x.castleByWorld || {})[wid] || {}), floor: Math.max(castleFloorOf(x, wid), floor + 1), [`f${floor + 1}`]: todayStr() } } }),
       }));
       const last = floor + 1 >= CASTLE_FLOORS.length;
       setTimeout(() => showEvolution({ big: last ? "魔王討伐" : "突破", from: null, to: last ? "試験の魔王を打ち倒した！" : `魔王城 ${f.name}`, sub: `報酬：${rewardText(rw)}`, stage: heroStage(cur.player.level),
@@ -2185,7 +2191,7 @@ function StudyRPG({ user }) {
     finishSpecial: (info, result) => {
       const ok = result.sure + result.unsure, n = ok + result.wrong, d = todayStr();
       if (info.kind === "weekday" && normRpg(stateRef.current.rpg).weekdayDone !== d) {
-        const gold = ok * 20, fid = (MON_THEMES.find((t) => t.region === info.region) || MON_THEME_DEFAULT).mat;
+        const gold = ok * 20, fid = (MON_THEMES.find((t) => t.region === info.region) || PRESET_REGIONS.get(info.region) || MON_THEME_DEFAULT).mat;
         updateRpg((x) => ({ ...x, weekdayDone: d, gold: x.gold + gold, goldEarned: x.goldEarned + gold, materials: { ...x.materials, [fid]: ((x.materials || {})[fid] || 0) + Math.max(1, Math.ceil(ok / 2)) } }));
         if (ok) setTimeout(() => awardXp(ok * 6), 200);
         setTimeout(() => showRpgToast(`🗓 曜日の迷宮をクリア！ 報酬2倍：${gold}G・${(matById(fid) || {}).name}×${Math.max(1, Math.ceil(ok / 2))}`, "#b08a3e"), 400);
@@ -2746,16 +2752,20 @@ function StudyRPG({ user }) {
     if (!loaded) return;
     const qual = mainQual(state);
     const linked = qual && state.questionBanks.some((b) => b.qualId === qual.id);
+    const world = worldOfQual(qual);
+    if (world.id !== "home" && !linked) return; // 資格の世界は、問題集を紐付けてから
     const pp = passPower(state, linked ? qual.id : null);
     if (pp.total === 0) return;
-    const idx = storyIndex(pp.power);
+    const chs = worldChapters(world);
+    const idx = chapterIndex(chs, pp.power);
     const r = normRpg(state.rpg);
-    if (idx > r.storySeen) {
-      updateRpg((x) => ({ ...x, storySeen: idx }));
-      const ch = STORY_CHAPTERS[idx];
-      setTimeout(() => showEvolution({ big: idx === 0 ? "物語の始まり" : "新しい章", from: null, to: ch.title.replace("　", " "), sub: ch.text.split("\n")[0], stage: heroStage(state.player.level), afterTalk: { title: ch.title, lines: [...(STORY_TALKS[idx] || []), ...ALLIES.map((a) => [a.id, a.cheer])] } }), 1200);
+    if (idx > storySeenOf(r, world.id)) {
+      updateRpg((x) => (world.id === "home" ? { ...x, storySeen: idx } : { ...x, storySeenByWorld: { ...(x.storySeenByWorld || {}), [world.id]: idx } }));
+      const ch = chs[idx];
+      const lines = world.id === "home" ? (STORY_TALKS[idx] || []) : ch.text.split("\n").map((t) => ["hero", t]);
+      setTimeout(() => showEvolution({ big: idx === 0 ? (world.id === "home" ? "物語の始まり" : `新しい世界　${world.name}`) : "新しい章", from: null, to: ch.title.replace("　", " "), sub: ch.text.split("\n")[0], stage: heroStage(state.player.level), afterTalk: { title: ch.title, lines: [...lines, ...ALLIES.map((a) => [a.id, a.cheer])] } }), 1200);
     }
-  }, [state.questionBanks, loaded]);
+  }, [state.questionBanks, state.qualifications, (state.displaySettings || {}).activeQual, loaded]);
 
   // 戦闘の戦利品（素材・必殺技のEXP）を記録する（BattleStage から battleBus で届く）
   useEffect(() => {
@@ -2917,7 +2927,7 @@ function StudyRPG({ user }) {
   const deletePreset = (id) => setState((s) => ({ ...s, taskPresets: s.taskPresets.filter((p) => p.id !== id) }));
   const updatePreset = (id, patch) => setState((s) => ({ ...s, taskPresets: s.taskPresets.map((p) => p.id === id ? { ...p, ...patch } : p) }));
 
-  const addQual = (q) => setState((s) => ({ ...s, qualifications: [...s.qualifications, { id: uid(), name: q.name, examDate: q.examDate, targetHours: Number(q.targetHours) || 0, color: QUAL_COLORS[s.qualifications.length % QUAL_COLORS.length], acquired: false }] }));
+  const addQual = (q) => setState((s) => ({ ...s, qualifications: [...s.qualifications, { id: uid(), name: q.name, examDate: q.examDate, targetHours: Number(q.targetHours) || 0, color: QUAL_COLORS[s.qualifications.length % QUAL_COLORS.length], acquired: false, world: q.world || "own" }] }));
   const deleteQual = (id) => setState((s) => ({ ...s, qualifications: s.qualifications.filter((q) => q.id !== id), tasks: s.tasks.map((t) => t.qualId === id ? { ...t, qualId: null } : t), taskPresets: s.taskPresets.map((p) => p.qualId === id ? { ...p, qualId: null } : p), questionBanks: s.questionBanks.map((b) => b.qualId === id ? { ...b, qualId: null } : b), studyLog: s.studyLog.filter((l) => l.qualId !== id) }));
   const updateQual = (id, patch) => setState((s) => ({ ...s, qualifications: s.qualifications.map((q) => q.id === id ? { ...q, ...patch } : q) }));
   const acquireQual = (qual) => {
@@ -4410,14 +4420,15 @@ function QualTab({ state, addQual, updateQual, deleteQual, acquireQual }) {
   const [examDate, setExamDate] = useState("");
   const [targetHours, setTargetHours] = useState("");
   const [editId, setEditId] = useState(null);
+  const [world, setWorld] = useState("own"); // 冒険の世界：own＝この資格だけの世界／home＝王都の世界（土地家屋調査士と同じ地図）
   const submit = () => {
     if (!name.trim()) return;
-    if (editId) { updateQual(editId, { name: name.trim(), examDate, targetHours: Number(targetHours) || 0 }); setEditId(null); }
-    else { addQual({ name: name.trim(), examDate, targetHours }); }
-    setName(""); setExamDate(""); setTargetHours("");
+    if (editId) { updateQual(editId, { name: name.trim(), examDate, targetHours: Number(targetHours) || 0, world }); setEditId(null); }
+    else { addQual({ name: name.trim(), examDate, targetHours, world }); }
+    setName(""); setExamDate(""); setTargetHours(""); setWorld("own");
   };
-  const startEdit = (q) => { setEditId(q.id); setName(q.name); setExamDate(q.examDate || ""); setTargetHours(q.targetHours); };
-  const cancelEdit = () => { setEditId(null); setName(""); setExamDate(""); setTargetHours(""); };
+  const startEdit = (q) => { setEditId(q.id); setName(q.name); setExamDate(q.examDate || ""); setTargetHours(q.targetHours); setWorld(worldOfQual(q).id === "home" ? "home" : "own"); };
+  const cancelEdit = () => { setEditId(null); setName(""); setExamDate(""); setTargetHours(""); setWorld("own"); };
 
   return (
     <div className="space-y-4">
@@ -4433,6 +4444,11 @@ function QualTab({ state, addQual, updateQual, deleteQual, acquireQual }) {
             <input type="number" min="0" className="rpg-input" placeholder="100" value={targetHours} onChange={(e) => setTargetHours(e.target.value)} />
           </div>
         </div>
+        <label className="jp text-[10px] block mb-1" style={{ color: "var(--ink-soft)" }}>冒険の世界</label>
+        <select className="rpg-input mb-2" value={world} onChange={(e) => setWorld(e.target.value)}>
+          <option value="own">この資格だけの世界（地図・物語・魔王城が別になる）</option>
+          <option value="home">王都の世界（土地家屋調査士と同じ地図に入れる）</option>
+        </select>
         <div className="flex gap-2">
           <button onClick={submit} disabled={!name.trim()} className="jp btn-primary flex-1 py-2 flex items-center justify-center gap-1">
             <Plus size={16} /> {editId ? "更新" : "登録"}
@@ -9079,7 +9095,7 @@ function passPower(state, qualId) {
   const day = todayStr();
   const key = qualId || "_all_";
   const c = passCache.get(key);
-  if (c && c.banks === state.questionBanks && c.folders === state.folders && c.day === day && c.sr === state.srSettings) return c.res;
+  if (c && c.banks === state.questionBanks && c.folders === state.folders && c.quals === state.qualifications && c.day === day && c.sr === state.srSettings) return c.res;
   const sch = getFsrsScheduler(state.srSettings);
   const now = new Date();
   const regions = {};
@@ -9101,11 +9117,29 @@ function passPower(state, qualId) {
     });
   });
   const res = { total, seen, sumR, weak, power: total ? sumR / total : 0, regions: Object.values(regions).map((g) => ({ ...g, power: g.total ? g.sumR / g.total : 0 })) };
-  passCache.set(key, { banks: state.questionBanks, folders: state.folders, day, sr: state.srSettings, res });
+  passCache.set(key, { banks: state.questionBanks, folders: state.folders, quals: state.qualifications, day, sr: state.srSettings, res });
   return res;
 }
 // 無線の資格（二陸特・アマチュア無線など）か：見出しの絵を切り替えるのに使う
 function isRadioQual(q) { return !!q && /無線|陸特|海特|航特/.test(q.name || ""); }
+// 冒険の世界（src/data/worlds.js）：資格の world が "own" ならその資格だけの世界、"home" か未設定なら王都の世界（WORLD_PRESETS に名前が合う資格は未設定でも own）
+const worldCache = new Map();
+function worldOfQual(q) {
+  if (!q) return HOME_WORLD;
+  const preset = WORLD_PRESETS.find((x) => x.match.test(q.name || "")) || null;
+  if ((q.world || (preset ? "own" : "home")) !== "own") return HOME_WORLD;
+  const key = `${q.id}|${q.name}`;
+  if (!worldCache.has(key)) worldCache.set(key, preset
+    ? { ...preset, id: q.id, preset, qual: q }
+    : { id: q.id, preset: null, qual: q, name: `${q.name}の世界`, sub: "まだ名前のない世界", castle: `${q.name}の魔王城`, boss: "試験の魔王", icon: "🌐", mapHue: 40 + (hashStr(q.id) % 280), map: null, regions: [], chapters: genericChapters(q.name) });
+  return worldCache.get(key);
+}
+const curWorld = (state) => worldOfQual(mainQual(state));
+const worldChapters = (w) => (w.id === "home" ? STORY_CHAPTERS : w.chapters);
+// 世界ごとの記録：王都の世界は今までの場所、資格の世界は ...ByWorld[世界id]
+const storySeenOf = (r, wid) => (wid === "home" ? r.storySeen : ((r.storySeenByWorld || {})[wid] ?? -1));
+const castleFloorOf = (r, wid) => (wid === "home" ? (r.castle && r.castle.floor) : ((r.castleByWorld || {})[wid] || {}).floor) || 0;
+const dungeonBestOf = (r, wid) => (wid === "home" ? (r.dungeon && r.dungeon.best) : ((r.dungeon && r.dungeon.bestW) || {})[wid]) || {};
 // いちばん近い試験日の資格（取得済みは除く）。問題集が1つも紐づいていなければ全問題で計算する
 // 目標の資格：星詠みの書（タイトル画面）で選んだ資格。「すべての資格」か未選択なら、試験日がいちばん近い資格
 function autoMainQual(state) {
@@ -9146,6 +9180,7 @@ const STORY_CHAPTERS = [
   { at: PASS_LINE, title: "終章　境界の回復", text: "やりました……！ 魔王を打ち倒せる力が、あなたに宿りました。この国の境界は、すべて元どおりです。\nあとは試験の日、その力をそのまま出し切るだけですよ。" },
 ];
 const storyIndex = (power) => STORY_CHAPTERS.reduce((a, c, i) => (power >= c.at ? i : a), 0);
+const chapterIndex = (chs, power) => chs.reduce((a, c, i) => (power >= c.at ? i : a), 0);
 
 // ── デイリークエスト：毎日3つ（「今日の復習を全部」＋日替わり2つ）。全部達成で宝箱 ──
 const DAILY_QUESTS = [
@@ -9473,7 +9508,7 @@ function FinalBoss({ state, qual, pp }) {
           </div>
           <div className="flex-1 min-w-0 jp">
             <div className="text-[11px]" style={{ color: "#c9b5f0" }}>{qual ? `${qual.name}の試験` : "本番の試験"}{days !== null ? (days >= 0 ? `　決戦まで あと${days}日` : "　試験日を過ぎました") : "　（資格画面で試験日を設定できます）"}</div>
-            <div style={{ fontFamily: "'Shippori Mincho B1', serif", fontWeight: 800, fontSize: 20, letterSpacing: "0.08em" }}>試験の魔王{beaten ? "　― 撃破可能 ―" : ""}</div>
+            <div style={{ fontFamily: "'Shippori Mincho B1', serif", fontWeight: 800, fontSize: 20, letterSpacing: "0.08em" }}>{worldOfQual(qual).boss}{beaten ? "　― 撃破可能 ―" : ""}</div>
             <div className="text-[10px] mt-1" style={{ color: "#e0948a" }}>魔王のHP</div>
             <div style={{ height: 9, borderRadius: 5, background: "rgba(255,255,255,0.15)", overflow: "hidden" }}><div style={{ width: `${hp * 100}%`, height: "100%", background: "linear-gradient(90deg, #a24a45, #e0948a)", transition: "width .6s" }} /></div>
           </div>
@@ -9506,9 +9541,12 @@ function FinalBoss({ state, qual, pp }) {
 
 // ── 世界地図：科目ごとの地域。合格力に応じて輪が満ちていく ──
 const REGION_ORDER = ["不動産登記法の王都", "民法の古の森", "区分所有の双子塔", "調査士法の砦", "測量の星見台", "書式の迷宮", "未踏の地"];
+// 地域の並び：王都の世界は REGION_ORDER、資格の世界は設定の順、そのほかは名前の順
+const regionRank = (name) => { const i = REGION_ORDER.indexOf(name); if (i >= 0) return i; const k = [...PRESET_REGIONS.keys()].indexOf(name); return k >= 0 ? 20 + k : 50; };
+const byRegionOrder = (a, b) => regionRank(a.name) - regionRank(b.name) || String(a.name).localeCompare(String(b.name), "ja");
 const REGION_POS = [[70, 178], [170, 196], [270, 176], [300, 112], [196, 120], [86, 104], [52, 46]];
 function WorldMap({ pp, r, onGuardian }) {
-  const regs = [...pp.regions].filter((g) => g.total > 0).sort((a, b) => REGION_ORDER.indexOf(a.name) - REGION_ORDER.indexOf(b.name));
+  const regs = [...pp.regions].filter((g) => g.total > 0).sort(byRegionOrder);
   const [sel, setSel] = useState(null);
   const s = regs.find((g) => g.name === sel);
   const pts = regs.map((g, i) => ({ g, x: REGION_POS[i % REGION_POS.length][0], y: REGION_POS[i % REGION_POS.length][1] }));
@@ -9553,13 +9591,13 @@ function WorldMap({ pp, r, onGuardian }) {
   );
 }
 
-function StoryPanel({ pp, onTalk }) {
-  const cur = storyIndex(pp.power);
+function StoryPanel({ pp, onTalk, chapters = STORY_CHAPTERS }) {
+  const cur = chapterIndex(chapters, pp.power);
   const [open, setOpen] = useState(cur);
   return (
     <Box title="物語" icon={<BookOpen size={18} />}>
       <div className="space-y-1">
-        {STORY_CHAPTERS.map((c, i) => {
+        {chapters.map((c, i) => {
           const unlocked = i <= cur;
           return (
             <div key={c.title} style={{ border: `1px solid ${i === cur ? "var(--gold)" : "var(--rule-soft)"}`, background: unlocked ? "var(--paper)" : "transparent" }}>
@@ -9886,7 +9924,7 @@ function DungeonCard({ state, pp, onStart }) {
       <p className="jp text-xs mb-2" style={{ color: "var(--ink-soft)" }}>本番のように、時間を計って一気に解きます（1問1分）。最後に「合格圏（85%）・基準点（75%）」で判定します。回答はいつもどおり復習の記録に反映されます。</p>
       <div className="grid grid-cols-3 gap-2">
         {DUNGEON_SIZES.map((n) => {
-          const best = dg.best && dg.best[n];
+          const best = dungeonBestOf(r, curWorld(state).id)[n];
           return (
             <button key={n} disabled={avail < n} onClick={() => onStart(n, shuffleArr(banks.flatMap((b) => (b.questions || []).filter((q) => !q.excluded).map((q) => ({ bankId: b.id, bankName: b.name, qId: q.id })))).slice(0, n))} className="jp btn-ghost py-2 px-1 text-center" style={{ opacity: avail < n ? 0.45 : 1, cursor: avail < n ? "not-allowed" : "pointer" }}>
               <div className="text-sm" style={{ fontWeight: 800 }}>{n}階層</div>
@@ -10032,7 +10070,10 @@ const REGION_INFO = {
   "書式の迷宮": { guardian: "迷宮の写本師", icon: "👹", boss: "maou", emblem: { name: "迷宮の紋章", fx: { bossDmgPct: 10 } } },
   "未踏の地": { guardian: "霧の番犬", icon: "🟢", boss: "slime", emblem: { name: "開拓の紋章", fx: { hpPlus: 10 } } },
 };
-const regionInfo = (name) => REGION_INFO[name] || REGION_INFO["未踏の地"];
+// 資格の世界の地域（WORLD_PRESETS の regions）と、設定のない地域の守護者・紋章
+const PRESET_REGIONS = new Map(WORLD_PRESETS.flatMap((w) => w.regions.map((x) => [x.name, x])));
+const genericRegionInfo = (name) => ({ guardian: `${name}の番人`, icon: "🟢", boss: "slime", emblem: { name: `${String(name).replace(/の地$/, "")}の紋章`, fx: { hpPlus: 5 } } });
+const regionInfo = (name) => REGION_INFO[name] || PRESET_REGIONS.get(name) || genericRegionInfo(name);
 const regionCleared = (r, name) => !!(r.regions && r.regions[name] && r.regions[name].cleared);
 // 地域の状態：fog（霧：まだ2割も出会っていない）| explore（探索中）| ready（守護者に挑める）| cleared（解放済み）
 function regionStatus(g, r) {
@@ -10216,16 +10257,17 @@ const CASTLE_FLOORS = [
   { name: "玉座の前", need: "すべての地域を解放する", test: (c) => c.allCleared, reward: { gold: 500, star: 3, sage: 1 } },
   { name: "玉座の間", need: "模試の塔（60階層）で合格ライン85%、かつ合格力85%", test: (c) => (c.best[60] || 0) >= PASS_LINE && c.power >= PASS_LINE, reward: { gold: 1000, star: 5, sage: 3 } },
 ];
-const castleCtx = (state, pp) => { const r = normRpg(state.rpg); const regs = pp.regions.filter((g) => g.total > 0); return { best: (r.dungeon && r.dungeon.best) || {}, allCleared: regs.length > 0 && regs.every((g) => regionCleared(r, g.name)), power: pp.power }; };
+const castleCtx = (state, pp) => { const r = normRpg(state.rpg); const regs = pp.regions.filter((g) => g.total > 0); return { best: dungeonBestOf(r, curWorld(state).id), allCleared: regs.length > 0 && regs.every((g) => regionCleared(r, g.name)), power: pp.power }; };
 const rewardText = (rw) => [rw.gold && `${rw.gold}G`, rw.frag && `欠片×${rw.frag}`, rw.star && `星霊石×${rw.star}`, rw.sage && `賢者の結晶×${rw.sage}`].filter(Boolean).join("・");
 function CastleCard({ state, pp, actions }) {
   const r = normRpg(state.rpg);
-  const floor = (r.castle && r.castle.floor) || 0;
+  const world = curWorld(state);
+  const floor = castleFloorOf(r, world.id);
   const ctx = castleCtx(state, pp);
   const nextF = CASTLE_FLOORS[floor];
   const can = nextF && nextF.test(ctx);
   return (
-    <Box title="魔王城" icon={<Castle size={18} />}>
+    <Box title={world.id === "home" ? "魔王城" : `魔王城　${world.castle}`} icon={<Castle size={18} />}>
       <div className="flex gap-3">
         <svg viewBox="0 0 90 170" width="84" height="158" aria-hidden="true" style={{ flexShrink: 0 }}>
           <path d="M45 4l6 10h-12z" fill={floor >= 5 ? "#f2c14e" : "#6c5a96"} />
@@ -10419,7 +10461,7 @@ const CAT_TIERS = [
 const catCounts = (b) => { const qs = b.questions || []; const st = qs.map(dexStatus); return { n: qs.length, s1: st.filter((s) => s >= 1).length, s2: st.filter((s) => s >= 2).length, s3: st.filter((s) => s >= 3).length }; };
 function CategoryQuests({ state, pp, actions }) {
   const r = normRpg(state.rpg);
-  const regs = [...pp.regions].filter((g) => g.total > 0).sort((a, b) => REGION_ORDER.indexOf(a.name) - REGION_ORDER.indexOf(b.name));
+  const regs = [...pp.regions].filter((g) => g.total > 0).sort(byRegionOrder);
   const [open, setOpen] = useState(() => (regs[0] ? regs[0].name : null));
   const [msg, setMsg] = useState("");
   return (
@@ -10572,7 +10614,10 @@ const SMAP_NODES = [[768, 604], [768, 530], [768, 455], [768, 380], [768, 293], 
 const SMAP_ORDER = [0, 1, 5, 6, 8, 10, 11, 13, 14, 7, 9, 12, 15, 16, 18, 20, 21, 23, 24, 17, 19, 22, 2, 3, 4];
 const SMAP_PER = SMAP_ORDER.length;
 const HEX_CLIP = "polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%)";
-function StoryRoadMap({ quests, r, sel, setSel, nextQ, regionName }) {
+function StoryRoadMap({ quests, r, sel, setSel, nextQ, regionName, world }) {
+  const M = (world && world.map) || { url: `${ART_URL}storymap.webp`, nodes: SMAP_NODES, order: SMAP_ORDER, box: SMAP };
+  const SMAP_PER = M.order.length;
+  const hue = world && !world.map && world.mapHue ? `hue-rotate(${world.mapHue}deg) saturate(1.15)` : undefined;
   const pages = Math.max(1, Math.ceil(quests.length / SMAP_PER));
   const nextIdx = nextQ ? quests.indexOf(nextQ) : quests.length - 1;
   const [page, setPage] = useState(() => Math.min(pages - 1, Math.max(0, Math.floor(nextIdx / SMAP_PER))));
@@ -10584,10 +10629,10 @@ function StoryRoadMap({ quests, r, sel, setSel, nextQ, regionName }) {
     const el = wrapRef.current;
     if (!el || el.scrollWidth <= el.clientWidth) return;
     const k = nextIdx - pg * SMAP_PER;
-    const node = SMAP_NODES[SMAP_ORDER[k >= 0 && k < SMAP_PER ? k : 0]];
-    el.scrollLeft = Math.max(0, ((node[0] - SMAP.x0) / SMAP.w) * el.scrollWidth - el.clientWidth / 2);
+    const node = M.nodes[M.order[k >= 0 && k < SMAP_PER ? k : 0]];
+    el.scrollLeft = Math.max(0, ((node[0] - M.box.x0) / M.box.w) * el.scrollWidth - el.clientWidth / 2);
   }, [pg, regionName]);
-  const pct = ([x, y]) => ({ left: `${((x - SMAP.x0) / SMAP.w) * 100}%`, top: `${((y - SMAP.y0) / SMAP.h) * 100}%` });
+  const pct = ([x, y]) => ({ left: `${((x - M.box.x0) / M.box.w) * 100}%`, top: `${((y - M.box.y0) / M.box.h) * 100}%` });
   const cleared = quests.slice(pg * SMAP_PER, (pg + 1) * SMAP_PER).filter((q) => sqStars(r, q.key) >= 1).length;
   return (
     <div>
@@ -10599,12 +10644,13 @@ function StoryRoadMap({ quests, r, sel, setSel, nextQ, regionName }) {
         </div>
       )}
       <div ref={wrapRef} style={{ overflowX: "auto", borderRadius: 10, WebkitOverflowScrolling: "touch" }}>
-        <div style={{ position: "relative", width: "max(100%, 680px)", aspectRatio: `${SMAP.w} / ${SMAP.h}`, backgroundImage: `url(${ART_URL}storymap.webp)`, backgroundSize: "100% 100%", backgroundColor: "#fbf8f0" }}>
-          {SMAP_ORDER.map((ni, k) => {
+        <div style={{ position: "relative", width: "max(100%, 680px)", aspectRatio: `${M.box.w} / ${M.box.h}`, backgroundColor: "#fbf8f0" }}>
+          <div style={{ position: "absolute", inset: 0, backgroundImage: `url(${M.url})`, backgroundSize: "100% 100%", filter: hue }} />
+          {M.order.map((ni, k) => {
             const q = quests[pg * SMAP_PER + k];
-            const at = pct(SMAP_NODES[ni]);
+            const at = pct(M.nodes[ni]);
             const base = { position: "absolute", ...at, width: "4%", aspectRatio: "1 / 1.12", transform: "translate(-50%, -50%)" };
-            if (!q) return <div key={k} style={{ ...base, clipPath: HEX_CLIP, background: "radial-gradient(circle, #ece2c6 0%, #e2d5b2 100%)", opacity: 0.96 }} />; // この地域にない場所（絵の印を消す）
+            if (!q) return <div key={k} style={{ ...base, clipPath: HEX_CLIP, background: "radial-gradient(circle, #ece2c6 0%, #e2d5b2 100%)", opacity: 0.96, filter: hue }} />; // この地域にない場所（絵の印を消す）
             const st = sqStars(r, q.key), open = sqOpen(r, q), isSel = sel === q.key, isNext = nextQ && q.key === nextQ.key;
             if (st < 1 && !open) return (
               <div key={k} title="まだ見えない道" style={base}>
@@ -10623,14 +10669,14 @@ function StoryRoadMap({ quests, r, sel, setSel, nextQ, regionName }) {
           })}
         </div>
       </div>
-      <p className="jp text-[10px] mt-1 text-center" style={{ color: "var(--ink-mute)" }}>光っている「！」が、いま挑めるクエストです。はじまりの町から道をたどり、魔王の城をめざしましょう。{pages > 1 ? "1枚の地図に25話。◀▶で地図を切りかえられます。" : ""}</p>
+      <p className="jp text-[10px] mt-1 text-center" style={{ color: "var(--ink-mute)" }}>光っている「！」が、いま挑めるクエストです。はじまりの町から道をたどり、{world && world.id !== "home" ? world.castle : "魔王の城"}をめざしましょう。{pages > 1 ? `1枚の地図に${SMAP_PER}話。◀▶で地図を切りかえられます。` : ""}</p>
     </div>
   );
 }
 
 function StoryQuestView({ state, pp, onStart, actions, onGuardian, onSecBoss }) {
   const r = normRpg(state.rpg);
-  const regs = [...pp.regions].filter((g) => g.total > 0).sort((a, b) => REGION_ORDER.indexOf(a.name) - REGION_ORDER.indexOf(b.name));
+  const regs = [...pp.regions].filter((g) => g.total > 0).sort(byRegionOrder);
   const [regName, setRegNameRaw] = useState(() => {
     if (lastStoryRegion && regs.some((g) => g.name === lastStoryRegion)) return lastStoryRegion; // 前に見ていた地域
     const firstOpen = regs.find((g) => regionQuests(g).some((q) => sqStars(r, q.key) < 1));
@@ -10693,7 +10739,7 @@ function StoryQuestView({ state, pp, onStart, actions, onGuardian, onSecBoss }) 
           <span className="text-[11px]" style={{ color: "var(--ink-soft)" }}>描いた土地 {cleared} / {quests.length}</span>
         </div>
         {/* はじまりの町から魔王の城への地図 */}
-        <StoryRoadMap quests={quests} r={r} sel={sel} setSel={setSel} nextQ={nextQ} regionName={g.name} />
+        <StoryRoadMap quests={quests} r={r} sel={sel} setSel={setSel} nextQ={nextQ} regionName={g.name} world={curWorld(state)} />
         {/* 選んだクエスト／つづきから */}
         {(sq || nextQ) && (() => {
           const q = sq || nextQ;
@@ -11648,7 +11694,7 @@ function storyNextInfo(state) {
   const r = normRpg(state.rpg);
   const qual = mainQual(state);
   const linked = qual && state.questionBanks.some((b) => b.qualId === qual.id);
-  const regs = passPower(state, linked ? qual.id : null).regions.filter((g) => g.total > 0).sort((a, b) => REGION_ORDER.indexOf(a.name) - REGION_ORDER.indexOf(b.name));
+  const regs = passPower(state, linked ? qual.id : null).regions.filter((g) => g.total > 0).sort(byRegionOrder);
   let next = null, reg = null, done = 0, all = 0;
   regs.forEach((g) => { const qs = regionQuests(g); all += qs.length; done += qs.filter((q) => sqStars(r, q.key) >= 1).length; if (!next) { const n = qs.find((q) => sqStars(r, q.key) < 1 && sqOpen(r, q)); if (n) { next = n; reg = g; } } });
   return { next, reg, done, all };
@@ -11863,8 +11909,8 @@ const towerStart = (f) => { let n = 0; for (let i = 1; i < f; i++) n += towerNew
 const towerSeqCache = new WeakMap();
 function towerSeq(state, pp) {
   const c = towerSeqCache.get(state.questionBanks);
-  if (c && c.folders === state.folders) return c.seq;
-  const regs = pp.regions.filter((g) => g.total > 0).sort((a, b) => REGION_ORDER.indexOf(a.name) - REGION_ORDER.indexOf(b.name));
+  if (c && c.folders === state.folders && c.pp === pp) return c.seq;
+  const regs = pp.regions.filter((g) => g.total > 0).sort(byRegionOrder);
   const lists = regs.map((g) => g.banks.flatMap((b) => (b.questions || []).filter((q) => !q.excluded).map((q) => ({ bankId: b.id, bankName: b.name, qId: q.id }))));
   const idx = lists.map(() => 0);
   const total = lists.reduce((a, l) => a + l.length, 0);
@@ -11874,7 +11920,7 @@ function towerSeq(state, pp) {
     lists.forEach((l, k) => { if (idx[k] < l.length) { const v = (idx[k] + 1) / l.length; if (v < bestV) { bestV = v; best = k; } } });
     seq.push(lists[best][idx[best]++]);
   }
-  towerSeqCache.set(state.questionBanks, { folders: state.folders, seq });
+  towerSeqCache.set(state.questionBanks, { folders: state.folders, pp, seq });
   return seq;
 }
 // 問題の「弱さ」：苦手・想起率の低さ（復習の出題で優先する）
@@ -12074,10 +12120,12 @@ function WorldView({ state, actions, todayCount, onWeekly, onDungeon, onGuardian
   const qual = mainQual(state);
   const linked = qual && state.questionBanks.some((b) => b.qualId === qual.id);
   const pp = passPower(state, linked ? qual.id : null);
+  const world = worldOfQual(qual);
   const [sec, setSec] = useState("story"); // story（ストーリー）| tower（試練の塔）| train（鍛錬）| road（地図と仲間）| quest（クエスト）| castle（魔王城）
   const tabs = [["story", "ストーリー"], ["tower", "試練の塔"], ["train", "鍛錬"], ["road", "地図と仲間"], ["quest", "クエスト"], ["castle", "魔王城"]];
   return (
     <>
+      <WorldBanner state={state} world={world} qual={qual} linked={linked} onPick={actions.setActiveQual} />
       <div className="grid grid-cols-3 sm:grid-cols-6 gap-1 p-1" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)", borderRadius: 16 }}>
         {tabs.map(([id, label]) => (
           <button key={id} onClick={() => setSec(id)} className="jp py-1.5 text-xs" style={{ borderRadius: 999, border: "none", fontWeight: 700, cursor: "pointer", background: sec === id ? "linear-gradient(180deg, #cfae62, #a8833a)" : "transparent", color: sec === id ? "#fffdf6" : "var(--ink-soft)" }}>{label}</button>
@@ -12108,7 +12156,7 @@ function WorldView({ state, actions, todayCount, onWeekly, onDungeon, onGuardian
         <WorldMap pp={pp} r={normRpg(state.rpg)} onGuardian={onGuardian} />
         <KnowledgeCastle state={state} />
         <JourneyCard state={state} />
-        <StoryPanel pp={pp} onTalk={(i) => actions.openTalk({ title: STORY_CHAPTERS[i].title, lines: [...(STORY_TALKS[i] || []), ...ALLIES.map((a) => [a.id, a.cheer])] })} />
+        <StoryPanel pp={pp} chapters={worldChapters(world)} onTalk={(i) => { const ch = worldChapters(world)[i]; actions.openTalk({ title: ch.title, lines: [...(world.id === "home" ? (STORY_TALKS[i] || []) : ch.text.split("\n").map((t) => ["hero", t])), ...ALLIES.map((a) => [a.id, a.cheer])] }); }} />
       </>)}
       {sec === "quest" && (<>
         <SeasonCard state={state} actions={actions} />
@@ -12129,6 +12177,37 @@ function WorldView({ state, actions, todayCount, onWeekly, onDungeon, onGuardian
         <DungeonCard state={state} pp={pp} onStart={onDungeon} />
       </>)}
     </>
+  );
+}
+
+// 冒険の世界の帯：いまの世界（星詠みの書で選んだ資格の世界）と、ほかの世界へ渡るボタン
+function WorldBanner({ state, world, qual, linked, onPick }) {
+  const [open, setOpen] = useState(false);
+  const books = starBooks(state).filter((b) => !b.acquired);
+  const qualOf = (id) => (state.qualifications || []).find((q) => q.id === id);
+  const home = world.id === "home";
+  return (
+    <div className="jp" style={{ borderRadius: 12, padding: "8px 12px", background: home ? "linear-gradient(90deg, #fdf8ea, #f3ead2)" : "linear-gradient(90deg, #e6f1fb, #dfe6f8)", border: `1px solid ${home ? "#d6b56a" : "#6fa8dc"}` }}>
+      <button onClick={() => setOpen(!open)} className="w-full flex items-center gap-2 text-left" style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink)", padding: 0 }}>
+        <span style={{ fontSize: 22 }}>{world.icon}</span>
+        <span className="flex-1 min-w-0">
+          <span className="block text-[10px]" style={{ color: "var(--ink-mute)", letterSpacing: "0.1em" }}>いまの世界{qual ? `　― ${qual.name}` : ""}</span>
+          <span className="block text-[15px] truncate" style={{ fontFamily: "'Shippori Mincho B1', serif", fontWeight: 800 }}>{world.name}<span className="text-[11px] ml-1.5" style={{ color: "var(--ink-soft)", fontWeight: 500 }}>{world.sub}</span></span>
+        </span>
+        {books.length > 1 && <span className="text-[11px] flex-shrink-0" style={{ color: "var(--ink-soft)" }}>{open ? "▴" : "世界をわたる ▾"}</span>}
+      </button>
+      {!home && !linked && <div className="text-[11px] mt-1" style={{ color: "#c9564e" }}>この資格に紐付いた問題集がまだありません。問題タブの取り込みで「紐付ける資格」を選ぶと、この世界の地図ができます。</div>}
+      {!home && linked && !world.map && <div className="text-[10px] mt-1" style={{ color: "var(--ink-mute)" }}>この世界の地図の絵は準備中です（いまは仮の地図）。主人公のレベル・装備・仲間は、どの世界でも同じです。</div>}
+      {open && (
+        <div className="mt-2 space-y-1">
+          {books.map((b) => { const w = worldOfQual(qualOf(b.id)); const on = qual && qual.id === b.id; return (
+            <button key={b.id} onClick={() => { onPick(b.id); setOpen(false); }} className="w-full text-left text-[12px] px-2 py-1 flex items-center gap-2" style={{ borderRadius: 8, border: `1px solid ${on ? "var(--gold)" : "var(--rule-soft)"}`, background: on ? "var(--cream)" : "var(--paper)", color: "var(--ink)", cursor: "pointer" }}>
+              <span>{w.icon}</span><span className="flex-1 truncate" style={{ fontWeight: 700 }}>{w.name}</span><span className="text-[10px]" style={{ color: "var(--ink-mute)" }}>{b.name}</span>
+            </button>
+          ); })}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -12624,7 +12703,7 @@ function BossBattle({ state, boss, pool, actions, recordAnswer, startTimer, stop
 // 冒険のステージ（イラストフォルダの戦いの背景7枚）
 const STAGE_URL = (n) => `${ART_URL}stage/${n}.webp`;
 const REGION_STAGE = { "不動産登記法の王都": "skycity", "民法の古の森": "meadow", "区分所有の双子塔": "snow", "調査士法の砦": "sunset", "測量の星見台": "ruins", "書式の迷宮": "crystal", "未踏の地": "ruins" };
-const regionStageUrl = (region) => STAGE_URL(REGION_STAGE[region] || "meadow");
+const regionStageUrl = (region) => STAGE_URL(REGION_STAGE[region] || (PRESET_REGIONS.get(region) || {}).stage || "meadow");
 const BOSS_STAGE = { slimeking: "meadow", wisp: "ruins", lunawolf: "snow", ghost: "crystal", magolem: "crystal", armor: "sunset", darkdragon: "lava", grimoire: "crystal", elderweed: "meadow" };
 const BOSS_SCENES = { slimeking: "tower/zone4.jpg", wisp: "tower/zone4.jpg", lunawolf: "tower/zone4.jpg", ghost: "tower/zone1.jpg", magolem: "tower/zone1.jpg", armor: "tower/zone1.jpg", darkdragon: "tower/zone2.jpg", grimoire: "tower/zone3.jpg", elderweed: "tower/layer01.jpg" };
 const BOSS_CSS = `
@@ -13378,12 +13457,39 @@ const MON_THEMES = [
 const MON_THEME_DEFAULT = { prefix: "迷宮の", mat: "m-meikyu", region: "未踏の地", body: "#a7afc2", dark: "#5b6b8c", light: "#e6e9f0" };
 // 科目（地域）の判定：問題集が入っているフォルダの名前＋問題集の名前で決める（フォルダ＝科目、問題集＝カテゴリ）
 const BANK_FOLDER = new Map(); // 問題集の名前 → フォルダの名前（StudyRPG が描画のたびに更新）
+const BANK_QUAL = new Map(); // 問題集の名前 → 資格（どの世界の地域かを決める）
 function syncFolderIndex(state) {
-  BANK_FOLDER.clear();
+  BANK_FOLDER.clear(); BANK_QUAL.clear();
   const fm = new Map((state.folders || []).map((f) => [f.id, f.name]));
-  (state.questionBanks || []).forEach((b) => { if (b.folderId && fm.has(b.folderId)) BANK_FOLDER.set(b.name, fm.get(b.folderId)); });
+  const qm = new Map((state.qualifications || []).map((q) => [q.id, q]));
+  (state.questionBanks || []).forEach((b) => {
+    if (b.folderId && fm.has(b.folderId)) BANK_FOLDER.set(b.name, fm.get(b.folderId));
+    if (b.qualId && qm.has(b.qualId)) BANK_QUAL.set(b.name, qm.get(b.qualId));
+  });
 }
-const themeOf = (bankName) => { const t = `${BANK_FOLDER.get(bankName) || ""} ${bankName || ""}`; return MON_THEMES.find((x) => x.re.test(t)) || MON_THEME_DEFAULT; };
+const themeOf = (bankName) => {
+  const folder = BANK_FOLDER.get(bankName) || "";
+  const t = `${folder} ${bankName || ""}`;
+  const w = worldOfQual(BANK_QUAL.get(bankName));
+  if (w.id !== "home") return worldTheme(w, folder, t);
+  return MON_THEMES.find((x) => x.re.test(t)) || MON_THEME_DEFAULT;
+};
+// 資格の世界の地域：世界の設定 regions に合えばそれ、なければ「フォルダ名の地」（フォルダがなければ「資格名の地」）
+const WORLD_THEME_PAL = MON_THEMES.map((x) => [x.body, x.dark, x.light]);
+const worldThemeCache = new Map();
+function worldTheme(w, folder, t) {
+  const key = `${w.id}|${folder}|${t}`;
+  if (!worldThemeCache.has(key)) {
+    const reg = (w.regions || []).find((x) => x.re.test(t));
+    if (reg) worldThemeCache.set(key, { ...reg, region: reg.name });
+    else {
+      const name = `${folder || (w.qual && w.qual.name) || "新しい世界"}の地`;
+      const [body, dark, light] = WORLD_THEME_PAL[hashStr(name) % WORLD_THEME_PAL.length];
+      worldThemeCache.set(key, { prefix: "未知の", mat: "m-meikyu", region: name, body, dark, light });
+    }
+  }
+  return worldThemeCache.get(key);
+}
 const MON_UNKNOWN = { body: "#3d4258", dark: "#1f2233", light: "#5d6380", eye: "#f2c14e" };
 const EYE = "#22335c";
 const monEyes = (c, y = 58, gap = 10, r = 4) => (<>
@@ -15599,7 +15705,7 @@ function MockLog({ state, actions }) {
 
 // ── 5. 曜日の迷宮：曜日ごとに科目が変わり、その科目の10問で報酬2倍（1日1回） ──
 function weekdayRegion(state) {
-  const regs = REGION_ORDER.filter((rg) => state.questionBanks.some((b) => (b.questions || []).length && themeOf(b.name).region === rg));
+  const regs = [...new Set(state.questionBanks.filter((b) => (b.questions || []).length).map((b) => themeOf(b.name).region))].sort((a, b) => regionRank(a) - regionRank(b) || a.localeCompare(b, "ja"));
   if (!regs.length) return null;
   const dow = (new Date().getDay() + 6) % 7; // 月曜＝0
   return regs[dow % regs.length];
