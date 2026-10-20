@@ -19,6 +19,7 @@ import { HOME_WORLD, WORLD_PRESETS, genericChapters } from "./data/worlds"; // �
 import { RADIO_CALC_TYPES, makeRadioCalc } from "./game/radiocalc"; // 無線工学の計算ドリル（二陸特）
 import { BLOCK_DIAGRAMS } from "./data/blocks"; // ブロック図の並べ替え（二陸特）
 import { buildDeck, choicesOf, docOptions, deckNext, DECK_FIELDS, DECK_IV, DECK_MASTER } from "./game/kjdeck"; // 申請書の叩き込み（調査士の記述式）
+import { ROADMAP_2027 } from "./data/roadmap"; // 2027年 合格ロードマップ
 import { REGION_TALK, STORY_TALKS, REGION_ARC, regionArc, TRINITY_REGIONS, TRINITY_TALK, BOND_TALKS, COUNTDOWN_TALKS, ACADEMY_MEET, STUDY_GROUP_TALK } from "./data/story"; // 物語の会話
 
 
@@ -382,6 +383,238 @@ function TitleScreen({ loading, saveInfo, books = [], onPickBook, onNewBook, onC
         <span>© {new Date().getFullYear()} STUDY QUEST</span><span>Ver. 2.0</span>
       </div>
     </div>
+  );
+}
+
+// ── 2027年 合格ロードマップ（2026年10月20日。中身は src/data/roadmap.js）──
+// 利用者の書きこみは state.roadmap = { edits:{項目id:{target, manual, folders, hide}}, notes:{時期id: メモ}, custom:[{id, phase, label, target, unit, manual}] }
+const RM = ROADMAP_2027;
+const RM_ERAS = ["H17", "H18", "H19", "H20", "H21", "H22", "H23", "H24", "H25", "H26", "H27", "H28", "H29", "H30", "R1", "R2", "R3", "R4", "R5", "R6"];
+const inRangeD = (d, a, b) => !!d && d >= a && d <= b;
+// 試験日：手帳の資格（調査士・2027年）に試験日があればそれ、なければ計画の予定日
+function rmExam(state) {
+  const q = (state.qualifications || []).find((x) => !x.acquired && RM.qualRe.test(x.name || "") && x.examDate && x.examDate.startsWith("2027"));
+  return q ? q.examDate : RM.exam;
+}
+const rmShow = (state) => (state.qualifications || []).some((q) => !q.acquired && RM.qualRe.test(q.name || ""));
+function rmPhaseNow(today) {
+  return RM.phases.find((p) => inRangeD(today, p.from, p.to)) || (today < RM.phases[0].from ? RM.phases[0] : RM.phases[RM.phases.length - 1]);
+}
+// その時期の項目（書きかえた目標・隠した項目・自分で足した項目を反映）
+function rmTasks(state, ph) {
+  const rm = state.roadmap || {};
+  const ed = rm.edits || {};
+  const base = ph.tasks.filter((t) => !(ed[t.id] || {}).hide).map((t) => ({ ...t, target: (ed[t.id] || {}).target ?? t.target }));
+  const custom = (rm.custom || []).filter((c) => c.phase === ph.id).map((c) => ({ ...c, kind: "manual", custom: true }));
+  return [...base, ...custom];
+}
+// 進み具合（その時期の期間に、どれだけ回したか）
+function roadmapProgress(state, t, ph) {
+  const today = todayStr();
+  const r = normRpg(state.rpg);
+  const ed = ((state.roadmap || {}).edits || {})[t.id] || {};
+  const now = inRangeD(today, ph.from, ph.to);
+  const cnt = (dates) => (dates || []).filter((d) => inRangeD(d, ph.from, ph.to)).length;
+  const r1 = (v) => Math.round(v * 10) / 10;
+  if (t.kind === "banks") {
+    const fs = ed.folders && ed.folders.length ? new Set(ed.folders) : null;
+    const banks = state.questionBanks.filter((b) => (b.questions || []).length && (fs ? fs.has(b.folderId || "") : bankWorldId(state, b) === "home" && (t.regions || []).includes(themeOf(b.name).region)));
+    if (!banks.length) return { done: 0, unit: "周", note: fs ? "選んだフォルダに問題集がありません" : "対象の問題集がまだありません（「問題集を選ぶ」で指定できます）" };
+    const sum = banks.reduce((a, b) => a + cnt((b.clearHistory || []).map((h) => h.date)), 0);
+    return { done: r1(sum / banks.length), unit: "周", note: `${fs ? "選んだフォルダ" : "自動で選んだ"}${banks.length}冊の平均（問題集を最後まで解くと1周）` };
+  }
+  if (t.kind === "tataki") {
+    const K = r.kjDeck || {}, lap = K.lap || {};
+    const frac = now && K.total ? Object.keys(lap.ok || {}).length / K.total : 0;
+    return { done: r1(cnt(lap.at) + frac), unit: "周", note: "全カードに1回ずつ正解で1周" };
+  }
+  if (t.kind === "dojo") {
+    const res = (r.kijutsu || {}).res || {};
+    const pre = t.dojo === "land" ? "L" : "B";
+    const sum = RM_ERAS.reduce((a, e) => a + cnt(((res[`${pre}-${e}`] || {}).hist || []).map((h) => h.d)), 0);
+    return { done: r1(sum / RM_ERAS.length), unit: "周", note: "20年分の答案（1年1回で20分の1周）" };
+  }
+  if (t.kind === "pastcalc") {
+    const p = (r.calc2 || {}).past || {};
+    return { done: r1(cnt(p.lapsAt) + (now ? Object.keys(p.done || {}).length / PAST_TOTAL : 0)), unit: "周", note: `土地20年・建物20年の${PAST_TOTAL}題で1周` };
+  }
+  if (t.kind === "calcfix") {
+    const fx = (r.calc2 || {}).fixed || {};
+    const all = CALC2_ALL.length * FIXED_PER_TYPE;
+    return { done: r1(cnt(fx.lapsAt) + (now ? Object.keys(fx.done || {}).length / all : 0)), unit: "周", note: `${all}問で1周` };
+  }
+  if (t.kind === "rehearsal") return { done: cnt(((r.rehearsal || {}).log || []).map((x) => x.d)), unit: "回", note: "冒険 → 世界 → 鍛錬の「本番リハーサル」" };
+  if (t.kind === "mocks") return { done: cnt((r.mocks || []).map((x) => x.d)), unit: "回", note: "周回の部屋の「模試・答練の記録」に書いた回数" };
+  const man = t.custom ? t.manual || 0 : ed.manual || 0;
+  return { done: man, unit: t.unit || "周", note: "自分で数える（＋1・−1）" };
+}
+// 勉強時間（studyLog）：今週と、計画の始まり（10/20）からの合計
+function rmHours(state, today) {
+  const wk = addDays(today, -6);
+  let week = 0, total = 0;
+  (state.studyLog || []).forEach((l) => { if (!l.date) return; if (l.date >= RM.phases[0].from) total += l.minutes || 0; if (l.date >= wk && l.date <= today) week += l.minutes || 0; });
+  return { week: Math.round((week / 60) * 10) / 10, total: Math.round(total / 60) };
+}
+const openRoadmap = () => window.dispatchEvent(new CustomEvent("sq-roadmap-open"));
+const mdOf = (d) => `${Number(d.slice(5, 7))}/${Number(d.slice(8, 10))}`;
+function RmBar({ done, target, unit }) {
+  const pct = target ? Math.min(100, (done / target) * 100) : 0;
+  const ok = target && done >= target;
+  return (
+    <div className="flex items-center gap-2">
+      <div className="flex-1" style={{ height: 7, borderRadius: 4, background: "var(--beige)", overflow: "hidden" }}><div style={{ width: `${pct}%`, height: "100%", background: ok ? "#6d8454" : "linear-gradient(90deg,#d6b56a,#b08a3e)" }} /></div>
+      <span className="text-[11px]" style={{ minWidth: 64, textAlign: "right", fontWeight: 800, color: ok ? "#4f7a3a" : "var(--ink)" }}>{ok ? "✓ " : ""}{done} / {target}{unit}</span>
+    </div>
+  );
+}
+// ホーム・周回の部屋の上の帯：いまの時期と、その時期の周回の進み具合
+function RoadmapBanner({ state }) {
+  if (!rmShow(state)) return null;
+  const today = todayStr();
+  const exam = rmExam(state);
+  const days = daysUntil(exam);
+  const ph = rmPhaseNow(today);
+  const left = Math.max(0, daysUntil(ph.to));
+  const hrs = rmHours(state, today);
+  const tasks = rmTasks(state, ph);
+  return (
+    <div className="jp mb-3" style={{ borderRadius: 12, padding: "10px 12px", background: "linear-gradient(135deg, rgba(214,181,106,0.18), rgba(52,80,140,0.08))", border: "1.5px solid #d6b56a" }}>
+      <div className="flex items-start gap-2">
+        <div className="flex-1 min-w-0">
+          <div className="text-[10px]" style={{ color: "#b08a3e", fontWeight: 800, letterSpacing: "0.08em" }}>🎯 {RM.title}</div>
+          <div className="text-[15px]" style={{ fontFamily: "'Shippori Mincho B1', serif", fontWeight: 800, color: "var(--ink)" }}>試験まで あと<span style={{ fontSize: 22, color: "#b08a3e" }}>{days >= 0 ? days : 0}</span>日<span className="text-[10px] ml-1.5" style={{ color: "var(--ink-mute)", fontWeight: 500 }}>（{Number(exam.slice(0, 4))}年{Number(exam.slice(5, 7))}月{Number(exam.slice(8, 10))}日）</span></div>
+        </div>
+        <button onClick={openRoadmap} className="btn-primary text-[11px] px-2.5 py-1.5 flex-shrink-0">📅 計画をひらく</button>
+      </div>
+      <div className="text-[12px] mt-1" style={{ color: "var(--ink)" }}><b>いま：{ph.name}</b><span style={{ color: "var(--ink-mute)" }}>（{mdOf(ph.from)}〜{mdOf(ph.to)}・あと{left}日）</span>　<span style={{ color: hrs.week >= ph.week ? "#4f7a3a" : "var(--ink-soft)" }}>今週 {hrs.week} / {ph.week}時間</span></div>
+      <div className="mt-1.5 space-y-1">
+        {tasks.map((t) => { const p = roadmapProgress(state, t, ph); return (
+          <div key={t.id}><div className="text-[11px]" style={{ color: "var(--ink-soft)" }}>{t.label}</div><RmBar done={p.done} target={t.target} unit={p.unit} /></div>
+        ); })}
+      </div>
+    </div>
+  );
+}
+// 計画の全体（画面上部の「📅 計画」・帯の「計画をひらく」から）
+function RoadmapModal({ state, updateRoadmap, onClose }) {
+  const today = todayStr();
+  const cur = rmPhaseNow(today);
+  const [open, setOpen] = useState(cur.id);
+  const [pickFor, setPickFor] = useState(null); // 問題集を選んでいる項目
+  const [adding, setAdding] = useState(null); // { phase, label, target, unit }
+  const exam = rmExam(state);
+  const days = daysUntil(exam);
+  const hrs = rmHours(state, today);
+  const totalDays = Math.max(1, daysBetween(RM.phases[0].from, exam));
+  const pace = Math.round(RM.hoursGoal * Math.min(1, Math.max(0, daysBetween(RM.phases[0].from, today)) / totalDays));
+  const rm = state.roadmap || {};
+  const ed = rm.edits || {};
+  const setEd = (id, patch) => updateRoadmap((x) => ({ ...x, edits: { ...(x.edits || {}), [id]: { ...((x.edits || {})[id] || {}), ...patch } } }));
+  const setCustom = (id, patch) => updateRoadmap((x) => ({ ...x, custom: (x.custom || []).map((c) => (c.id === id ? { ...c, ...patch } : c)) }));
+  const folders = [...(state.folders || []).slice().sort((a, b) => (a.order ?? 0) - (b.order ?? 0)), { id: "", name: "フォルダなし（未分類）" }];
+  const stepper = (v, onSet, unit) => (
+    <span className="inline-flex items-center gap-1">
+      <button onClick={() => onSet(Math.max(0, v - 1))} className="btn-ghost text-[11px] px-1.5 py-0">−</button>
+      <b className="text-[12px]" style={{ minWidth: 34, textAlign: "center", color: "var(--ink)" }}>{v}{unit}</b>
+      <button onClick={() => onSet(v + 1)} className="btn-ghost text-[11px] px-1.5 py-0">＋</button>
+    </span>
+  );
+  return createPortal(
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 9990, background: "rgba(20,24,32,0.55)", display: "flex", alignItems: "center", justifyContent: "center", padding: 10 }}>
+      <div onClick={(e) => e.stopPropagation()} className="rpg-box p-1" style={{ width: "100%", maxWidth: 760, maxHeight: "92vh", display: "flex", flexDirection: "column" }}>
+        <div className="rpg-inner-border jp" style={{ display: "flex", flexDirection: "column", minHeight: 0, flex: 1 }}>
+          <div className="flex items-start gap-2 mb-2">
+            <div className="flex-1">
+              <div className="text-[11px]" style={{ color: "#b08a3e", fontWeight: 800 }}>🎯 {RM.title}</div>
+              <div className="text-[16px]" style={{ fontFamily: "'Shippori Mincho B1', serif", fontWeight: 800, color: "var(--ink)" }}>試験まで あと{days >= 0 ? days : 0}日（{Number(exam.slice(0, 4))}年{Number(exam.slice(5, 7))}月{Number(exam.slice(8, 10))}日）</div>
+            </div>
+            <button onClick={onClose} className="text-[11px] px-2 py-1" style={{ border: "1px solid var(--rule)", background: "var(--paper)", color: "var(--ink)" }}>✕ 閉じる</button>
+          </div>
+          <div style={{ overflowY: "auto", flex: 1, minHeight: 0 }} className="space-y-2 pr-1">
+            <div className="text-[11px] px-2 py-1.5" style={{ background: "var(--cream)", border: "1px solid var(--rule-soft)", borderRadius: 8, color: "var(--ink-soft)", lineHeight: 1.7 }}>
+              合格者の多くが目安にしている<b>約{RM.hoursGoal.toLocaleString()}時間</b>を、5つの時期に分けた計画です。進め方は「不動産登記法を中心に択一 → 計算 → 申請書 → 記述式の過去問 → 答練・模試 → 本番形式の通し」の順に重ねます。各項目の<b>目標の周回数は、＋−で自分で書きかえられます</b>。進み具合は、アプリの記録から自動で数えます（「自分で数える」の項目は＋1で記録）。
+              <div className="mt-1" style={{ color: "var(--ink)" }}>勉強時間：計画の始まり（{mdOf(RM.phases[0].from)}）から <b>{hrs.total}時間</b>　／　いまの時点の目安 {pace}時間{hrs.total >= pace ? "（順調です）" : `（あと${pace - hrs.total}時間）`}</div>
+              <div className="mt-0.5" style={{ color: "var(--ink-mute)" }}>{RM.examNote}</div>
+            </div>
+            <div className="flex flex-wrap gap-1">
+              {RM.milestones.map((m) => <span key={m.d} className="text-[10px] px-2 py-0.5" style={{ borderRadius: 999, border: "1px solid var(--rule-soft)", background: m.d <= today ? "var(--beige)" : "var(--paper)", color: m.d <= today ? "var(--ink-mute)" : "var(--ink)" }}>{m.d.slice(0, 4)}/{mdOf(m.d)} {m.label}</span>)}
+            </div>
+            {RM.phases.map((ph) => {
+              const isCur = ph.id === cur.id, isOpen = open === ph.id;
+              const tasks = rmTasks(state, ph);
+              const hidden = ph.tasks.filter((t) => (ed[t.id] || {}).hide);
+              const done = tasks.filter((t) => { const p = roadmapProgress(state, t, ph); return t.target && p.done >= t.target; }).length;
+              return (
+                <div key={ph.id} style={{ borderRadius: 10, border: `1.5px solid ${isCur ? "#d6b56a" : "var(--rule-soft)"}`, background: isCur ? "rgba(214,181,106,0.08)" : "var(--paper)" }}>
+                  <button onClick={() => setOpen(isOpen ? null : ph.id)} className="w-full text-left px-2.5 py-2 flex items-center gap-2" style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink)" }}>
+                    <span className="flex-1">
+                      <span className="block text-[14px]" style={{ fontFamily: "'Shippori Mincho B1', serif", fontWeight: 800 }}>{ph.name}{isCur && <span className="text-[10px] ml-1.5 px-1.5" style={{ background: "#b08a3e", color: "#fffdf6", borderRadius: 999 }}>いま</span>}</span>
+                      <span className="block text-[10px]" style={{ color: "var(--ink-mute)" }}>{ph.from.slice(0, 4)}/{mdOf(ph.from)}〜{ph.to.slice(0, 4)}/{mdOf(ph.to)}　週{ph.week}時間の目安　達成 {done}/{tasks.length}</span>
+                    </span>
+                    <span style={{ color: "var(--ink-mute)" }}>{isOpen ? "▲" : "▼"}</span>
+                  </button>
+                  {isOpen && (
+                    <div className="px-2.5 pb-2.5 space-y-2">
+                      <div className="text-[12px]" style={{ color: "var(--ink)", lineHeight: 1.7 }}>🎯 {ph.goal}</div>
+                      <div className="text-[11px]" style={{ color: "var(--ink-soft)", lineHeight: 1.7 }}>💡 {ph.why}</div>
+                      {tasks.map((t) => {
+                        const p = roadmapProgress(state, t, ph);
+                        const tgt = t.target;
+                        return (
+                          <div key={t.id} className="px-2 py-1.5" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)", borderRadius: 8 }}>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="flex-1 text-[12px]" style={{ fontWeight: 800, color: "var(--ink)", minWidth: 140 }}>{t.label}</span>
+                              <span className="text-[10px]" style={{ color: "var(--ink-mute)" }}>目標</span>
+                              {stepper(tgt, (v) => (t.custom ? setCustom(t.id, { target: v }) : setEd(t.id, { target: v })), p.unit)}
+                              <button onClick={() => { if (t.custom) { if (confirm(`「${t.label}」を消しますか？`)) updateRoadmap((x) => ({ ...x, custom: (x.custom || []).filter((c) => c.id !== t.id) })); } else setEd(t.id, { hide: true }); }} title={t.custom ? "消す" : "この時期の計画から外す"} className="text-[11px] px-1" style={{ background: "none", border: "none", color: "var(--ink-mute)", cursor: "pointer" }}>✕</button>
+                            </div>
+                            <RmBar done={p.done} target={tgt} unit={p.unit} />
+                            <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
+                              <span className="flex-1 text-[10px]" style={{ color: "var(--ink-mute)" }}>{p.note}</span>
+                              {t.kind === "manual" && <span className="inline-flex gap-1"><button onClick={() => (t.custom ? setCustom(t.id, { manual: Math.max(0, (t.manual || 0) - 1) }) : setEd(t.id, { manual: Math.max(0, (ed[t.id] || {}).manual - 1 || 0) }))} className="btn-ghost text-[10px] px-1.5 py-0">−1</button><button onClick={() => (t.custom ? setCustom(t.id, { manual: (t.manual || 0) + 1 }) : setEd(t.id, { manual: ((ed[t.id] || {}).manual || 0) + 1 }))} className="btn-primary text-[10px] px-2 py-0">＋1 できた</button></span>}
+                              {t.kind === "banks" && <button onClick={() => setPickFor(pickFor === t.id ? null : t.id)} className="btn-ghost text-[10px] px-1.5 py-0">📁 問題集を選ぶ</button>}
+                            </div>
+                            {pickFor === t.id && (
+                              <div className="mt-1 p-1.5" style={{ background: "var(--cream)", border: "1px dashed var(--gold)", borderRadius: 6 }}>
+                                <div className="text-[10px] mb-1" style={{ color: "var(--ink-soft)" }}>数えるフォルダを選んでください（選ばなければ、科目の地域から自動で選びます）</div>
+                                <div className="flex flex-wrap gap-1">
+                                  {folders.map((f) => { const sel = ((ed[t.id] || {}).folders || []).includes(f.id); return <button key={f.id || "none"} onClick={() => { const cur2 = (ed[t.id] || {}).folders || []; setEd(t.id, { folders: sel ? cur2.filter((x) => x !== f.id) : [...cur2, f.id] }); }} className="text-[11px] px-2 py-0.5" style={{ borderRadius: 999, border: `1px solid ${sel ? "var(--gold)" : "var(--rule-soft)"}`, background: sel ? "var(--paper)" : "transparent", color: "var(--ink)", fontWeight: sel ? 800 : 500, cursor: "pointer" }}>{sel ? "☑" : "☐"} {f.name}</button>; })}
+                                </div>
+                                {((ed[t.id] || {}).folders || []).length > 0 && <button onClick={() => setEd(t.id, { folders: [] })} className="text-[10px] underline mt-1" style={{ background: "none", border: "none", color: "var(--ink-mute)", cursor: "pointer" }}>自動で選ぶにもどす</button>}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                      {hidden.length > 0 && <div className="text-[10px]" style={{ color: "var(--ink-mute)" }}>外した項目：{hidden.map((t) => <button key={t.id} onClick={() => setEd(t.id, { hide: false })} className="underline mr-1.5" style={{ background: "none", border: "none", color: "var(--sky-deep)", cursor: "pointer" }}>{t.label}（もどす）</button>)}</div>}
+                      {adding && adding.phase === ph.id ? (
+                        <div className="p-1.5 space-y-1" style={{ background: "var(--cream)", border: "1px dashed var(--gold)", borderRadius: 6 }}>
+                          <input value={adding.label} onChange={(e) => setAdding({ ...adding, label: e.target.value })} placeholder="例：予備校の答練を解きなおす／テキストを読む" className="w-full px-2 py-1 text-[12px]" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)", borderRadius: 6, color: "var(--ink)" }} />
+                          <div className="flex items-center gap-2 text-[11px]">
+                            <span style={{ color: "var(--ink-mute)" }}>目標</span>{stepper(adding.target, (v) => setAdding({ ...adding, target: v }), adding.unit)}
+                            {["周", "回"].map((u) => <button key={u} onClick={() => setAdding({ ...adding, unit: u })} className="px-2 py-0.5" style={{ borderRadius: 999, border: `1px solid ${adding.unit === u ? "var(--gold)" : "var(--rule-soft)"}`, background: "var(--paper)", color: "var(--ink)", cursor: "pointer" }}>{u}</button>)}
+                            <span className="flex-1" />
+                            <button onClick={() => setAdding(null)} className="btn-ghost px-2 py-0.5">やめる</button>
+                            <button disabled={!adding.label.trim()} onClick={() => { updateRoadmap((x) => ({ ...x, custom: [...(x.custom || []), { id: uid(), phase: ph.id, label: adding.label.trim(), target: adding.target, unit: adding.unit, manual: 0 }] })); setAdding(null); }} className="btn-primary px-2 py-0.5">足す</button>
+                          </div>
+                        </div>
+                      ) : <button onClick={() => setAdding({ phase: ph.id, label: "", target: 1, unit: "周" })} className="w-full text-[11px] py-1" style={{ borderRadius: 8, border: "1px dashed var(--rule-soft)", background: "none", color: "var(--ink-soft)", cursor: "pointer" }}>＋ 自分の項目を足す（例：予備校の答練・テキストの読み返し）</button>}
+                      <textarea value={(rm.notes || {})[ph.id] || ""} onChange={(e) => updateRoadmap((x) => ({ ...x, notes: { ...(x.notes || {}), [ph.id]: e.target.value } }))} rows={2} placeholder="この時期のメモ（使う教材・決めたこと・ふりかえり）" className="w-full px-2 py-1 text-[12px]" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)", borderRadius: 6, color: "var(--ink)" }} />
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            <div className="text-[10px] px-1" style={{ color: "var(--ink-mute)", lineHeight: 1.7 }}>
+              このスケジュールの根拠（2026年10月20日に調べたもの）：
+              {RM.sources.map((s) => <div key={s.url}>・<a href={s.url} target="_blank" rel="noopener noreferrer" style={{ color: "var(--sky-deep)" }}>{s.label}</a></div>)}
+              ※ 合格者の記録の多くは予備校のものなので、数字は目安です。自分の生活に合わせて、目標の周回数を書きかえてください。
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>,
+    document.body
   );
 }
 
@@ -1600,6 +1833,12 @@ function StudyRPG({ user }) {
     window.addEventListener("sq-record-answer", on);
     return () => window.removeEventListener("sq-record-answer", on);
   }, []);
+  // 合格ロードマップを開く合図（ホーム・周回の部屋の帯の「計画をひらく」）
+  useEffect(() => {
+    const on = () => setShowRoadmap(true);
+    window.addEventListener("sq-roadmap-open", on);
+    return () => window.removeEventListener("sq-roadmap-open", on);
+  }, []);
   // 勉強の範囲など、表示の設定を変える合図（sq-display-set）
   useEffect(() => {
     const on = (e) => { if (e.detail && typeof e.detail === "object") updateDisplaySettings(e.detail); };
@@ -1621,6 +1860,7 @@ function StudyRPG({ user }) {
   }, []);
   const [showDisplaySettings, setShowDisplaySettings] = useState(false); // 「Aa 文字」パネル
   const [showLawSearch, setShowLawSearch] = useState(false);             // 「📜 条文」パネル
+  const [showRoadmap, setShowRoadmap] = useState(false);                 // 「📅 計画」2027年 合格ロードマップ
   const [titleOpen, setTitleOpen] = useState(() => readPref("sq-title", "on") !== "off"); // 起動時のタイトル画面
   const [showLevelUp, setShowLevelUp] = useState(null);
   const [showAchievement, setShowAchievement] = useState(null);
@@ -3343,6 +3583,8 @@ function StudyRPG({ user }) {
 
   // 問題文の表示設定（フォント・文字サイズ）
   const updateDisplaySettings = (patch) => setState((s) => ({ ...s, displaySettings: { ...DISPLAY_DEFAULTS, ...(s.displaySettings || {}), ...patch } }));
+  // 合格ロードマップの書きこみ（目標の周回数・自分で数える回数・選んだフォルダ・メモ・自分の項目）
+  const updateRoadmap = (fn) => setState((s) => ({ ...s, roadmap: fn(s.roadmap || {}) }));
 
   // 間隔反復の設定（目標記憶率など）
   const updateSrSettings = (patch) => setState((s) => ({ ...s, srSettings: { ...SR_DEFAULTS, ...(s.srSettings || {}), ...patch } }));
@@ -3667,6 +3909,7 @@ function StudyRPG({ user }) {
             <button onClick={exportJson} title="データをJSONファイルに書き出し（端末間移行用）" className="sq-tool px-1.5 py-0.5 text-[10px] whitespace-nowrap" style={{ background: "var(--sage)", border: "none", color: "var(--paper)", cursor: "pointer" }}><Ico ch="📦" size={12} /> 書出</button>
             <button onClick={importJson} title="JSONファイルからデータを読み込み" className="sq-tool px-1.5 py-0.5 text-[10px] whitespace-nowrap" style={{ background: "var(--ink-soft)", border: "none", color: "var(--paper)", cursor: "pointer" }}><Ico ch="📂" size={12} /> 読込</button>
             <button onClick={() => setShowDisplaySettings(!showDisplaySettings)} title="問題文のフォント・文字サイズ" className={`sq-tool${showDisplaySettings ? " on" : ""} px-1.5 py-0.5 text-[10px] whitespace-nowrap`} style={{ background: showDisplaySettings ? "var(--sky-deep)" : "var(--paper)", border: "1px solid var(--sky-deep)", color: showDisplaySettings ? "var(--paper)" : "var(--sky-deep)", cursor: "pointer" }}>Aa 文字</button>
+            <button onClick={() => setShowRoadmap(true)} title="2027年 合格ロードマップ" className="sq-tool px-1.5 py-0.5 text-[10px] whitespace-nowrap" style={{ background: "linear-gradient(180deg, #cfae62, #a8833a)", border: "none", color: "#fffdf6", cursor: "pointer", fontWeight: 700 }}>📅 計画</button>
             <button onClick={() => setShowLawSearch(!showLawSearch)} title="条文・キーワード検索" className={`sq-tool${showLawSearch ? " on" : ""} px-1.5 py-0.5 text-[10px] whitespace-nowrap`} style={{ background: showLawSearch ? "var(--gold)" : "var(--paper)", border: "1px solid var(--gold)", color: showLawSearch ? "var(--paper)" : "var(--gold)", cursor: "pointer" }}><Ico ch="📜" size={12} /> 条文</button>
           </div>
           <div className="flex items-center gap-2">
@@ -3680,6 +3923,7 @@ function StudyRPG({ user }) {
         <QTextStyle settings={state.displaySettings} />
         {showDisplaySettings && <DisplaySettingsPanel settings={state.displaySettings} onChange={updateDisplaySettings} onClose={() => setShowDisplaySettings(false)} uid={user.uid} />}
         {showLawSearch && <LawSearchPanel banks={state.questionBanks} onClose={() => setShowLawSearch(false)} />}
+        {showRoadmap && <RoadmapModal state={state} updateRoadmap={updateRoadmap} onClose={() => setShowRoadmap(false)} />}
 
         {fancy && <ClassicInfoBar theme={themeNow} state={state} liveSeconds={liveSeconds} onStatus={() => setTab("status")} />}
         {/* Status bar */}
@@ -3725,6 +3969,7 @@ function StudyRPG({ user }) {
               else if (id === "events" || id === "guide" || id === "quest") out.push(dash(id));
               else if (id === "quals") out.push(<div key="quals"><HomeTab state={state} liveSeconds={liveSeconds} setMainTitle={setMainTitle} setTab={setTab} todayCount={getTodayReviewItems().length} hideBanner dashboard /></div>);
             }
+            if (rmShow(state)) out.unshift(<RoadmapBanner key="roadmap" state={state} />);
             if ((state.qualifications || []).length) out.unshift(<StarBookBar key="book" state={state} onPick={(id) => updateDisplaySettings({ activeQual: id })} onNew={() => setTab("qual")} />);
             return out;
           })()}
@@ -14404,6 +14649,7 @@ function LapRoom({ state, actions, rpgActions, pastReq, onPastOpened, startTimer
         </div>
       )}
       {rpgActions && <KijutsuDojo state={state} actions={rpgActions} pastReq={pastReq} onPastOpened={onPastOpened || (() => {})} startTimer={startTimer} stopTimer={stopTimer} onFocus={setDojoFocus} />}
+      {show && homeWorld && <RoadmapBanner state={state} />}
       {show && homeWorld && <TatakiDeck state={state} actions={rpgActions} pastReq={pastReq} onPastOpened={onPastOpened} />}
       {show && <StudyScopeBar state={state} />}
       {show && <PlanTasks state={state} actions={actions} />}
