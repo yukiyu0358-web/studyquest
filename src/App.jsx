@@ -1597,6 +1597,12 @@ function StudyRPG({ user }) {
     window.addEventListener("sq-record-answer", on);
     return () => window.removeEventListener("sq-record-answer", on);
   }, []);
+  // 勉強の範囲など、表示の設定を変える合図（sq-display-set）
+  useEffect(() => {
+    const on = (e) => { if (e.detail && typeof e.detail === "object") updateDisplaySettings(e.detail); };
+    window.addEventListener("sq-display-set", on);
+    return () => window.removeEventListener("sq-display-set", on);
+  }, []);
   // 条文の画面などの「この問題を解く」：sq-study-items の合図で、今日タブですぐ始める
   useEffect(() => {
     const on = (e) => { const d = e.detail; const n = Array.isArray(d) ? d.length : d && d.items ? d.items.length : 0; if (n) { setQuickPreset(d); setTab("today"); } };
@@ -3305,7 +3311,9 @@ function StudyRPG({ user }) {
   const getTodayReviewItems = () => {
     const today = todayStr();
     const items = [];
+    const sc = studyScope(state);
     state.questionBanks.forEach((b) => {
+      if (!sc.inScope(b)) return;
       b.questions.forEach((q) => {
         if (q.excluded) return; // 習得済み（除外）は対象外
         // 未スケジュール（初回）or 今日以前が対象
@@ -3690,7 +3698,7 @@ function StudyRPG({ user }) {
             { id: "status", label: "ステータス",  icon: <StatusIcon size={18} /> },
             { id: "notebook", label: "手帳",      icon: <Bookmark size={18} /> }, // 資格・タスク・時間・メモをまとめたタブ
           ].map((t) => {
-            const badge = t.id === "today" ? getTodayReviewItems().length : t.id === "laps" ? (state.studyPlans || []).filter((p) => !p.finishedAt).reduce((a, p) => a + planToday(p).pending.length, 0) : 0;
+            const badge = t.id === "today" ? getTodayReviewItems().length : t.id === "laps" ? scopedPlans(state).reduce((a, p) => a + planToday(p).pending.length, 0) : 0;
             const on = t.id === "notebook" ? NOTE_TABS.includes(tab) : tab === t.id;
             return (
               <button key={t.id} onClick={() => setTab(t.id === "notebook" ? lastNoteTab.current : t.id)} className="jp flex flex-col items-center gap-0.5 py-2 transition relative"
@@ -5384,8 +5392,10 @@ function QBankTab(props) {
     );
   };
 
-  // ── フォルダ別グループ化 ──
-  const folderBanks = (folderId) => state.questionBanks.filter((b) => (b.folderId || null) === folderId).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+  // ── フォルダ別グループ化（勉強の範囲がいまの世界なら、その世界の問題集だけ）──
+  const sc = studyScope(state);
+  const hiddenBanks = sc.on ? state.questionBanks.filter((b) => !sc.inScope(b)).length : 0;
+  const folderBanks = (folderId) => state.questionBanks.filter((b) => (b.folderId || null) === folderId && sc.inScope(b)).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
   const unfoldered = folderBanks(null);
   // 弱点一括
   const allBanks = state.questionBanks;
@@ -5554,6 +5564,7 @@ function QBankTab(props) {
         </Box>
       ) : (
         <>
+          <StudyScopeBar state={state} note={hiddenBanks ? `ほかの世界の問題集 ${hiddenBanks}冊は隠しています（「すべての世界」で全部表示）。` : null} />
           {/* ── フォルダ一括開閉 ── */}
           {folders.length > 0 && (
             <div className="flex gap-2 mb-1">
@@ -9184,6 +9195,71 @@ function worldOfQual(q) {
   return worldCache.get(key);
 }
 const curWorld = (state) => worldOfQual(mainQual(state));
+// ── 勉強の範囲（2026年10月20日）：displaySettings.studyScope が "world" なら、いまの世界（星詠みの書の資格の世界）の問題集だけを
+//    今日の復習・問題タブ・学習計画に出す。"all"（未設定）は全部。全部をまぜるときの世界の配分は displaySettings.studyMix = { 世界id: 重み }（null は期限の古い順）
+const bankWorldId = (state, b) => worldOfQual((state.qualifications || []).find((q) => q.id === b.qualId)).id;
+function studyScope(state) {
+  const world = curWorld(state);
+  const on = (state.displaySettings || {}).studyScope === "world";
+  return { on, world, inScope: (b) => !on || !b || bankWorldId(state, b) === world.id };
+}
+// 問題集のある世界（王都の世界を先に）
+function worldsInUse(state) {
+  const qm = new Map((state.qualifications || []).map((q) => [q.id, q]));
+  const out = new Map();
+  state.questionBanks.forEach((b) => { if (!(b.questions || []).length) return; const w = worldOfQual(qm.get(b.qualId)); const e = out.get(w.id) || { world: w, banks: 0 }; e.banks++; out.set(w.id, e); });
+  return [...out.values()].sort((a, b) => (a.world.id === "home" ? -1 : b.world.id === "home" ? 1 : 0));
+}
+// その世界に入るときの星詠みの書（資格）：資格の世界はその資格、王都の世界はいまの資格か、王都の世界の資格で試験日がいちばん近いもの
+function qualForWorld(state, w) {
+  if (w.id !== "home") return w.qual ? w.qual.id : "all";
+  const cur = mainQual(state);
+  if (cur && worldOfQual(cur).id === "home") return cur.id;
+  const qs = (state.qualifications || []).filter((q) => !q.acquired && worldOfQual(q).id === "home").sort((a, b) => ((a.examDate || "9") < (b.examDate || "9") ? -1 : 1));
+  return qs[0] ? qs[0].id : "all";
+}
+// 進行中の学習計画（勉強の範囲の世界のものだけ。計画の世界は最初の問題集の世界）
+function scopedPlans(state) {
+  const sc = studyScope(state);
+  return (state.studyPlans || []).filter((p) => !p.finishedAt && sc.inScope(state.questionBanks.find((b) => p.bankIds.includes(b.id))));
+}
+// 表示の設定を変える合図（StudyRPG が受け取る）
+const setDisplay = (patch) => window.dispatchEvent(new CustomEvent("sq-display-set", { detail: patch }));
+// 1セットの中の世界の配分：重みに合わせて世界ごとに取り、足りない世界の分はほかの世界から
+function mixByWorld(items, weights, n, wOf) {
+  const groups = new Map();
+  items.forEach((it) => { const w = wOf(it); if (!groups.has(w)) groups.set(w, []); groups.get(w).push(it); });
+  const ids = [...groups.keys()];
+  const wt = (id) => Math.max(0, Number(weights[id] ?? 1));
+  const sum = ids.reduce((t, id) => t + wt(id), 0) || 1;
+  const take = new Map(ids.map((id) => [id, Math.min(groups.get(id).length, Math.round((n * wt(id)) / sum))]));
+  const total = () => [...take.values()].reduce((t, v) => t + v, 0);
+  while (total() > n) { const id = ids.reduce((a, b) => (take.get(b) > take.get(a) ? b : a)); take.set(id, take.get(id) - 1); }
+  const order = [...ids].sort((a, b) => wt(b) - wt(a));
+  for (const id of order) { const left = n - total(); if (left <= 0) break; take.set(id, take.get(id) + Math.min(left, groups.get(id).length - take.get(id))); }
+  return ids.flatMap((id) => groups.get(id).slice(0, take.get(id)));
+}
+// 勉強の範囲の帯（今日・問題・周回の部屋の上）。問題集のある世界が2つ以上のときだけ出す
+function StudyScopeBar({ state, note }) {
+  const ws = worldsInUse(state);
+  if (ws.length < 2) return null;
+  const sc = studyScope(state);
+  const chip = (on) => ({ borderRadius: 999, border: `1px solid ${on ? "var(--gold)" : "var(--rule-soft)"}`, background: on ? "var(--cream)" : "var(--paper)", color: "var(--ink)", fontWeight: on ? 800 : 500, cursor: "pointer" });
+  return (
+    <div className="jp px-2.5 py-2" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)", borderRadius: 10 }}>
+      <div className="flex items-center gap-1.5 flex-wrap">
+        <span className="text-[10px]" style={{ color: "var(--ink-mute)", fontWeight: 700 }}>📚 勉強の範囲</span>
+        <button onClick={() => setDisplay({ studyScope: "all" })} className="text-[11px] px-2.5 py-0.5" style={chip(!sc.on)}>すべての世界</button>
+        {ws.map(({ world, banks }) => (
+          <button key={world.id} onClick={() => setDisplay({ studyScope: "world", activeQual: qualForWorld(state, world) })} className="text-[11px] px-2.5 py-0.5" style={chip(sc.on && sc.world.id === world.id)}>
+            {world.icon} {world.name}<span style={{ color: "var(--ink-mute)", fontWeight: 500 }}>（{banks}冊）</span>
+          </button>
+        ))}
+      </div>
+      {note && <div className="text-[10px] mt-1" style={{ color: "var(--ink-mute)" }}>{note}</div>}
+    </div>
+  );
+}
 const worldChapters = (w) => (w.id === "home" ? STORY_CHAPTERS : w.chapters);
 // 世界ごとの記録：王都の世界は今までの場所、資格の世界は ...ByWorld[世界id]
 const storySeenOf = (r, wid) => (wid === "home" ? r.storySeen : ((r.storySeenByWorld || {})[wid] ?? -1));
@@ -11790,7 +11866,7 @@ function HomeDashboard({ state, actions, todayCount, liveSeconds, onGo, onQuick,
   const L = homeLayoutOf(state);
   // 今日の道しるべの行（設定 displaySettings.homeLayout で順番と表示を変えられる）
   const rowEls = {
-    task: (() => { const tp = (state.studyPlans || []).filter((p) => !p.finishedAt).map((p) => ({ p, t: planToday(p) })).filter((x) => x.t.started); if (!tp.length) return null; const left = tp.reduce((a, x) => a + x.t.pending.length, 0); const first = tp.flatMap((x) => x.t.pending.map((k) => planBankName(state, x.p, k)))[0]; return <Row no="◆" icon={<Check size={18} />} label="今日のタスク（学習計画）" title={left ? `あと ${left}項目` : "今日のタスクは完了です"} sub={left ? `次は「${first}」` : "おつかれさまでした！ 明日の分も先に進められます"} gauge={tp.reduce((a, x) => a + x.t.doneToday.length, 0) / Math.max(1, tp.reduce((a, x) => a + x.t.doneToday.length + x.t.pending.length, 0))} mark={false} action={left ? "解く" : "ひらく"} onClick={() => onGo("laps")} />; })(),
+    task: (() => { const tp = scopedPlans(state).map((p) => ({ p, t: planToday(p) })).filter((x) => x.t.started); if (!tp.length) return null; const left = tp.reduce((a, x) => a + x.t.pending.length, 0); const first = tp.flatMap((x) => x.t.pending.map((k) => planBankName(state, x.p, k)))[0]; return <Row no="◆" icon={<Check size={18} />} label="今日のタスク（学習計画）" title={left ? `あと ${left}項目` : "今日のタスクは完了です"} sub={left ? `次は「${first}」` : "おつかれさまでした！ 明日の分も先に進められます"} gauge={tp.reduce((a, x) => a + x.t.doneToday.length, 0) / Math.max(1, tp.reduce((a, x) => a + x.t.doneToday.length + x.t.pending.length, 0))} mark={false} action={left ? "解く" : "ひらく"} onClick={() => onGo("laps")} />; })(),
     review: <Row no="一" icon={<Calendar size={18} />} label="今日の復習" title={todayCount > 0 ? `あと ${todayCount}問` : "今日の復習は完了です"} sub={todayCount > 0 ? "期限が来た問題と、まだ解いていない問題" : "おつかれさまでした。余力があればストーリーへ"} action={todayCount > 0 ? "はじめる" : "ひらく"} onClick={() => onGo("today")} />,
     story: sn.all > 0 && <Row no="二" icon={<BookOpen size={18} />} label={`ストーリーのつづき（描いた土地 ${sn.done}/${sn.all}）`} title={sn.next ? `${sn.reg.name}` : "すべての地図が完成"} sub={sn.next ? `${sn.next.bank.name}　第${sn.next.idx + 1}話` : "★を集め直すこともできます"} action="進む" onClick={() => onGo("adventure")} />,
     goal: plan && plan.perDay > 0 && <Row no="三" icon={<TrendingUp size={18} />} label="今日の目標（試験日から逆算）" title={`新しい問題 ${plan.perDay}問`} sub={plan.done >= plan.perDay ? `今日 ${plan.done}問 ― 達成しました！` : `今日 ${plan.done}問 ・ あと${plan.perDay - plan.done}問（未学習 ${plan.unseen}問を試験日までに）`} gauge={Math.min(1, plan.done / plan.perDay)} mark={false} action="解く" onClick={() => onGo("today")} />,
@@ -14150,7 +14226,8 @@ const planBankName = (state, p, k) => { const b = planBankOf(state, p, k); retur
 function PlanMaker({ state, onSave, onCancel }) {
   // フォルダ（＋フォルダなし）ごとに問題集を並べる。フォルダの☑で中の問題集をまとめて選べる。いくつかのフォルダにまたがってもよい
   const folders = [...(state.folders || []).slice().sort((a, b) => (a.order ?? 0) - (b.order ?? 0)), { id: "", name: "フォルダなし" }];
-  const banksIn = (fid) => state.questionBanks.filter((b) => (fid ? b.folderId === fid : !b.folderId)).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+  const sc = studyScope(state);
+  const banksIn = (fid) => state.questionBanks.filter((b) => (fid ? b.folderId === fid : !b.folderId) && sc.inScope(b)).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
   const groups = folders.map((f) => ({ f, banks: banksIn(f.id) })).filter((g) => g.banks.length);
   const [picked, setPicked] = useState([]);
   const [open, setOpen] = useState(() => (groups[0] ? { [groups[0].f.id]: true } : {}));
@@ -14228,8 +14305,7 @@ function PlanMaker({ state, onSave, onCancel }) {
 // ── 周回の部屋（下のタブ「周回」）：学習計画・今日のタスク・これまでの周回の記録 ──
 function LapRoom({ state, actions, rpgActions, pastReq, onPastOpened, startTimer, stopTimer }) {
   const [dojoFocus, setDojoFocus] = useState(false); // 記述式の道場で解いているあいだは、ほかの欄を隠す
-  const plans = state.studyPlans || [];
-  const active = plans.filter((p) => !p.finishedAt);
+  const active = scopedPlans(state); // 勉強の範囲の世界の計画
   const left = active.reduce((a, p) => a + planToday(p).pending.length, 0);
   const stamps = state.questionBanks.reduce((a, b) => a + (b.clears || 0), 0);
   const show = !dojoFocus;
@@ -14249,6 +14325,7 @@ function LapRoom({ state, actions, rpgActions, pastReq, onPastOpened, startTimer
         </div>
       )}
       {rpgActions && <KijutsuDojo state={state} actions={rpgActions} pastReq={pastReq} onPastOpened={onPastOpened || (() => {})} startTimer={startTimer} stopTimer={stopTimer} onFocus={setDojoFocus} />}
+      {show && <StudyScopeBar state={state} />}
       {show && <PlanTasks state={state} actions={actions} />}
       {show && <LapGrowth state={state} actions={actions} />}
       {show && <StudyAnalysis state={state} />}
@@ -14503,7 +14580,7 @@ function LapGrowth({ state, actions }) {
 }
 // 今日タブの短いお知らせ（くわしくは周回の部屋で）
 function PlanSummary({ state, onOpen }) {
-  const active = (state.studyPlans || []).filter((p) => !p.finishedAt);
+  const active = scopedPlans(state);
   const items = active.flatMap((p) => planToday(p).pending.map((k) => planBankName(state, p, k)));
   return (
     <button onClick={onOpen} className="jp w-full flex items-center gap-3 px-3 py-2.5 text-left" style={{ background: "linear-gradient(90deg, rgba(214,181,106,0.18), rgba(214,181,106,0.04))", border: "1px solid #b08a3e", borderRadius: 10, cursor: "pointer" }}>
@@ -14520,7 +14597,7 @@ function PlanTasks({ state, actions }) {
   const plans = state.studyPlans || [];
   const [making, setMaking] = useState(false);
   const [ahead, setAhead] = useState({});
-  const active = plans.filter((p) => !p.finishedAt);
+  const active = scopedPlans(state);
   const finished = plans.filter((p) => p.finishedAt);
   const md = (d) => `${Number(d.slice(5, 7))}/${Number(d.slice(8, 10))}`;
   const row = (p, k, { done, carried, onToggle }) => {
@@ -14898,7 +14975,11 @@ function TodayTab({ state, recordSRAnswer, updateSrSettings, startTimer, stopTim
   const today = todayStr();
   const due = [];
   const fresh = [];
+  const sc = studyScope(state);
+  const ws = worldsInUse(state);
+  let otherDue = 0; // 勉強の範囲の外の世界の復習
   state.questionBanks.forEach((b) => {
+    if (!sc.inScope(b)) { (b.questions || []).forEach((q) => { if (!q.excluded && q.sr_nextReview && q.sr_nextReview <= today) otherDue++; }); return; }
     (b.questions || []).forEach((q) => {
       if (q.excluded) return;
       const it = { bankId: b.id, bankName: b.name, year: b.year || "", qId: q.id };
@@ -14910,7 +14991,7 @@ function TodayTab({ state, recordSRAnswer, updateSrSettings, startTimer, stopTim
   const fin = finishInfo(state);
   if (fin) {
     const sch = getFsrsScheduler(state.srSettings), now = new Date(), early = [];
-    state.questionBanks.forEach((b) => (b.questions || []).forEach((q) => {
+    state.questionBanks.forEach((b) => sc.inScope(b) && (b.questions || []).forEach((q) => {
       if (q.excluded || !q.sr_nextReview || q.sr_nextReview <= today) return;
       let r = 1; try { r = sch.get_retrievability(toFsrsCard(q, now), now, false); } catch (e) { r = 1; }
       if (r < FINISH_RETENTION) early.push({ bankId: b.id, bankName: b.name, year: b.year || "", qId: q.id, nr: q.sr_nextReview, r, early: true });
@@ -14963,7 +15044,10 @@ function TodayTab({ state, recordSRAnswer, updateSrSettings, startTimer, stopTim
   }, [queue]);
   const start = () => {
     const pool = [...due, ...(includeNew ? shuffle(fresh) : [])].filter((it) => !onlyA || ranks.get(it.qId) === "A");
-    const picked0 = pool.slice(0, setSize);
+    // 全部の世界をまぜるときは、決めた配分で世界ごとに取る
+    const mix = (state.displaySettings || {}).studyMix;
+    const bankWorld = new Map(state.questionBanks.map((b) => [b.id, bankWorldId(state, b)]));
+    const picked0 = !sc.on && mix && ws.length >= 2 ? mixByWorld(pool, mix, setSize, (it) => bankWorld.get(it.bankId)) : pool.slice(0, setSize);
     setPInfo(null);
     const picked = STUDY_PREFS.mix ? interleaveItems(picked0) : picked0;
     if (picked.length === 0) return;
@@ -14997,8 +15081,16 @@ function TodayTab({ state, recordSRAnswer, updateSrSettings, startTimer, stopTim
   // ── 開始前の画面 ──
   if (queue === null) {
     const available = due.length + (includeNew ? fresh.length : 0);
+    // 世界の配分のえらびかた（2つの世界なら 7:3・5:5・3:7、3つ以上なら均等）
+    const curMix = (state.displaySettings || {}).studyMix || null;
+    const mixOpts = ws.length === 2
+      ? [null, [7, 3], [5, 5], [3, 7]].map((v) => (v ? { [ws[0].world.id]: v[0], [ws[1].world.id]: v[1] } : null))
+      : [null, Object.fromEntries(ws.map((x) => [x.world.id, 1]))];
+    const mixLabel = (m) => (!m ? "おまかせ（期限の古い順）" : ws.length === 2 ? `${ws[0].world.name} ${m[ws[0].world.id]}：${ws[1].world.name} ${m[ws[1].world.id]}` : "均等");
+    const sameMix = (a, b) => JSON.stringify(a || null) === JSON.stringify(b || null);
     return (
       <div className="space-y-3">
+        <StudyScopeBar state={state} note={sc.on && otherDue ? `ほかの世界にも、復習期限が来た問題が${otherDue}問あります。` : null} />
         {planActions && <PlanSummary state={state} onOpen={planActions.goRoom} />}
         <Box title="今日の復習" icon={<Calendar size={18} />}>
           {fin && (
@@ -15022,6 +15114,14 @@ function TodayTab({ state, recordSRAnswer, updateSrSettings, startTimer, stopTim
                   <button key={n} onClick={() => setSetSize(n)} className="jp py-1.5 text-sm" style={{ background: setSize === n ? "var(--sky-deep)" : "var(--paper)", color: setSize === n ? "var(--paper)" : "var(--ink)", border: "1px solid var(--rule)" }}>{n}問</button>
                 ))}
               </div>
+              {!sc.on && ws.length >= 2 && (
+                <div className="mb-3">
+                  <div className="jp text-xs mb-1" style={{ color: "var(--ink-soft)" }}>世界の配分（1セットの中で）</div>
+                  <div className="flex flex-wrap gap-1">
+                    {mixOpts.map((m, i) => { const on = sameMix(m, curMix); return <button key={i} onClick={() => setDisplay({ studyMix: m })} className="jp text-[11px] px-2.5 py-1" style={{ borderRadius: 999, border: `1px solid ${on ? "var(--gold)" : "var(--rule-soft)"}`, background: on ? "var(--cream)" : "var(--paper)", color: "var(--ink)", fontWeight: on ? 800 : 500, cursor: "pointer" }}>{mixLabel(m)}</button>; })}
+                  </div>
+                </div>
+              )}
               <div className="mb-3 space-y-2">
                 <ConfigToggle label="未学習の問題も出題する" sub="復習期限の問題を優先し、足りない分を未学習から補います" value={includeNew} onChange={setIncludeNew} />
                 <ConfigToggle label="重要度Aの問題だけ出す（時間がない日に）" sub={`よく出る条文・まちがえやすさで自動判定。今日の対象のうちA：${[...due, ...(includeNew ? fresh : [])].filter((it) => ranks.get(it.qId) === "A").length}問`} value={onlyA} onChange={setOnlyA} />
