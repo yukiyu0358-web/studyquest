@@ -1140,17 +1140,66 @@ const shuffle = (arr) => { const a = [...arr]; for (let i = a.length - 1; i > 0;
 const STUDY_DEFAULTS = { explain: "say", slowSec: 25, followUp: true, mix: true };
 const STUDY_PREFS = { ...STUDY_DEFAULTS };
 // 問題が出てから「答えを見る」までの秒数と、答える前に書いたひとこと（問題 id ごと。保存はしない）
-const THINK = { id: null, t0: 0, sec: {}, note: {} };
+const THINK = { id: null, t0: 0, sec: {}, note: {}, pick: {} };
+// ── 4択の問題：問題文の最後に (1)〜(n) の選択肢が並び、答えが「答：(n)」で始まるもの（二陸特の CSV など）──
+// 選択肢はボタンで選べ（RevealButton）、問題文は選択肢を1行ずつ並べ（renderQText）、答えの欄で正解・不正解を出す（AnswerPanel）
+const toHalfNum = (s) => String(s).replace(/[０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0));
+const CHOICE_TOK = /[（(]([1-9１-９])[）)]/g;
+const CHOICE_ANS = /^\s*答\s*[：:]?\s*[（(]([1-9１-９])[）)]/;
+const choiceCache = new Map();
+function choiceOf(text, ans) {
+  if (!text || !ans) return null;
+  const m = String(ans).match(CHOICE_ANS);
+  if (!m) return null;
+  const key = `${text}\u0000${m[1]}`;
+  if (choiceCache.has(key)) return choiceCache.get(key);
+  let res = null;
+  const t = String(text);
+  const toks = [...t.matchAll(CHOICE_TOK)].map((x) => ({ n: Number(toHalfNum(x[1])), i: x.index, len: x[0].length }));
+  for (let s = toks.length - 1; s >= 0; s--) {
+    if (toks[s].n !== 1) continue;
+    // いちばん後ろの (1) から (2)(3)… と続き、文の終わりまでが選択肢
+    const seq = [toks[s]];
+    let j = s + 1;
+    while (j < toks.length && toks[j].n === seq.length + 1) { seq.push(toks[j]); j++; }
+    if (j === toks.length && seq.length >= 2) {
+      const stem = t.slice(0, seq[0].i).trim();
+      const opts = seq.map((x, k) => t.slice(x.i + x.len, k + 1 < seq.length ? seq[k + 1].i : t.length).trim());
+      const correct = Number(toHalfNum(m[1]));
+      if (stem && opts.every(Boolean) && correct <= opts.length) res = { stem, opts, correct };
+    }
+    break;
+  }
+  if (choiceCache.size > 5000) choiceCache.clear();
+  choiceCache.set(key, res);
+  return res;
+}
 // 問題を id で書きかえる合図（自分ルール・メモへの追記など。StudyRPG が受け取る）
 const patchQuestion = (qId, patch) => window.dispatchEvent(new CustomEvent("sq-q-patch", { detail: { qId, patch } }));
 function RevealButton({ q, onReveal }) {
   const [text, setText] = useState("");
-  useEffect(() => { if (q) { THINK.id = q.id; THINK.t0 = Date.now(); } setText(""); }, [q && q.id]);
+  useEffect(() => { if (q) { THINK.id = q.id; THINK.t0 = Date.now(); delete THINK.pick[q.id]; } setText(""); }, [q && q.id]);
   const mode = STUDY_PREFS.explain || "say";
-  const reveal = () => {
+  const ch = q ? choiceOf(q.q, q.a) : null;
+  const reveal = (pick) => {
     if (q) { THINK.sec[q.id] = Math.max(1, Math.round((Date.now() - THINK.t0) / 1000)); if (text.trim()) THINK.note[q.id] = text.trim(); else delete THINK.note[q.id]; }
+    if (q && typeof pick === "number") THINK.pick[q.id] = pick; else if (q) delete THINK.pick[q.id];
     onReveal();
   };
+  if (ch) return (
+    <>
+      {mode === "write" && (
+        <input value={text} onChange={(e) => setText(e.target.value)} placeholder="💭 なぜその答え？ ひとことで（空でもOK）" className="jp w-full mt-3 px-2 py-1.5 text-sm" style={{ background: "var(--paper)", border: "1px dashed var(--gold)", borderRadius: 6, color: "var(--ink)" }} />
+      )}
+      <div className="jp text-[11px] mt-3 mb-1.5 text-center" style={{ color: "var(--ink-soft)" }}>👆 正しいと思う番号をタップ</div>
+      <div className={`grid gap-2 ${ch.opts.length === 2 ? "grid-cols-2" : ch.opts.length === 3 ? "grid-cols-3" : ch.opts.length === 5 ? "grid-cols-5" : "grid-cols-4"}`}>
+        {ch.opts.map((o, i) => (
+          <button key={i} onClick={() => reveal(i + 1)} className="jp btn-info py-2.5" style={{ fontSize: 17, fontWeight: 800 }}>({i + 1})</button>
+        ))}
+      </div>
+      <button onClick={() => reveal(null)} className="jp w-full text-[11px] mt-2" style={{ background: "none", border: "none", color: "var(--ink-mute)", textDecoration: "underline", cursor: "pointer" }}>選ばずに答えを見る</button>
+    </>
+  );
   return (
     <>
       {mode === "write" && (
@@ -6095,7 +6144,7 @@ function PerQuestionStampView({ bank, state, toggleQuestionMark, toggleClozeMark
                       />
                     )}
                     <span className="pixel text-[10px] flex-shrink-0" style={{ color: "var(--ink-mute)" }}>Q{(liveBank.questions.findIndex((x) => x.id === q.id) + 1)}.</span>
-                    <span className="qtext-list jp text-sm flex-1 break-words" style={{ color: "var(--ink)" }}>{renderQText(q.q, q.q_formats)}</span>
+                    <span className="qtext-list jp text-sm flex-1 break-words" style={{ color: "var(--ink)" }}>{renderQText(q.q, q.q_formats, q.a)}</span>
                     <button onClick={() => toggleQuestionMark(liveBank.id, q.id)} className="text-base flex-shrink-0" title={q.marked ? "マーク解除" : "要復習マークを付ける"} style={{ color: q.marked ? "var(--gold)" : "var(--ink-mute)" }}>{q.marked ? "⭐" : "☆"}</button>
                     <button onClick={() => onEditFormat(q.id)} className="text-xs flex-shrink-0 px-1.5 py-0.5 jp" title="書式設定" style={{ background: ((q.q_formats||[]).length > 0 || (q.a_formats||[]).length > 0) ? "var(--gold)" : "var(--paper)", color: ((q.q_formats||[]).length > 0 || (q.a_formats||[]).length > 0) ? "var(--paper)" : "var(--ink-mute)", border: "1px solid var(--rule-soft)" }}>✏ 書式</button>
                   </div>
@@ -6262,7 +6311,7 @@ function RevengeSession({ bank, state, recordRevengeAnswer, recordClozeRevengeAn
     displayA = currentCloze.blanks.map((b, i) => `(${i + 1}) ${b.answer}`).join(" / ");
     badgeText = `穴あき問題（◯${currentCloze.correct} ✕${currentCloze.wrong}${currentCloze.marked ? " ⭐" : ""}）`;
   } else {
-    displayQ = renderQText(currentQ.q, currentQ.q_formats);
+    displayQ = renderQText(currentQ.q, currentQ.q_formats, currentQ.a);
     displayA = renderFormattedText(currentQ.a, currentQ.a_formats);
     badgeText = `苦手な問題（◯${currentQ.correct} ✕${currentQ.wrong}${currentQ.marked ? " ⭐" : ""}）`;
   }
@@ -6717,7 +6766,7 @@ function QStudySession({ bank, state, recordAnswer, awardXp, startTimer, stopTim
               </div>
             </div>
           ) : (
-            <div className="qtext jp text-base md:text-lg flex-1 break-words" style={{ color: "var(--ink)" }}>{renderQText(currentQ.q, currentQ.q_formats)}</div>
+            <div className="qtext jp text-base md:text-lg flex-1 break-words" style={{ color: "var(--ink)" }}>{renderQText(currentQ.q, currentQ.q_formats, currentQ.a)}</div>
           )}
           <QuestionImages bankId={bank.id} question={currentQ} side="q" />
           {showAnswer ? (
@@ -7273,7 +7322,7 @@ function MixedStudySession({ bank, state, recordAnswer, recordClozeAnswer, award
     badge = "穴あき";
     isCloze = true;
   } else {
-    displayQ = renderQText(currentQ.q, currentQ.q_formats);
+    displayQ = renderQText(currentQ.q, currentQ.q_formats, currentQ.a);
     displayA = renderFormattedText(currentQ.a, currentQ.a_formats);
     badge = "一問一答";
     isCloze = false;
@@ -9052,7 +9101,7 @@ function MonsterDex({ state }) {
             </div>
             {s > 0 && (showQ ? (
               <div className="mt-2 text-sm" style={{ color: "var(--ink)" }}>
-                <div className="p-2" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)" }}>{renderQText(pq.q, pq.q_formats)}</div>
+                <div className="p-2" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)" }}>{renderQText(pq.q, pq.q_formats, pq.a)}</div>
                 <div className="p-2 mt-1" style={{ background: "var(--paper)", border: "1px solid var(--gold)" }}>{renderFormattedText(pq.a, pq.a_formats)}</div>
               </div>
             ) : <button onClick={() => setShowQ(true)} className="jp btn-ghost w-full mt-2 py-1.5 text-xs">この魔物の問題を見る</button>)}
@@ -9821,7 +9870,7 @@ function RehearsalRun({ state, run, actions, recordAnswer, startTimer, stopTimer
           <details className="jp text-xs mb-3">
             <summary style={{ cursor: "pointer", color: "var(--ink-soft)" }}>まちがえた問題（{wrongs.length}問）を見る</summary>
             <div className="space-y-1 mt-1">
-              {wrongs.map((w) => <div key={w.id} className="p-2" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)" }}><div>{renderQText(w.q, w.q_formats)}</div><div className="mt-1" style={{ color: "var(--sky-deep)" }}>→ {renderFormattedText(w.a, w.a_formats)}</div></div>)}
+              {wrongs.map((w) => <div key={w.id} className="p-2" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)" }}><div>{renderQText(w.q, w.q_formats, w.a)}</div><div className="mt-1" style={{ color: "var(--sky-deep)" }}>→ {renderFormattedText(w.a, w.a_formats)}</div></div>)}
             </div>
           </details>
         )}
@@ -9895,7 +9944,7 @@ function RehearsalRun({ state, run, actions, recordAnswer, startTimer, stopTimer
       <div className="rpg-box p-1">
         <div className="rpg-inner-border min-h-[180px] flex flex-col">
           <div className="jp text-[10px] mb-2" style={{ color: "var(--ink-mute)" }}>第{idx + 1}問　{bank.name}</div>
-          <div className="qtext jp text-base md:text-lg flex-1 break-words" style={{ color: "var(--ink)" }}>{renderQText(q.q, q.q_formats)}</div>
+          <div className="qtext jp text-base md:text-lg flex-1 break-words" style={{ color: "var(--ink)" }}>{renderQText(q.q, q.q_formats, q.a)}</div>
           <QuestionImages bankId={bank.id} question={q} side="q" />
           {showAnswer ? (
             <>
@@ -10013,7 +10062,7 @@ function DungeonRun({ state, pool, minutes, actions, recordAnswer, startTimer, s
           <details className="jp text-xs mb-3">
             <summary style={{ cursor: "pointer", color: "var(--ink-soft)" }}>まちがえた問題（{wrongs.length}問）を見る</summary>
             <div className="space-y-1 mt-1">
-              {wrongs.map((w) => <div key={w.id} className="p-2" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)" }}><div>{renderQText(w.q, w.q_formats)}</div><div className="mt-1" style={{ color: "var(--sky-deep)" }}>→ {renderFormattedText(w.a, w.a_formats)}</div></div>)}
+              {wrongs.map((w) => <div key={w.id} className="p-2" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)" }}><div>{renderQText(w.q, w.q_formats, w.a)}</div><div className="mt-1" style={{ color: "var(--sky-deep)" }}>→ {renderFormattedText(w.a, w.a_formats)}</div></div>)}
             </div>
           </details>
         )}
@@ -10039,7 +10088,7 @@ function DungeonRun({ state, pool, minutes, actions, recordAnswer, startTimer, s
       <div className="rpg-box p-1">
         <div className="rpg-inner-border min-h-[180px] flex flex-col">
           <div className="jp text-[10px] mb-2" style={{ color: "var(--ink-mute)" }}>{bank.name}</div>
-          <div className="qtext jp text-base md:text-lg flex-1 break-words" style={{ color: "var(--ink)" }}>{renderQText(q.q, q.q_formats)}</div>
+          <div className="qtext jp text-base md:text-lg flex-1 break-words" style={{ color: "var(--ink)" }}>{renderQText(q.q, q.q_formats, q.a)}</div>
           <QuestionImages bankId={bank.id} question={q} side="q" />
           {showAnswer ? (
             <>
@@ -11877,7 +11926,7 @@ function QuestRun({ state, run, actions, recordAnswer, startTimer, stopTimer, on
       <BattleStage state={state} q={q} bankName={bank.name} battleKey={battleKey} boss={isBoss} />
       <div className="rpg-box p-1">
         <div className="rpg-inner-border min-h-[180px] flex flex-col">
-          <div className="qtext jp text-base md:text-lg flex-1 break-words" style={{ color: "var(--ink)" }}>{renderQText(q.q, q.q_formats)}</div>
+          <div className="qtext jp text-base md:text-lg flex-1 break-words" style={{ color: "var(--ink)" }}>{renderQText(q.q, q.q_formats, q.a)}</div>
           <QuestionImages bankId={bank.id} question={q} side="q" />
           {showAnswer ? (
             <>
@@ -12100,7 +12149,7 @@ function TrialRun({ state, run, recordAnswer, startTimer, stopTimer, onExit, onF
       <div className="rpg-box p-1">
         <div className="rpg-inner-border min-h-[180px] flex flex-col">
           <div className="jp text-[10px] mb-2" style={{ color: "var(--ink-mute)" }}>{bank.name}</div>
-          <div className="qtext jp text-base md:text-lg flex-1 break-words" style={{ color: "var(--ink)" }}>{renderQText(q.q, q.q_formats)}</div>
+          <div className="qtext jp text-base md:text-lg flex-1 break-words" style={{ color: "var(--ink)" }}>{renderQText(q.q, q.q_formats, q.a)}</div>
           <QuestionImages bankId={bank.id} question={q} side="q" />
           {showAnswer ? (
             <>
@@ -12680,7 +12729,7 @@ function BossBattle({ state, boss, pool, actions, recordAnswer, startTimer, stop
         <div className="rpg-box p-1">
           <div className="rpg-inner-border min-h-[160px] flex flex-col">
             <div className="jp text-[10px] mb-2" style={{ color: "var(--ink-mute)" }}>{item.bankName}</div>
-            <div className="qtext jp text-base md:text-lg flex-1 break-words" style={{ color: "var(--ink)" }}>{renderQText(q.q, q.q_formats)}</div>
+            <div className="qtext jp text-base md:text-lg flex-1 break-words" style={{ color: "var(--ink)" }}>{renderQText(q.q, q.q_formats, q.a)}</div>
             <QuestionImages bankId={item.bankId} question={q} side="q" />
             {showAnswer ? (
               <>
@@ -13936,7 +13985,11 @@ function EvolutionScene({ ev, onClose }) {
 }
 
 function AnswerPanel({ onAnswer: onAnswerRaw, wrongLabel = "不正解", correctLabel = "正解", sureClass = "btn-success", question, srSettings }) {
-  const [stage, setStage] = useState("choose"); // choose | wrong
+  // 4択で番号を選んで答えたとき：まちがえたら最初から「間違えた原因は？」に（正解にはできない）
+  const ch = question ? choiceOf(question.q, question.a) : null;
+  const pick = ch && question ? THINK.pick[question.id] || null : null;
+  const pickOk = pick ? pick === ch.correct : null;
+  const [stage, setStage] = useState(pickOk === false ? "wrong" : "choose"); // choose | wrong
   const [confident, setConfident] = useState(false);
   const [rule, setRule] = useState("");
   const [ruleEdit, setRuleEdit] = useState(false);
@@ -13946,12 +13999,18 @@ function AnswerPanel({ onAnswer: onAnswerRaw, wrongLabel = "不正解", correctL
   const slow = sec >= (STUDY_PREFS.slowSec || 25);
   const askRule = question && (question.wrong || 0) >= 1 && !question.rule; // 2回目のまちがいで自分ルールを書く
   // 回答をバトル演出（BattleStage）にも伝えてから、いつもの記録処理へ。かかった秒数も記録する
-  const onAnswer = (correct, meta) => { const m = { ...(meta || {}), sec: sec || undefined }; emitBattle({ correct, conf: m.conf }); onAnswerRaw(correct, m); };
+  const onAnswer = (correct, meta) => { const m = { ...(meta || {}), sec: sec || undefined }; if (qid) delete THINK.pick[qid]; emitBattle({ correct, conf: m.conf }); onAnswerRaw(correct, m); };
   const pv = question ? previewIntervals(question, srSettings) : null; // 次回までの日数
   const submitWrong = (errType) => onAnswer(false, { errType: errType || null, confident, rule: rule.trim() || undefined });
   // 答えを開く前に書いたひとこと・かかった時間・自分ルール（答えの下、ボタンの上に出す）
   const info = (
     <>
+      {pick && (
+        <div className="jp text-[12px] mt-2 px-2 py-1.5" style={{ background: pickOk ? "rgba(109,132,84,0.12)" : "rgba(201,86,78,0.08)", border: `1px solid ${pickOk ? "#6d8454" : "#c9564e"}`, borderRadius: 6, color: "var(--ink)", lineHeight: 1.7 }}>
+          {pickOk ? <><b style={{ color: "#4f7a3a" }}>✓ 正解！</b>　({pick}) {ch.opts[pick - 1]}</>
+            : <><b style={{ color: "#c9564e" }}>✕ あなたの答え</b>　({pick}) {ch.opts[pick - 1]}<br /><b style={{ color: "#4f7a3a" }}>◎ 正解</b>　({ch.correct}) {ch.opts[ch.correct - 1]}</>}
+        </div>
+      )}
       {(note || sec > 0) && (
         <div className="jp text-[11px] mt-2 px-2 py-1 flex flex-wrap items-center gap-x-3 gap-y-1" style={{ background: "var(--cream)", border: "1px solid var(--rule-soft)", borderRadius: 6, color: "var(--ink-soft)" }}>
           {sec > 0 && <span style={{ color: slow ? "var(--brick)" : "var(--ink-soft)", fontWeight: slow ? 800 : 500 }}>⏱ 思い出すまで {sec}秒{slow ? "（時間がかかった）" : ""}</span>}
@@ -13977,7 +14036,7 @@ function AnswerPanel({ onAnswer: onAnswerRaw, wrongLabel = "不正解", correctL
       <div className="mt-3 p-2" style={{ background: "var(--cream)", border: "1px solid var(--brick)" }}>
         <div className="flex items-center justify-between mb-2">
           <div className="jp text-xs" style={{ color: "var(--brick)" }}>✕ 間違えた原因は？</div>
-          <button onClick={() => setStage("choose")} className="jp text-[10px] px-1.5 py-0.5" style={{ border: "1px solid var(--rule-soft)", color: "var(--ink-soft)", background: "var(--paper)" }}>← 戻る</button>
+          {pickOk !== false && <button onClick={() => setStage("choose")} className="jp text-[10px] px-1.5 py-0.5" style={{ border: "1px solid var(--rule-soft)", color: "var(--ink-soft)", background: "var(--paper)" }}>← 戻る</button>}
         </div>
         {askRule && (
           <div className="mb-2">
@@ -14013,7 +14072,7 @@ function AnswerPanel({ onAnswer: onAnswerRaw, wrongLabel = "不正解", correctL
     {info}
     <div className="grid grid-cols-3 gap-2 mt-3">
       <button onClick={() => setStage("wrong")} className="jp btn-danger py-2 flex flex-col items-center justify-center leading-tight">
-        <span className="flex items-center gap-1"><XIcon size={14} /> {wrongLabel}</span>
+        <span className="flex items-center gap-1"><XIcon size={14} /> {pickOk ? "まぐれ" : wrongLabel}</span>
         {pv && <span className="text-[10px]" style={{ opacity: 0.9 }}>{fmtDays(pv.again)}後</span>}
       </button>
       <button onClick={() => onAnswer(true, { conf: "unsure" })} className="jp btn-info py-2 flex flex-col items-center justify-center leading-tight">
@@ -15055,7 +15114,7 @@ function TodayTab({ state, recordSRAnswer, updateSrSettings, startTimer, stopTim
             </div>
             <button onClick={() => toggleQuestionMark(item.bankId, q.id)} className="jp text-[11px] px-1.5 py-0.5 flex-shrink-0" style={{ border: "1px solid var(--rule)", background: q.marked ? "var(--gold)" : "var(--paper)", color: q.marked ? "var(--paper)" : "var(--ink-soft)" }}>⭐ {q.marked ? "マーク中" : "マーク"}</button>
           </div>
-          <div className="qtext jp text-base md:text-lg flex-1 break-words" style={{ color: "var(--ink)" }}>{renderQText(q.q, q.q_formats)}</div>
+          <div className="qtext jp text-base md:text-lg flex-1 break-words" style={{ color: "var(--ink)" }}>{renderQText(q.q, q.q_formats, q.a)}</div>
           <QuestionImages bankId={item.bankId} question={q} side="q" />
           {showAnswer ? (
             <>
@@ -15404,7 +15463,7 @@ function PaceDrill({ state, actions }) {
           <div style={{ height: 6, borderRadius: 3, background: "var(--beige)", overflow: "hidden" }}><div style={{ width: `${Math.min(100, (qs / PACE_SEC) * 100)}%`, height: "100%", background: over ? "#c9564e" : qs > PACE_SEC * 0.7 ? "#d6b56a" : "#6d8454", transition: "width .5s linear" }} /></div>
           {over && <div className="text-[11px] text-center" style={{ color: "#c9564e", fontWeight: 800 }}>⏰ 2分半を過ぎました。本番なら「迷ったら次へ」の場面です</div>}
           <div className="text-[10px]" style={{ color: "var(--ink-mute)" }}>{cur.b.name}{run.skipped.some((x) => x.id === cur.q.id) ? "　（あとまわしにした問題）" : ""}</div>
-          <div className="qtext text-base px-1" style={{ color: "var(--ink)", lineHeight: 1.8 }}>{renderQText(cur.q.q, cur.q.q_formats)}</div>
+          <div className="qtext text-base px-1" style={{ color: "var(--ink)", lineHeight: 1.8 }}>{renderQText(cur.q.q, cur.q.q_formats, cur.q.a)}</div>
           {run.show ? (<>
             <div className="qtext text-base p-2" style={{ background: "var(--sky-pale)", border: "1px solid var(--gold)", color: "var(--ink)" }}>{renderFormattedText(cur.q.a, cur.q.a_formats)}</div>
             <AnswerPanel onAnswer={answer} question={cur.q} srSettings={effectiveSr(state)} />
@@ -17421,7 +17480,20 @@ function markTraps(t, keyBase) {
   if (last < t.length) out.push(t.slice(last));
   return out;
 }
-function renderQText(text, formats) {
+function renderQText(text, formats, ans) {
+  const ch = ans && (!formats || !formats.length) ? choiceOf(text, ans) : null;
+  if (ch) return (
+    <>
+      <span>{TRAP_MARK.on ? markTraps(ch.stem, "s") : ch.stem}</span>
+      <span className="block mt-2">
+        {ch.opts.map((o, i) => (
+          <span key={i} className="flex items-baseline gap-1.5 px-2 py-1 mb-1" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)", borderRadius: 6 }}>
+            <span style={{ fontWeight: 800, color: "var(--sky-deep)", flexShrink: 0 }}>({i + 1})</span><span>{TRAP_MARK.on ? markTraps(o, `o${i}`) : o}</span>
+          </span>
+        ))}
+      </span>
+    </>
+  );
   if (!TRAP_MARK.on || !text) return renderFormattedText(text, formats);
   return renderFormattedText(text, formats, true);
 }
