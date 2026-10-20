@@ -17,6 +17,7 @@ import { SANKO_SUBJECTS } from "./data/sankosho"; // 参考書道場（暗記の
 import { NIRIKUTOKU_SUBJECTS } from "./data/sankosho-radio"; // 参考書道場：二陸特
 import { HOME_WORLD, WORLD_PRESETS, genericChapters } from "./data/worlds"; // 冒険の世界（資格ごと）
 import { RADIO_CALC_TYPES, makeRadioCalc } from "./game/radiocalc"; // 無線工学の計算ドリル（二陸特）
+import { BLOCK_DIAGRAMS } from "./data/blocks"; // ブロック図の並べ替え（二陸特）
 import { REGION_TALK, STORY_TALKS, REGION_ARC, regionArc, TRINITY_REGIONS, TRINITY_TALK, BOND_TALKS, COUNTDOWN_TALKS, ACADEMY_MEET, STUDY_GROUP_TALK } from "./data/story"; // 物語の会話
 
 
@@ -2285,6 +2286,17 @@ function StudyRPG({ user }) {
       });
       if (ok) setTimeout(() => awardXp(ok * 3), 200);
       return ok ? `報酬：${ok * 5}G・EXP${ok * 3}` : "";
+    },
+    // ブロック図の並べ替え：図ごとの回数・最少まちがい・ノーミス。ノーミスは初回 30G、毎回 EXP8
+    logBlocks: (id, miss) => {
+      const prev = (normRpg(stateRef.current.rpg).blocks || {})[id] || {};
+      const firstPerfect = !miss && !prev.perfect;
+      updateRpg((x) => {
+        const all = x.blocks || {}, cur = all[id] || {};
+        return { ...x, gold: x.gold + (firstPerfect ? 30 : 0), goldEarned: x.goldEarned + (firstPerfect ? 30 : 0), blocks: { ...all, [id]: { n: (cur.n || 0) + 1, best: Math.min(cur.best ?? 99, miss), perfect: cur.perfect || !miss } } };
+      });
+      setTimeout(() => awardXp(8), 200);
+      return firstPerfect ? "はじめてのノーミス：30G・EXP8" : "EXP8";
     },
     // 資格の世界の本番モード：結果を世界ごとに残す（rpg.worldExam[世界id] = {log, best, passes}）。合格で 200G・EXP60、不合格でも EXP20
     worldExamFinish: ({ wid, parts, sec, passed }) => {
@@ -12308,9 +12320,9 @@ function WorldView({ state, actions, todayCount, onWeekly, onDungeon, onGuardian
       {sec === "train" && world.id !== "home" && (<>
         {world.exam && <WorldExamCard key={world.id} state={state} world={world} pp={pp} actions={actions} />}
         {(world.drills || []).includes("radiocalc") && <RadioCalcDrill state={state} actions={actions} />}
+        {(world.drills || []).includes("blocks") && <BlockDrill state={state} actions={actions} />}
         <NumberDeck state={state} actions={actions} />
         <PaceDrill state={state} actions={actions} />
-        <KumiaiDrill state={state} actions={actions} />
         <LawListen state={state} actions={actions} />
         <TeachMode state={state} actions={actions} />
         <LawCloze state={state} actions={actions} />
@@ -15809,6 +15821,81 @@ function RadioCalcDrill({ state, actions }) {
           </div>
         )}
         {log.length > 0 && <p className="text-[10px]" style={{ color: "var(--ink-mute)" }}>最近：{log.map((l) => `${l.ok}/${l.n}`).join("　")}</p>}
+      </div>
+    </Box>
+  );
+}
+
+// ── ブロック図の並べ替え（2026年10月20日。データは src/data/blocks.js）：信号の流れの順にブロックをタップ。使わないブロックが1つまざっている ──
+// 記録は rpgActions.logBlocks → rpg.blocks[図id] = { n, best（いちばん少ないまちがい）, perfect }
+function BlockDrill({ state, actions }) {
+  const rec = normRpg(state.rpg).blocks || {};
+  const [run, setRun] = useState(null); // { d, pool:[名前], placed:[名前], miss, flash:{name, why}|null, msg }
+  const begin = (d) => setRun({ d, pool: shuffle([...d.blocks.map((b) => b.name), d.extra.name]), placed: [], miss: 0, flash: null, msg: null });
+  const tap = (name) => {
+    if (!run || run.msg !== null) return;
+    const d = run.d, want = d.blocks[run.placed.length];
+    if (name === want.name) {
+      const placed = [...run.placed, name];
+      SFX.play("hit");
+      if (placed.length === d.blocks.length) { const msg = actions.logBlocks(d.id, run.miss); SFX.play("result"); setRun({ ...run, placed, flash: null, msg }); }
+      else setRun({ ...run, placed, flash: null });
+    } else {
+      SFX.play("miss");
+      setRun({ ...run, miss: run.miss + 1, flash: name === d.extra.name ? { name, why: `「${name}」はこの図では使いません。${d.extra.why}。` } : { name, why: `「${name}」はまだです。次は${run.placed.length ? `「${run.placed[run.placed.length - 1]}」のあと` : "最初"}のブロックです。` } });
+    }
+  };
+  const arrow = <span style={{ color: "var(--ink-mute)", fontSize: 12 }}>→</span>;
+  const chainBox = (txt, kind) => <span className="text-[11px] px-2 py-1" style={{ borderRadius: 6, border: kind === "end" ? "1px dashed var(--rule-soft)" : kind === "empty" ? "1.5px dashed var(--gold)" : "1.5px solid var(--sky-deep)", background: kind === "fill" ? "var(--sky-pale)" : "var(--paper)", color: kind === "end" ? "var(--ink-mute)" : "var(--ink)", fontWeight: kind === "fill" ? 800 : 500, minWidth: kind === "empty" ? 44 : undefined, textAlign: "center" }}>{txt}</span>;
+  if (run) {
+    const d = run.d, done = run.msg !== null;
+    return (
+      <Box title={`ブロック図の並べ替え　${d.title}`} icon={<Shuffle size={18} />}>
+        <div className="jp space-y-2">
+          <p className="text-[11px]" style={{ color: "var(--ink-soft)" }}>信号の流れの順に、下のブロックをタップしてください。使わないブロックが1つまざっています。</p>
+          <div className="flex flex-wrap items-center gap-1 px-2 py-2" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)", borderRadius: 8 }}>
+            {d.from && <>{chainBox(d.from, "end")}{arrow}</>}
+            {d.blocks.map((b, k) => <span key={k} className="flex items-center gap-1">{chainBox(k < run.placed.length ? b.name : `${k + 1}`, k < run.placed.length ? "fill" : "empty")}{(k < d.blocks.length - 1 || d.to) && arrow}</span>)}
+            {d.to && chainBox(d.to, "end")}
+          </div>
+          {!done && (
+            <div className="grid grid-cols-2 gap-1.5">
+              {run.pool.filter((n) => !run.placed.includes(n)).map((n) => (
+                <button key={n} onClick={() => tap(n)} className="py-2 px-2 text-sm" style={{ borderRadius: 8, border: `1.5px solid ${run.flash && run.flash.name === n ? "#c9564e" : "var(--rule-soft)"}`, background: run.flash && run.flash.name === n ? "rgba(201,86,78,0.08)" : "var(--paper)", color: "var(--ink)", fontWeight: 700, cursor: "pointer" }}>{n}</button>
+              ))}
+            </div>
+          )}
+          {run.flash && !done && <div className="text-[11px] px-2 py-1" style={{ background: "rgba(201,86,78,0.06)", border: "1px solid #e0948a", borderRadius: 6, color: "var(--ink)" }}>✕ {run.flash.why}</div>}
+          {done && (
+            <div className="px-2 py-2" style={{ background: "var(--cream)", border: "1px solid var(--gold)", borderRadius: 8 }}>
+              <div className="text-sm mb-1" style={{ fontWeight: 800, color: run.miss ? "var(--ink)" : "#b08a3e" }}>{run.miss ? `完成！（まちがい ${run.miss}回）` : "✨ ノーミスで完成！"}{run.msg ? `　${run.msg}` : ""}</div>
+              {d.blocks.map((b, k) => <div key={k} className="text-[11px]" style={{ color: "var(--ink)" }}><b>{k + 1}. {b.name}</b>：{b.role}</div>)}
+              <div className="text-[11px] mt-1" style={{ color: "var(--ink-soft)" }}>使わないブロック：<b>{d.extra.name}</b>（{d.extra.why}）</div>
+              {d.note && <div className="text-[11px] mt-1" style={{ color: "var(--ink-soft)" }}>📝 {d.note}</div>}
+            </div>
+          )}
+          <div className="grid grid-cols-2 gap-2">
+            <button onClick={() => setRun(null)} className="btn-ghost py-2 text-xs">図を選びなおす</button>
+            {done ? <button onClick={() => { const i = BLOCK_DIAGRAMS.findIndex((x) => x.id === d.id); begin(BLOCK_DIAGRAMS[(i + 1) % BLOCK_DIAGRAMS.length]); }} className="btn-primary py-2 text-xs">次の図へ</button>
+              : <button onClick={() => begin(d)} className="btn-ghost py-2 text-xs">はじめから</button>}
+          </div>
+        </div>
+      </Box>
+    );
+  }
+  return (
+    <Box title="ブロック図の並べ替え" icon={<Shuffle size={18} />}>
+      <div className="jp space-y-2">
+        <p className="text-[11px]" style={{ color: "var(--ink-soft)", lineHeight: 1.7 }}>受信機・送信機・電源などの各部を、信号の流れの順に並べます。本番の「構成の順として正しいものはどれか」の対策です。使わないブロックが1つまざっているので、見分けてください。</p>
+        <div className="grid grid-cols-2 gap-1.5">
+          {BLOCK_DIAGRAMS.map((d) => { const r = rec[d.id]; return (
+            <button key={d.id} onClick={() => begin(d)} className="text-left px-2 py-1.5" style={{ borderRadius: 8, border: `1px solid ${r && r.perfect ? "var(--gold)" : "var(--rule-soft)"}`, background: "var(--paper)", color: "var(--ink)", cursor: "pointer" }}>
+              <div className="text-[12px]" style={{ fontWeight: 800 }}>{r && r.perfect ? "✨ " : ""}{d.title}</div>
+              <div className="text-[10px]" style={{ color: "var(--ink-mute)" }}>{d.blocks.length}ブロック{r ? `・${r.n}回・最少まちがい ${r.best}` : "・まだ"}</div>
+            </button>
+          ); })}
+        </div>
+        <button onClick={() => begin(BLOCK_DIAGRAMS[Math.floor(Math.random() * BLOCK_DIAGRAMS.length)])} className="btn-primary w-full py-2 text-sm">おまかせで1つ</button>
       </div>
     </Box>
   );
