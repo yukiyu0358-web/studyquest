@@ -2515,6 +2515,12 @@ function StudyRPG({ user }) {
       showRpgToast(`💀 賞金首を討伐！ ${prize}G・星霊石×${BOUNTY_REWARD.star}・EXP${BOUNTY_REWARD.xp}`, "#b08a3e");
     },
     logPace: (rec) => updateRpg((x) => ({ ...x, pace: { log: [...(((x.pace || {}).log) || []), { d: todayStr(), ...rec }].slice(-40) } })),
+    // パーティ編成：region が null ならふだんの編成、地域名ならその地域の編成（空にすると、ふだんの編成にもどる）
+    setParty: ({ region, ids }) => updateRpg((x) => {
+      const pt = x.party || {};
+      if (!region) return { ...x, party: { ...pt, members: ids } };
+      return { ...x, party: { ...pt, byRegion: { ...(pt.byRegion || {}), [region]: ids } } };
+    }),
     // 申請書の叩き込み：カードの答え（grade：ok＝正解・言えた／hard＝あやふや／ng＝まちがい。again＝同じ回のやり直しなら箱は動かさない）
     // 全カードに1回ずつ正解すると1周（300G）。周回の完了は答える前の記録で判定する
     deckAnswer: ({ id, grade, again, total }) => {
@@ -10587,6 +10593,55 @@ function EvolutionGallery({ state }) {
   );
 }
 
+// パーティ編成（冒険 → 世界 → 地図と仲間）：加入した仲間から3人。ふだんの編成と、科目（地域）ごとの編成
+function PartyEditor({ state, actions, regions }) {
+  const r = normRpg(state.rpg);
+  const joined = alliesJoined(r).filter((a) => ALLY_SKILLS[a.id]);
+  const [reg, setReg] = useState(""); // "" ＝ふだんの編成
+  const pt = r.party || {};
+  const cur = reg ? (pt.byRegion || {})[reg] || [] : pt.members || [];
+  const party = battleParty(state, reg || undefined);
+  const syn = partySynergy(party, r);
+  const setIds = (ids) => actions.setParty({ region: reg || null, ids });
+  const toggle = (id) => {
+    const base = cur.length ? cur : party.map((p) => p.a.id);
+    setIds(base.includes(id) ? base.filter((x) => x !== id) : base.length >= 3 ? [...base.slice(1), id] : [...base, id]);
+  };
+  if (!joined.length) return null;
+  return (
+    <Box title="パーティ編成" icon={<Sword size={18} />}>
+      <div className="jp space-y-2">
+        <p className="text-[11px]" style={{ color: "var(--ink-soft)", lineHeight: 1.7 }}>ルナといっしょに戦う仲間を3人まで選びます（選んだ順に後ろの列へ）。追撃・魔法・回復の役割がそろうと「三役そろい」でボスへのダメージが上がります。科目ごとに別の編成も決められます。</p>
+        <div className="flex flex-wrap gap-1">
+          <span className="text-[10px] self-center" style={{ color: "var(--ink-mute)" }}>編成</span>
+          {[["", "ふだん（全部の戦い）"], ...regions.map((g) => [g, g])].map(([id, nm]) => <button key={id || "base"} onClick={() => setReg(id)} className="text-[11px] px-2 py-0.5" style={chipSt(reg === id)}>{nm}{id && ((pt.byRegion || {})[id] || []).length ? " ✓" : ""}</button>)}
+        </div>
+        <div className="flex items-center gap-2 px-2 py-2" style={{ background: "var(--paper)", border: "1px solid var(--gold)", borderRadius: 10 }}>
+          <span className="text-[10px]" style={{ color: "var(--ink-mute)" }}>いまの<br />パーティ</span>
+          {party.map((p, i) => <span key={p.a.id} className="flex flex-col items-center"><AllyMedal p={p} size={40} /><span className="text-[10px]" style={{ fontWeight: 700, color: "var(--ink)" }}>{i + 1}. {p.a.name}</span></span>)}
+          {!party.length && <span className="text-[11px]" style={{ color: "var(--ink-mute)" }}>（仲間なし）</span>}
+          <span className="flex-1" />
+          {reg && cur.length > 0 && <button onClick={() => setIds([])} className="text-[10px] underline" style={{ background: "none", border: "none", color: "var(--ink-mute)", cursor: "pointer" }}>ふだんの編成にもどす</button>}
+        </div>
+        {syn.list.length > 0 ? syn.list.map((x) => <div key={x.name} className="text-[11px] px-2 py-1" style={{ background: "rgba(214,181,106,0.15)", border: "1px solid #d6b56a", borderRadius: 6, color: "var(--ink)" }}>✨ <b>{x.name}</b>：{x.text}</div>)
+          : <div className="text-[10px]" style={{ color: "var(--ink-mute)" }}>そろい効果なし（追撃・魔法・回復を1人ずつ入れると「三役そろい」）</div>}
+        <div className="grid grid-cols-2 gap-1.5">
+          {joined.map((a) => {
+            const on = party.some((p) => p.a.id === a.id);
+            const sk = ALLY_SKILLS[a.id];
+            const lv = bondLevel(((r.bonds || {})[a.id]) || 0);
+            return (
+              <button key={a.id} onClick={() => toggle(a.id)} className="text-left px-2 py-1.5" style={{ borderRadius: 8, border: `1.5px solid ${on ? "var(--gold)" : "var(--rule-soft)"}`, background: on ? "var(--cream)" : "var(--paper)", color: "var(--ink)", cursor: "pointer" }}>
+                <div className="text-[12px]" style={{ fontWeight: 800 }}>{on ? "☑ " : "☐ "}{a.name}<span className="text-[10px] ml-1" style={{ color: "var(--ink-mute)", fontWeight: 500 }}>絆Lv{lv}</span></div>
+                <div className="text-[10px]" style={{ color: "var(--ink-soft)" }}>{ROLE_NAME[sk.kind]}：{sk.name}</div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </Box>
+  );
+}
 function PartyCard({ state, actions }) {
   const r = normRpg(state.rpg);
   const joined = new Set(alliesJoined(r).map((a) => a.id));
@@ -12603,6 +12658,7 @@ function WorldView({ state, actions, todayCount, onWeekly, onDungeon, onGuardian
       </>)}
       {sec === "road" && (<>
         <PartyCard state={state} actions={actions} />
+        <PartyEditor state={state} actions={actions} regions={pp.regions.filter((g) => g.total > 0).sort(byRegionOrder).map((g) => g.name)} />
         <EvolutionGallery state={state} />
         <WorldMap pp={pp} r={normRpg(state.rpg)} onGuardian={onGuardian} />
         <KnowledgeCastle state={state} />
@@ -12954,7 +13010,8 @@ function BossBattle({ state, boss, pool, actions, recordAnswer, startTimer, stop
   const [assist, setAssist] = useState(null); // 仲間の加勢の演出 { n, p, val, heal, joint }
   const [charging, setCharging] = useState(false); // ボスが力を溜めている
   const healedRef = useRef(false); // 回復はボス1体につき1回
-  const party = battleParty(state);
+  const party = battleParty(state, typeof boss.region === "string" ? boss.region : boss.region && boss.region.name);
+  const synergy = partySynergy(party, normRpg(state.rpg));
   const [combo, setCombo] = useState(0);
   const [dying, setDying] = useState(null); // "boss"（倒した）| "me"（力尽きた）
   const fxN = useRef(0);
@@ -13002,7 +13059,7 @@ function BossBattle({ state, boss, pool, actions, recordAnswer, startTimer, stop
       // 連続で正解すると、2連目から少しずつ威力が上がる（最大+30%）
       const comboMul = 1 + Math.min(0.3, (nc - 1) * 0.06);
       const breakMul = charging ? 1.3 : 1; // 溜めを止めた一撃
-      const dmg = Math.max(1, Math.round(base * mult * comboMul * breakMul * (1 + bonus.bossDmgPct / 100) * (crit ? 2 : 1)));
+      const dmg = Math.max(1, Math.round(base * mult * comboMul * breakMul * (1 + bonus.bossDmgPct / 100) * (1 + synergy.dmgPct / 100) * (crit ? 2 : 1)));
       const atk = heroAttackFor({ weapon: equippedWeaponId(r), region: bossRegion, crit, combo: nc });
       t = impactOf(atk) + (bossCut(nc) ? (bossCut(nc).ult ? 1.6 : 1.3) : 0); // カットイン → ルナの必殺技 → 命中
       // 仲間の加勢：カイトなどは3連撃ごとに追撃、レイヴンなどは会心か2割で魔法
@@ -13504,12 +13561,27 @@ const ALLY_SKILLS = {
   kaito: { kind: "chase", name: "ブレードラッシュ" }, serena: { kind: "heal", name: "ヒールライト" }, raven: { kind: "magic", name: "ダークバレット" },
   rine: { kind: "heal", name: "条文の加護" }, kai: { kind: "chase", name: "測量の一閃" }, mira: { kind: "magic", name: "書式の魔法陣" },
 };
-function battleParty(state) {
+// パーティ（2026年10月20日〜）：編成 rpg.party = { members:[仲間id…], byRegion:{地域:[仲間id…]} }。地域の編成 → ふだんの編成 → 加入順の3人
+function battleParty(state, region) {
   const r = normRpg(state.rpg), hi = heroStage(state.player.level).idx;
   const order = ["kaito", "serena", "raven", "rine", "kai", "mira"];
-  return alliesJoined(r).filter((a) => ALLY_SKILLS[a.id]).sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id)).slice(0, 3)
+  const joined = alliesJoined(r).filter((a) => ALLY_SKILLS[a.id]);
+  const pt = r.party || {};
+  const pick = (region && ((pt.byRegion || {})[region] || []).length ? pt.byRegion[region] : null) || ((pt.members || []).length ? pt.members : null);
+  const list = pick ? pick.map((id) => joined.find((a) => a.id === id)).filter(Boolean) : joined.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
+  return list.slice(0, 3)
     .map((a) => ({ a, skill: ALLY_SKILLS[a.id], art: ALLY_EVO[a.id] ? EVO_URL(ALLY_EVO[a.id], allyEvoStage(r, a, hi)) : `${ART_URL}${a.img}`, evo: !!ALLY_EVO[a.id], sprite: SPRITES[a.id] ? a.id : null }));
 }
+// パーティのそろい効果：役割（追撃・魔法・回復）がそろうとボス戦のダメージが上がる。絆Lv3以上の仲間だけなら、さらに上がる
+function partySynergy(party, r) {
+  const kinds = new Set(party.map((p) => p.skill.kind));
+  const out = [];
+  if (kinds.size >= 3) out.push({ name: "三役そろい", dmgPct: 10, text: "追撃・魔法・回復がそろって、ボスへのダメージ+10%" });
+  else if (party.length >= 2 && kinds.size === 1) out.push({ name: "同じ役の連携", dmgPct: 5, text: "同じ役割の仲間が息を合わせて、ボスへのダメージ+5%" });
+  if (party.length >= 2 && party.every((p) => bondLevel(((r.bonds || {})[p.a.id]) || 0) >= 3)) out.push({ name: "絆の陣", dmgPct: 5, text: "全員の絆がLv3以上で、ボスへのダメージ+5%" });
+  return { list: out, dmgPct: out.reduce((t, x) => t + x.dmgPct, 0) };
+}
+const ROLE_NAME = { chase: "追撃", magic: "魔法", heal: "回復" };
 // 仲間の丸い顔（進化の絵があればそれ、なければ立ち絵の顔）
 function AllyMedal({ p, size = 40, glow }) {
   return <span title={`${p.a.name}（${p.skill.name}）`} style={{ display: "inline-block", width: size, height: size, borderRadius: "50%", border: `2px solid ${glow ? "#f2c14e" : "#b08a3e"}`, boxShadow: glow ? "0 0 12px 3px rgba(242,193,78,0.9)" : "0 2px 5px rgba(0,0,0,0.35)", backgroundColor: "#e9e4d6", backgroundImage: `url(${p.art})`, backgroundSize: p.evo ? "cover" : "300% auto", backgroundPosition: p.evo ? "center 18%" : `${p.a.face[0]}% ${p.a.face[1]}%`, transition: "box-shadow .2s" }} />;
@@ -13852,11 +13924,26 @@ const emitBattle = (detail) => { try { if (battleBus) battleBus.dispatchEvent(ne
 const emitReward = (detail) => { try { if (battleBus) battleBus.dispatchEvent(new CustomEvent("reward", { detail })); } catch (e) { /* 失敗しても学習は続ける */ } };
 
 // ── 1回の学習（出撃）の記録：HP・コンボ・討伐数。リザルト画面で使う ──
-const BATTLE = { key: null, hp: 100, maxHp: 100, combo: 0, maxCombo: 0, defeated: 0, crits: 0, escaped: 0, faints: 0, mats: {}, start: null };
+const BATTLE = { key: null, hp: 100, maxHp: 100, combo: 0, maxCombo: 0, defeated: 0, crits: 0, escaped: 0, faints: 0, mats: {}, start: null, pack: null, packWait: 0, packN: 0, packs: 0 };
+// 群れ（2026年10月20日）：Lv10から控えの魔物1体、Lv25から2体（1体はリーダー）。前の魔物は問題ごとに入れかわり、控えは倒すまで残る
+const packSizeOf = (level) => (level >= 25 ? 2 : level >= 10 ? 1 : 0);
+function makePack(state, mon) {
+  const n = packSizeOf(state.player.level);
+  if (!n || !mon) return null;
+  BATTLE.packN++;
+  const list = Array.from({ length: n }, (_, i) => {
+    const leader = n >= 2 && i === n - 1;
+    const pm = MON_PAINTED[hashStr(`${mon.key}#${BATTLE.packN}#${i}`) % MON_PAINTED.length];
+    const sp = { ...MONSTER_SPECIES[(hashStr(pm.img) + i) % MONSTER_SPECIES.length], name: pm.name, img: pm.img };
+    const max = leader ? 3 : 2;
+    return { id: `p${BATTLE.packN}-${i}`, leader, hp: max, max, m: { key: `pk${BATTLE.packN}-${i}`, sp, th: mon.th, rank: leader ? "elite" : "normal", name: `${leader ? "群れのリーダー・" : ""}${mon.th.prefix}${sp.name}` } };
+  });
+  return { list, target: list[list.length - 1].id };
+}
 const xpTotalOf = (p) => { let t = p.xp || 0; for (let l = 1; l < (p.level || 1); l++) t += getXpForNextLevel(l); return t; };
 function resetBattle(state) {
   const b = getRpgBonuses(state);
-  Object.assign(BATTLE, { hp: b.maxHp, maxHp: b.maxHp, combo: 0, maxCombo: 0, defeated: 0, crits: 0, escaped: 0, faints: 0, mats: {}, start: { xp: xpTotalOf(state.player), level: state.player.level, gold: normRpg(state.rpg).gold } });
+  Object.assign(BATTLE, { pack: null, packWait: 0, packs: 0, hp: b.maxHp, maxHp: b.maxHp, combo: 0, maxCombo: 0, defeated: 0, crits: 0, escaped: 0, faints: 0, mats: {}, start: { xp: xpTotalOf(state.player), level: state.player.level, gold: normRpg(state.rpg).gold } });
 }
 // コンボの節目で出る必殺技（カットイン）
 // ルナの技（イラストフォルダの「ルナの魔法剣士キャラクター図鑑」のスキルモーション例から）。必殺技のモーションの絵ができたら差し替える
@@ -14098,6 +14185,7 @@ function BattleStage({ state, q, bankName, battleKey, boss = false, scene: scene
   const stRef = useRef(state); stRef.current = state;
   const [fx, setFx] = useState(null);   // 直前の回答の演出 { n, ok, crit, dmg, taken, faint, cut, mon }
   const [doneQ, setDoneQ] = useState(null); // 回答済みの問題（次の問題に切り替わるまで魔物を出さない。同じ問題の再出題は別物として出す）
+  const [, setTick] = useState(0); // 群れの狙いを変えたときに描き直す
   const fxN = useRef(0);
   useEffect(() => {
     if (!battleBus) return undefined;
@@ -14128,18 +14216,33 @@ function BattleStage({ state, q, bankName, battleKey, boss = false, scene: scene
         const atk = heroAttackFor({ weapon: equippedWeaponId(normRpg(stRef.current.rpg)), region: m.th && m.th.region, crit, combo: BATTLE.combo });
         const t = impactOf(atk) + (cut ? (cut.ult ? 1.6 : 1.3) : 0); // カットイン → ルナの必殺技 → 命中
         hold += Math.round(t * 1000);
-        const party = battleParty(stRef.current);
+        const party = battleParty(stRef.current, m.th && m.th.region);
         const cameo = party.length && BATTLE.combo >= 3 && BATTLE.combo % 3 === 0 ? party[(BATTLE.combo / 3 - 1) % party.length] : null;
         const big = crit || !!cut || BATTLE.combo >= 3;
         if (big) hold += cut ? (cut.ult ? 1500 : 300) : 450;
-        setFx({ n, ok: true, crit, dmg, cut, mon: m, drops: Object.keys(mats), side: "hero", atk, t, cameo, big, hits: big ? splitHits(dmg, cut ? 4 : 3) : [dmg] });
+        // 群れ：狙った控えに1撃（会心・3連撃以上は全体に）。リーダーを倒すと残りは逃げる。全滅でボーナス
+        let packHit = null;
+        const pk = BATTLE.pack;
+        if (pk && pk.list.some((x) => x.hp > 0)) {
+          const hitIds = big ? pk.list.filter((x) => x.hp > 0).map((x) => x.id) : [((pk.list.find((x) => x.id === pk.target && x.hp > 0)) || pk.list.find((x) => x.hp > 0)).id];
+          pk.list.forEach((x) => { if (hitIds.includes(x.id)) x.hp = Math.max(0, x.hp - 1); });
+          const leaderDown = pk.list.some((x) => x.leader && x.hp === 0 && hitIds.includes(x.id));
+          if (leaderDown) pk.list.forEach((x) => { if (x.hp > 0) { x.hp = 0; x.fled = true; } });
+          const wiped = pk.list.every((x) => x.hp === 0);
+          packHit = { ids: hitIds, leaderDown, wiped };
+          if (wiped) { BATTLE.packs++; BATTLE.packWait = 2; const bx = pk.list.length * 8 + (leaderDown ? 10 : 0); emitReward({ mats: {}, xp: bx }); packHit.bonus = bx; }
+          const alive = pk.list.find((x) => x.hp > 0);
+          if (alive && !pk.list.some((x) => x.id === pk.target && x.hp > 0)) pk.target = alive.id;
+        }
+        setFx({ n, ok: true, crit, dmg, cut, mon: m, drops: Object.keys(mats), side: "hero", atk, t, cameo, big, packHit, hits: big ? splitHits(dmg, cut ? 4 : 3) : [dmg] });
         if (atk.kind !== "slash") SFX.play(atk.sfx);
         setTimeout(() => SFX.play(crit ? "crit" : atk.kind === "slash" ? "hit" : "magicHit"), t * 1000);
         if (Object.keys(mats).length) setTimeout(() => SFX.play("drop"), 320 + t * 1000);
         setTimeout(() => SFX.play(cut ? "combo" : "defeat"), 170 + t * 1000);
       } else {
         BATTLE.combo = 0; BATTLE.escaped++;
-        const taken = Math.max(1, Math.round((10 + Math.random() * 8 + (m.rank === "elite" ? 6 : 0)) * (1 - b.dmgCutPct / 100)));
+        const packAlive = BATTLE.pack ? BATTLE.pack.list.filter((x) => x.hp > 0).length : 0;
+        const taken = Math.max(1, Math.round((10 + Math.random() * 8 + (m.rank === "elite" ? 6 : 0) + packAlive * 3) * (1 - b.dmgCutPct / 100)));
         BATTLE.hp -= taken;
         let faint = false;
         if (BATTLE.hp <= 0) { BATTLE.faints++; BATTLE.hp = Math.ceil(BATTLE.maxHp * (0.3 + (b.revivePct || 0) / 100)); faint = true; }
@@ -14147,7 +14250,7 @@ function BattleStage({ state, q, bankName, battleKey, boss = false, scene: scene
         const atk = monAttackFor(m.sp && m.sp.img);
         const t = impactOf(atk);
         hold += Math.round(t * 1000);
-        setFx({ n, ok: false, taken, faint, mon: m, side: "mon", atk, t });
+        setFx({ n, ok: false, taken, faint, mon: m, side: "mon", atk, t, packAtk: packAlive });
         SFX.play(["claw", "bite", "gust"].includes(atk.kind) ? "claw" : atk.kind === "tackle" || atk.kind === "rock" ? "roar" : "fire");
         setTimeout(() => SFX.play("miss"), t * 1000);
       }
@@ -14161,6 +14264,13 @@ function BattleStage({ state, q, bankName, battleKey, boss = false, scene: scene
 
   if (ds.battle === false || !mon) return null;
   const showCur = q !== doneQ;
+  // 群れ：次の問題が出たとき、控えがいなければ（全滅のあとは2問おいて）新しい群れを呼ぶ
+  if (showCur && (!BATTLE.pack || BATTLE.pack.list.every((x) => x.hp === 0)) && BATTLE.packKey !== mon.key) {
+    BATTLE.packKey = mon.key;
+    if (BATTLE.packWait > 0) BATTLE.packWait--;
+    else BATTLE.pack = makePack(state, mon);
+  }
+  const pack = BATTLE.pack;
   const hpPct = Math.max(0, Math.min(100, (BATTLE.hp / BATTLE.maxHp) * 100));
   const kind = mon.rank === "unknown" ? ["初見の魔物", "#5b6b8c"] : mon.rank === "elite" ? ["手強い魔物", "#a24a45"] : ["復習の魔物", "#4f8a72"];
   return (
@@ -14185,7 +14295,7 @@ function BattleStage({ state, q, bankName, battleKey, boss = false, scene: scene
         </div>
       )}
       {/* 味方：後衛（仲間）と前衛（ルナ） */}
-      <BackRowAllies slots={backRow(battleParty(state), 104)} actingId={fx && fx.cameo && !fx.cut ? fx.cameo.a.id : null} actN={fx ? fx.n : 0} />
+      <BackRowAllies slots={backRow(battleParty(state, mon.th && mon.th.region), 104)} actingId={fx && fx.cameo && !fx.cut ? fx.cameo.a.id : null} actN={fx ? fx.n : 0} />
       <div style={{ position: "absolute", left: "calc(40% - 74px)", bottom: -16, width: 180, height: 180, zIndex: 2 }}>
         <LunaSprite size={180} pose={fx ? (fx.ok ? (fx.cut ? (fx.cut.ult ? "ult" : "skill") : "attack") : "hurt") : "idle"} delay={fx && !fx.ok ? fx.t || 0 : fx && fx.cut ? 0.6 : 0} k={fx ? fx.n : 0} aura={auraOf(state)} />
       </div>
@@ -14198,6 +14308,35 @@ function BattleStage({ state, q, bankName, battleKey, boss = false, scene: scene
         {fx && !fx.ok && <div key={`t${fx.n}`} className="jp" style={{ position: "absolute", left: "60%", top: -22, animation: `sqxNum .9s ease-out ${fx.t || 0}s both`, color: "#ff8a80", fontWeight: 900, fontSize: 18, textShadow: "0 1px 0 #3a1010, 0 0 4px rgba(0,0,0,0.6)" }}>-{fx.taken}</div>}
         {fx && fx.faint && <div className="jp" style={{ position: "absolute", left: 0, top: -38, fontSize: 11, fontWeight: 800, color: "#ffc2bc", whiteSpace: "nowrap", textShadow: "0 1px 3px rgba(0,0,0,0.8)" }}>ふんばった！</div>}
       </div>
+      {/* 群れの控え（前の魔物の後ろ）。タップで狙う */}
+      {pack && pack.list.map((x, i) => {
+        const hit = fx && fx.packHit && fx.packHit.ids.includes(x.id);
+        const down = x.hp === 0;
+        if (down && !hit && !(fx && fx.packHit && fx.packHit.leaderDown)) return null;
+        const on = pack.target === x.id && !down;
+        const pos = pack.list.length === 1 ? { right: "30%", bottom: 34 } : i === 0 ? { right: "31%", bottom: 40 } : { right: "-1%", bottom: 46 };
+        return (
+          <div key={x.id} onClick={() => { if (!down) { pack.target = x.id; setTick((v) => v + 1); } }} title="タップで狙う" style={{ position: "absolute", ...pos, width: x.leader ? 120 : 104, height: x.leader ? 140 : 120, zIndex: 0, cursor: down ? "default" : "pointer", filter: on ? "drop-shadow(0 0 6px rgba(242,193,78,0.9))" : "brightness(0.85)" }}>
+            {down ? <MonsterView key={`pkd${x.id}${fx ? fx.n : 0}`} m={x.m} anim={x.fled ? "escape" : "defeat"} hitAt={fx ? fx.t || 0 : 0} size={x.leader ? 112 : 96} />
+              : <div style={{ animation: hit ? `sqbHurt .45s ease-out ${(fx.t || 0) + 0.1}s` : undefined }}><MonsterView key={`pk${x.id}`} m={x.m} anim="enter" size={x.leader ? 112 : 96} /></div>}
+            {!down && (
+              <div style={{ position: "absolute", left: "50%", top: -18, transform: "translateX(-50%)", display: "flex", gap: 2, alignItems: "center", zIndex: 2 }}>
+                {x.leader && <span style={{ fontSize: 11 }}>👑</span>}
+                {Array.from({ length: x.max }, (_, k) => <span key={k} style={{ width: 8, height: 5, borderRadius: 2, background: k < x.hp ? "#e0948a" : "rgba(255,255,255,0.35)", border: "1px solid rgba(60,20,20,0.4)" }} />)}
+                {on && <span className="jp" style={{ fontSize: 9, fontWeight: 800, color: "#fdfbf5", background: "rgba(176,138,62,0.9)", padding: "0 4px", borderRadius: 3, marginLeft: 2 }}>狙い</span>}
+              </div>
+            )}
+            {hit && <div key={`ph${fx.n}`} className="jp" style={{ position: "absolute", left: "50%", top: "30%", transform: "translateX(-50%)", animation: `sqxNum .9s ease-out ${(fx.t || 0) + 0.15}s both`, color: "#fff3c4", fontWeight: 900, fontSize: 15, textShadow: "0 1px 0 #3a2a10, 0 0 4px rgba(0,0,0,.6)", pointerEvents: "none" }}>HIT</div>}
+          </div>
+        );
+      })}
+      {fx && fx.packHit && (fx.packHit.wiped || fx.packHit.leaderDown) && (
+        <div key={`pw${fx.n}`} className="jp" style={{ position: "absolute", right: 10, top: 34, zIndex: 4, fontSize: 12, fontWeight: 900, color: "#fff3c4", background: "rgba(34,51,92,0.88)", border: "1px solid #d6b56a", borderRadius: 6, padding: "2px 10px", animation: `sqxBanner 1.6s ease-out ${(fx.t || 0) + 0.3}s both`, pointerEvents: "none" }}>
+          {fx.packHit.leaderDown ? "リーダーを倒した！ 群れは逃げ出した" : "群れを全滅させた！"}{fx.packHit.bonus ? `　EXP+${fx.packHit.bonus}` : ""}
+        </div>
+      )}
+      {pack && pack.list.some((x) => x.hp > 0) && !fx && <div className="jp" style={{ position: "absolute", right: 8, top: 8, fontSize: 9, color: "#fdfbf5", background: "rgba(20,28,50,0.5)", padding: "1px 6px", borderRadius: 999, zIndex: 3 }}>群れ {pack.list.filter((x) => x.hp > 0).length}体　タップで狙う</div>}
+      {fx && !fx.ok && fx.packAtk > 0 && <div key={`pa${fx.n}`} className="jp" style={{ position: "absolute", right: "28%", top: 40, fontSize: 11, fontWeight: 800, color: "#ffc2bc", textShadow: "0 1px 3px rgba(0,0,0,0.8)", animation: `sqbRed .9s ease-out ${(fx.t || 0) + 0.2}s both`, pointerEvents: "none", zIndex: 4 }}>群れの追い打ち！</div>}
       {/* 魔物 */}
       <div style={{ position: "absolute", right: "10%", bottom: 4, width: 170, height: 214, zIndex: 1 }}>
         {fx && <MonsterView key={`leave${fx.n}`} m={fx.mon} anim={fx.ok ? "defeat" : "escape"} hitAt={fx.t || 0} lunge={!fx.ok && fx.atk && ["tackle", "bite", "claw"].includes(fx.atk.kind)} size={152} />}
