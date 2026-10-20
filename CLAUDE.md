@@ -139,6 +139,7 @@ state の主なキー：`player` / `qualifications` / `tasks` / `studyPlans`（�
 - 科目ごとのジョブ（ステータス画面）：`subjectJobs` `SubjectJobs` `JOB_RANKS`（見習い・修行者・術士・魔導士・大魔導士・賢者＝Lv1/5/10/20/35/50）`jobLevelOf`（経験値＝正解の回数＋定着した問題×5）。称号が上がると演出（rpg.jobRank、学習中は待つ）
 - 学習記録の控え（自動バックアップ）：userdata/{uid}/backups/{日付}（＋parts サブコレクションに小分け。書出と同じ中身）。`makeBackup` `readBackup` `BackupPanel`（ステータス画面のいちばん下。ファイルに書き出して「読込」で戻す）。7日ごとに自動（起動20秒後。`cloudLoadFailed` 中・問題10問未満のときは取らない）、新しい4回分を残す（`BACKUP_KEEP`）
 - 主人公の進化の絵の指示文：`docs/進化の絵の指示文.md`（絵ができたら public/white-hero-s1〜s5.jpg に入れる）
+- 新しい資格の教材づくり：`docs/教材づくりの指示文.md`（2026年10月20日。別のチャットに貼る教材の指示文［CSV の形・4択は「答：(n)」・参考書の形・法令の確かめ方］、世界の地図の絵の指示文、アプリ側でやることの一覧）
 - 学習計画（今日のタスク）：state.studyPlans = [{id, name, folderId, bankIds（順番）, laps, start, end, perDay（固定）, done:{通し番号: 日付}, finishedAt}]。項目＝問題集1つ。通し番号 k は bankIds[k % 項目数]。`planToday`（今日までに済ませる数＝perDay×日数、できなかった分は翌日に繰り越し）`PlanTasks` `PlanMaker`（フォルダごとの☑・すべて選ぶ／外す。いくつかのフォルダにまたがって選べる。下のタブ「周回の部屋」 `LapRoom` に置く。今日タブには短いお知らせ `PlanSummary` だけ）、操作 `planActions`（addPlan・removePlan・togglePlanItem・openBank）。問題集を最後まで解くと `incrementBankClears` → `markPlanBank` で自動✓。「解く」は `openBankReq` → QBankTab の開始画面。ホームの道しるべにも「今日のタスク」の行
 - 2周目からは苦手だけ：計画の `weakOnly`（2周以上で選べる）。2周目以降の行は「苦手を解く」→ `openBank(id, "revenge")` → QBankTab がリベンジ（RevengeSession）で開く。リベンジを最後まで解くと `onComplete` → `markPlanBank(id, true)`（weakOnly の計画の2周目以降だけ✓）。苦手が0問なら「苦手なし・済みにする」
 - 周回の分析：`PlanChart`（計画ごとの予定と実際の線。比べるのは前の日までの予定）`LapGrowth`（問題集の clearHistory の正解率から、伸びている／伸び悩み［前の周以下か70%未満］を分ける。伸び悩みは「苦手を解く」）
