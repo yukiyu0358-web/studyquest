@@ -2272,6 +2272,17 @@ function StudyRPG({ user }) {
       showRpgToast(`💀 賞金首を討伐！ ${prize}G・星霊石×${BOUNTY_REWARD.star}・EXP${BOUNTY_REWARD.xp}`, "#b08a3e");
     },
     logPace: (rec) => updateRpg((x) => ({ ...x, pace: { log: [...(((x.pace || {}).log) || []), { d: todayStr(), ...rec }].slice(-40) } })),
+    // 資格の世界の本番モード：結果を世界ごとに残す（rpg.worldExam[世界id] = {log, best, passes}）。合格で 200G・EXP60、不合格でも EXP20
+    worldExamFinish: ({ wid, parts, sec, passed }) => {
+      const total = parts.reduce((t, x) => t + x.ok, 0);
+      updateRpg((x) => {
+        const all = x.worldExam || {}, cur = all[wid] || {};
+        return { ...x, gold: x.gold + (passed ? 200 : 0), goldEarned: x.goldEarned + (passed ? 200 : 0),
+          worldExam: { ...all, [wid]: { log: [...(cur.log || []), { d: todayStr(), parts, sec, passed }].slice(-30), best: Math.max(cur.best || 0, total), passes: (cur.passes || 0) + (passed ? 1 : 0) } } };
+      });
+      setTimeout(() => awardXp(passed ? 60 : 20), 300);
+      return passed ? "報酬：200G・EXP60" : "EXP20";
+    },
     logLawListen: (n, ok) => { updateRpg((x) => ({ ...x, lawListen: { n: ((x.lawListen || {}).n || 0) + n, ok: ((x.lawListen || {}).ok || 0) + ok } })); if (ok) setTimeout(() => awardXp(ok * 4), 150); },
     logNumQuiz: (n, ok) => { updateRpg((x) => ({ ...x, numQuiz: { n: ((x.numQuiz || {}).n || 0) + n, ok: ((x.numQuiz || {}).ok || 0) + ok } })); if (ok) setTimeout(() => awardXp(ok * 4), 150); },
     logShoCheck: (miss) => updateRpg((x) => ({ ...x, shoCheck: { log: [...(((x.shoCheck || {}).log) || []), { d: todayStr(), miss }].slice(-60) } })),
@@ -9581,6 +9592,8 @@ function passChance(state, pp, boost = 0) {
   return { m, p, exp: p * 20, baseQ, passQ, pBase: binomTail(20, p, baseQ), pPass: binomTail(20, p, passQ), dist };
 }
 function ExamChance({ state, pp }) {
+  const w = curWorld(state);
+  if (w.exam) return <WorldExamChance pp={pp} world={w} />;
   const c = passChance(state, pp);
   if (!c) return null;
   // 未学習の問題を覚えたら、どれだけ上がるか（覚えた問題は記憶率90%とみなす）
@@ -9650,7 +9663,7 @@ function FinalBoss({ state, qual, pp }) {
           </div>
         </div>
         <div className="grid grid-cols-3 gap-1.5 mt-6 jp text-center">
-          {[["択一20問なら", `約${Math.round(pp.power * 20)}問`], ["出会った問題", `${pp.seen}/${pp.total}`], ["手強い魔物", `${pp.weak}体`]].map(([k, v]) => (
+          {[[`${examSizeOf(state).label}${examSizeOf(state).n}問なら`, `約${Math.round(pp.power * examSizeOf(state).n)}問`], ["出会った問題", `${pp.seen}/${pp.total}`], ["手強い魔物", `${pp.weak}体`]].map(([k, v]) => (
             <div key={k} style={{ background: "rgba(255,255,255,0.08)", borderRadius: 6, padding: "5px 2px" }}><div className="text-[10px]" style={{ color: "#c9d4e2" }}>{k}</div><div className="text-sm" style={{ fontWeight: 800 }}>{v}</div></div>
           ))}
         </div>
@@ -10120,7 +10133,7 @@ function DungeonRun({ state, pool, minutes, actions, recordAnswer, startTimer, s
           <div className="text-[11px]" style={{ color: "var(--ink-mute)" }}>{done.why} ・ {done.answered}/{done.total}問を解答 ・ {mmss(done.used)}</div>
           <div style={{ fontSize: 40, fontWeight: 800, color: verdict[1], fontFamily: "'Cinzel', 'Shippori Mincho B1', serif" }}>{Math.round(done.acc * 100)}%</div>
           <div className="text-sm" style={{ fontWeight: 800, color: verdict[1] }}>{verdict[0]}</div>
-          <div className="text-[11px] mt-1" style={{ color: "var(--ink-soft)" }}>{done.correct}問正解 ・ 択一20問なら 約{Math.round(done.acc * 20)}問</div>
+          <div className="text-[11px] mt-1" style={{ color: "var(--ink-soft)" }}>{done.correct}問正解 ・ {examSizeOf(state).label}{examSizeOf(state).n}問なら 約{Math.round(done.acc * examSizeOf(state).n)}問</div>
           {done.reward && <div className="text-xs mt-1" style={{ color: "var(--gold)", fontWeight: 700 }}>{done.reward}</div>}
         </div>
         {Object.keys(byRegion).length > 0 && (
@@ -11870,7 +11883,7 @@ function HomeDashboard({ state, actions, todayCount, liveSeconds, onGo, onQuick,
     review: <Row no="一" icon={<Calendar size={18} />} label="今日の復習" title={todayCount > 0 ? `あと ${todayCount}問` : "今日の復習は完了です"} sub={todayCount > 0 ? "期限が来た問題と、まだ解いていない問題" : "おつかれさまでした。余力があればストーリーへ"} action={todayCount > 0 ? "はじめる" : "ひらく"} onClick={() => onGo("today")} />,
     story: sn.all > 0 && <Row no="二" icon={<BookOpen size={18} />} label={`ストーリーのつづき（描いた土地 ${sn.done}/${sn.all}）`} title={sn.next ? `${sn.reg.name}` : "すべての地図が完成"} sub={sn.next ? `${sn.next.bank.name}　第${sn.next.idx + 1}話` : "★を集め直すこともできます"} action="進む" onClick={() => onGo("adventure")} />,
     goal: plan && plan.perDay > 0 && <Row no="三" icon={<TrendingUp size={18} />} label="今日の目標（試験日から逆算）" title={`新しい問題 ${plan.perDay}問`} sub={plan.done >= plan.perDay ? `今日 ${plan.done}問 ― 達成しました！` : `今日 ${plan.done}問 ・ あと${plan.perDay - plan.done}問（未学習 ${plan.unseen}問を試験日までに）`} gauge={Math.min(1, plan.done / plan.perDay)} mark={false} action="解く" onClick={() => onGo("today")} />,
-    final: pp.total > 0 && <Row no={plan && plan.perDay > 0 ? "四" : "三"} icon={<Skull size={18} />} label="最終決戦" title={days !== null && days >= 0 ? `決戦まで あと${days}日` : "試験の魔王"} sub={`合格力 ${pctTxt(pp.power)}・いま試験なら基準点突破 ${Math.round(((passChance(state, pp) || {}).pBase || 0) * 100)}%`} gauge={pp.power} action="見る" onClick={() => onGo("adventure")} />,
+    final: pp.total > 0 && <Row no={plan && plan.perDay > 0 ? "四" : "三"} icon={<Skull size={18} />} label="最終決戦" title={days !== null && days >= 0 ? `決戦まで あと${days}日` : "試験の魔王"} sub={curWorld(state).exam ? `合格力 ${pctTxt(pp.power)}・いま試験なら合格 ${Math.round(((worldPassChance(pp, curWorld(state)) || {}).pPass || 0) * 100)}%` : `合格力 ${pctTxt(pp.power)}・いま試験なら基準点突破 ${Math.round(((passChance(state, pp) || {}).pBase || 0) * 100)}%`} gauge={pp.power} action="見る" onClick={() => onGo("adventure")} />,
     reflect: (<button onClick={() => actions.openTalk(reflectionTalk(state))} className="jp w-full mt-2 flex items-center gap-2 px-3 py-2" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)", borderRadius: 8, cursor: "pointer", textAlign: "left" }}>
           <span style={{ fontSize: 18 }} aria-hidden="true">🌙</span>
           <span className="flex-1"><span className="block text-sm" style={{ fontWeight: 800, color: "var(--ink)" }}>今日のふりかえり</span><span className="block text-[11px]" style={{ color: "var(--ink-soft)" }}>今日の成果と、明日のタスクを聞く（夜20時からは自動で）</span></span>
@@ -12264,7 +12277,7 @@ function WorldView({ state, actions, todayCount, onWeekly, onDungeon, onGuardian
         <TopicKarte state={state} pp={pp} onStart={onStory} />
       </>)}
       {sec === "tower" && <TowerView state={state} pp={pp} onStart={onTower} />}
-      {sec === "train" && (<>
+      {sec === "train" && world.id === "home" && (<>
         <NumberDeck state={state} actions={actions} />
         <PaceDrill state={state} actions={actions} />
         <KumiaiDrill state={state} actions={actions} />
@@ -12277,6 +12290,15 @@ function WorldView({ state, actions, todayCount, onWeekly, onDungeon, onGuardian
         <LawCloze state={state} actions={actions} />
         <ShoshikiDojo state={state} actions={actions} />
         <ShoshikiCheck state={state} actions={actions} />
+      </>)}
+      {sec === "train" && world.id !== "home" && (<>
+        {world.exam && <WorldExamCard key={world.id} state={state} world={world} pp={pp} actions={actions} />}
+        <NumberDeck state={state} actions={actions} />
+        <PaceDrill state={state} actions={actions} />
+        <KumiaiDrill state={state} actions={actions} />
+        <LawListen state={state} actions={actions} />
+        <TeachMode state={state} actions={actions} />
+        <LawCloze state={state} actions={actions} />
       </>)}
       {sec === "road" && (<>
         <PartyCard state={state} actions={actions} />
@@ -15517,6 +15539,170 @@ function MemoryReportCard({ state }) {
 
 // ── 時間配分トレーニング：本番の択一と同じ「1問あたり約2分半」のペースで10問。時間を使いすぎた問題に印、「迷ったら次へ」 ──
 const PACE_SEC = 150, PACE_N = 10;
+// ── 資格の世界の本番モード（2026年10月20日）：世界の設定 exam（src/data/worlds.js）の形で、4択の問題だけを科目ごとに出し、時間を計って一気に解く ──
+// 解いている途中は WORLD_EXAM に残す（タブを切り替えても続きから）。採点で1問ずつ今日の復習の記録にも入れる（sq-record-answer）
+const WORLD_EXAM = { run: null };
+function worldExamPool(state, pp, w) {
+  const ex = w.exam;
+  return ex.parts.flatMap((pt) => {
+    const g = pp.regions.find((x) => x.name === pt.region);
+    const cands = g ? g.banks.flatMap((b) => (b.questions || []).filter((q) => !q.excluded && choiceOf(q.q, q.a)).map((q) => ({ bankId: b.id, bankName: b.name, qId: q.id, part: pt.name }))) : [];
+    return shuffle(cands).slice(0, pt.n);
+  });
+}
+function WorldExamCard({ state, world, pp, actions }) {
+  const ex = world.exam;
+  const [run, setRunRaw] = useState(() => (WORLD_EXAM.run && WORLD_EXAM.run.wid === world.id ? WORLD_EXAM.run : null));
+  const setRun = (v) => { WORLD_EXAM.run = v; setRunRaw(v); };
+  const [done, setDone] = useState(null);
+  const [open, setOpen] = useState(null);
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => { if (!run) return undefined; const id = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(id); }, [!!run]);
+  const limit = ex.minutes * 60;
+  const itemOf = (it) => { const b = state.questionBanks.find((x) => x.id === it.bankId); const q = b && (b.questions || []).find((x) => x.id === it.qId); return q ? { b, q, ch: choiceOf(q.q, q.a) } : null; };
+  const start = () => {
+    const list = worldExamPool(state, pp, world);
+    if (!list.length) return;
+    setDone(null); setOpen(null); setNow(Date.now());
+    setRun({ wid: world.id, list, ans: {}, flag: {}, i: 0, t0: Date.now() });
+  };
+  const grade = (r) => {
+    const sec = Math.min(limit, Math.round((Date.now() - r.t0) / 1000));
+    const rows = r.list.map((it, k) => { const x = itemOf(it); const pick = r.ans[k] || null; return { it, x, pick, ok: !!(x && pick && pick === x.ch.correct) }; }).filter((row) => row.x);
+    rows.forEach((row) => window.dispatchEvent(new CustomEvent("sq-record-answer", { detail: { bankId: row.it.bankId, qId: row.it.qId, correct: row.ok, meta: row.ok ? { conf: "sure" } : { errType: null } } })));
+    const parts = ex.parts.map((pt) => { const rs = rows.filter((row) => row.it.part === pt.name); const ok = rs.filter((row) => row.ok).length; return { name: pt.name, n: rs.length, ok, need: pt.pass, full: pt.n, pass: rs.length >= pt.n && ok >= pt.pass }; });
+    const passed = parts.every((pt) => pt.pass);
+    const msg = actions.worldExamFinish({ wid: world.id, parts: parts.map(({ name, n, ok }) => ({ name, n, ok })), sec, passed });
+    SFX.play("result");
+    setRun(null); setDone({ rows, parts, passed, sec, msg });
+  };
+  // 時間切れは自動で採点
+  useEffect(() => { if (run && now - run.t0 >= limit * 1000) grade(run); }, [now]);
+  const mmss = (s) => `${Math.floor(s / 60)}:${String(Math.max(0, s) % 60).padStart(2, "0")}`;
+
+  if (run) {
+    const cur = itemOf(run.list[run.i]);
+    const left = limit - Math.floor(Math.max(0, now - run.t0) / 1000);
+    const answered = Object.keys(run.ans).length;
+    const go = (i) => setRun({ ...run, i: Math.max(0, Math.min(run.list.length - 1, i)) });
+    const pick = (n) => setRun({ ...run, ans: { ...run.ans, [run.i]: n } });
+    return (
+      <Box title={`${ex.title}　${run.i + 1} / ${run.list.length}`} icon={<Clock size={18} />}>
+        <div className="jp space-y-2">
+          <div className="flex items-center gap-2">
+            <span style={{ fontFamily: "'Cinzel', serif", fontWeight: 900, fontSize: 20, color: left < 300 ? "#c9564e" : "var(--ink)" }}>{mmss(left)}</span>
+            <span className="flex-1 text-[11px]" style={{ color: "var(--ink-soft)" }}>のこり時間　解答 {answered} / {run.list.length}</span>
+            <button onClick={() => { if (confirm("本番モードをやめますか？（採点も記録もしません）")) setRun(null); }} className="btn-ghost text-[10px] px-2 py-0.5">やめる</button>
+          </div>
+          <div className="grid grid-cols-12 gap-1">
+            {run.list.map((it, k) => {
+              const on = k === run.i, a = run.ans[k], f = run.flag[k];
+              return <button key={k} onClick={() => go(k)} title={it.part} className="text-[10px] py-1" style={{ borderRadius: 4, border: `1.5px solid ${on ? "var(--gold)" : f ? "#c9564e" : "var(--rule-soft)"}`, background: a ? "rgba(79,125,200,0.22)" : "var(--paper)", color: a ? "var(--sky-deep)" : "var(--ink-mute)", fontWeight: on || a ? 800 : 500, cursor: "pointer" }}>{k + 1}</button>;
+            })}
+          </div>
+          {cur ? (<>
+            <div className="flex items-center gap-2 text-[10px]" style={{ color: "var(--ink-mute)" }}>
+              <span className="px-1.5" style={{ border: "1px solid var(--rule-soft)", borderRadius: 4 }}>{run.list[run.i].part}</span>
+              <span className="flex-1 truncate">{cur.b.name}</span>
+              <button onClick={() => setRun({ ...run, flag: { ...run.flag, [run.i]: !run.flag[run.i] } })} className="text-[10px] px-2 py-0.5" style={{ borderRadius: 999, border: `1px solid ${run.flag[run.i] ? "#c9564e" : "var(--rule-soft)"}`, background: run.flag[run.i] ? "rgba(201,86,78,0.08)" : "var(--paper)", color: run.flag[run.i] ? "#c9564e" : "var(--ink-soft)", cursor: "pointer" }}>{run.flag[run.i] ? "🚩 見直す" : "🏳 あとで見直す"}</button>
+            </div>
+            <div className="qtext text-base px-1" style={{ color: "var(--ink)", lineHeight: 1.8 }}>{TRAP_MARK.on ? markTraps(cur.ch.stem, "s") : cur.ch.stem}</div>
+            <div className="space-y-1.5">
+              {cur.ch.opts.map((o, k) => { const on = run.ans[run.i] === k + 1; return (
+                <button key={k} onClick={() => pick(k + 1)} className="w-full text-left flex items-baseline gap-2 px-2.5 py-2" style={{ borderRadius: 8, border: `1.5px solid ${on ? "var(--sky-deep)" : "var(--rule-soft)"}`, background: on ? "var(--sky-pale)" : "var(--paper)", color: "var(--ink)", cursor: "pointer" }}>
+                  <span style={{ fontWeight: 800, color: "var(--sky-deep)", flexShrink: 0 }}>{on ? "●" : "○"} ({k + 1})</span><span className="text-sm">{o}</span>
+                </button>
+              ); })}
+            </div>
+          </>) : <p className="text-xs" style={{ color: "var(--ink-mute)" }}>この問題は見つかりませんでした（消された問題集）。</p>}
+          <div className="grid grid-cols-3 gap-2">
+            <button onClick={() => go(run.i - 1)} disabled={run.i === 0} className="btn-ghost py-2 text-xs">← 前へ</button>
+            <button onClick={() => go(run.i + 1)} disabled={run.i >= run.list.length - 1} className="btn-ghost py-2 text-xs">次へ →</button>
+            <button onClick={() => { const un = run.list.length - answered; if (!un || confirm(`まだ答えていない問題が${un}問あります。採点しますか？（答えていない問題は不正解）`)) grade(run); }} className="btn-primary py-2 text-xs">採点する</button>
+          </div>
+        </div>
+      </Box>
+    );
+  }
+  const log = ((normRpg(state.rpg).worldExam || {})[world.id] || {}).log || [];
+  const avail = ex.parts.map((pt) => { const g = pp.regions.find((x) => x.name === pt.region); return { ...pt, have: g ? g.banks.reduce((t, b) => t + (b.questions || []).filter((q) => !q.excluded && choiceOf(q.q, q.a)).length, 0) : 0 }; });
+  const can = avail.some((x) => x.have > 0);
+  return (
+    <Box title={ex.title} icon={<Clock size={18} />}>
+      <div className="jp space-y-2">
+        <p className="text-[11px]" style={{ color: "var(--ink-soft)", lineHeight: 1.7 }}>{ex.note} 本番と同じように、選択肢を選んで最後にまとめて採点します。答えは今日の復習の記録にも入ります。</p>
+        <div className="grid grid-cols-2 gap-2">
+          {avail.map((x) => <div key={x.name} className="text-center py-1.5" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)", borderRadius: 8 }}><div className="text-[10px]" style={{ color: "var(--ink-mute)" }}>{x.name}（{x.region}）</div><div className="text-sm" style={{ fontWeight: 800, color: x.have >= x.n ? "var(--ink)" : "#c9564e" }}>4択 {x.have}問から{x.n}問</div></div>)}
+        </div>
+        {done && (
+          <div className="px-2 py-2" style={{ background: done.passed ? "rgba(214,181,106,0.15)" : "var(--cream)", border: `1.5px solid ${done.passed ? "var(--gold)" : "#c9564e"}`, borderRadius: 10 }}>
+            <div className="text-center" style={{ fontFamily: "'Shippori Mincho B1', serif", fontWeight: 800, fontSize: 22, color: done.passed ? "#b08a3e" : "#c9564e" }}>{done.passed ? "合格！" : "不合格"}</div>
+            <div className="grid grid-cols-2 gap-2 mt-1">
+              {done.parts.map((pt) => <div key={pt.name} className="text-center py-1" style={{ background: "var(--paper)", border: `1px solid ${pt.pass ? "var(--sage)" : "#c9564e"}`, borderRadius: 8 }}><div className="text-[10px]" style={{ color: "var(--ink-mute)" }}>{pt.name}</div><div style={{ fontWeight: 800, fontSize: 18, color: pt.pass ? "var(--sage)" : "#c9564e" }}>{pt.ok * ex.points}<span className="text-[11px]"> / {pt.full * ex.points}点</span></div><div className="text-[10px]" style={{ color: "var(--ink-soft)" }}>{pt.ok} / {pt.n}問（{pt.need}問以上で合格）</div></div>)}
+            </div>
+            <div className="text-[11px] text-center mt-1" style={{ color: "var(--ink-soft)" }}>かかった時間 {mmss(done.sec)}{done.msg ? `　${done.msg}` : ""}</div>
+            <div className="mt-2 space-y-1 max-h-80 overflow-y-auto">
+              {done.rows.map((row, k) => (
+                <button key={k} onClick={() => setOpen(open === k ? null : k)} className="w-full text-left px-2 py-1" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)", borderLeft: `3px solid ${row.ok ? "var(--sage)" : "#c9564e"}`, borderRadius: 6, cursor: "pointer" }}>
+                  <div className="text-[11px]" style={{ color: "var(--ink)" }}><b style={{ color: row.ok ? "var(--sage)" : "#c9564e" }}>{row.ok ? "○" : "✕"} {k + 1}.</b> {row.x.ch.stem.slice(0, open === k ? 999 : 40)}{open !== k && row.x.ch.stem.length > 40 ? "…" : ""}</div>
+                  {open === k && <div className="text-[11px] mt-1" style={{ color: "var(--ink-soft)", lineHeight: 1.7 }}>あなたの答え：{row.pick ? `(${row.pick}) ${row.x.ch.opts[row.pick - 1]}` : "（未回答）"}<br />正解：({row.x.ch.correct}) {row.x.ch.opts[row.x.ch.correct - 1]}<br />{row.x.q.a}</div>}
+                </button>
+              ))}
+            </div>
+            {done.rows.some((row) => !row.ok) && <button onClick={() => window.dispatchEvent(new CustomEvent("sq-study-items", { detail: { items: done.rows.filter((row) => !row.ok).map((row) => row.it), title: `${ex.title}のまちがい` } }))} className="btn-plum w-full py-1.5 text-xs mt-2">まちがえた問題をもう一度（今日タブで）</button>}
+          </div>
+        )}
+        <button onClick={start} disabled={!can} className="btn-danger w-full py-2.5">⏱ {ex.title}を始める（{ex.parts.reduce((t, x) => t + x.n, 0)}問・{ex.minutes}分）</button>
+        {log.length > 0 && <p className="text-[10px]" style={{ color: "var(--ink-mute)" }}>最近：{log.slice(-5).map((l) => `${l.d.slice(5).replace("-", "/")} ${l.passed ? "合格" : "不合格"}（${l.parts.map((pt) => `${pt.name.slice(0, 2)}${pt.ok}`).join("・")}）`).join("　")}</p>}
+      </div>
+    </Box>
+  );
+}
+// 本番の問題数（最終決戦・模試の塔の「○問なら」）：資格の世界は世界の試験の形、王都の世界は択一20問
+const examSizeOf = (state) => { const w = curWorld(state); return w.exam ? { n: w.exam.parts.reduce((t, x) => t + x.n, 0), label: "本番" } : { n: 20, label: "択一" }; };
+// 資格の世界の「いま試験なら」：科目ごとに「n問中 pass 問以上」の確率を、科目の合格力（記憶率の平均）から出す
+function worldPassChance(pp, w, boost = 0) {
+  const ex = w && w.exam;
+  if (!ex || !pp.total) return null;
+  const parts = ex.parts.map((pt) => {
+    const g = pp.regions.find((x) => x.name === pt.region && x.total > 0);
+    const m = Math.min(1, (g ? g.power : pp.power) + boost);
+    const p = m ** 1.5 + (1 - m ** 1.5) * (ex.guess || 0.25);
+    return { ...pt, m, p, exp: p * pt.n, pPass: binomTail(pt.n, p, pt.pass) };
+  });
+  return { parts, pPass: parts.reduce((t, x) => t * x.pPass, 1) };
+}
+function WorldExamChance({ pp, world }) {
+  const c = worldPassChance(pp, world);
+  if (!c) return null;
+  const unseen = pp.total - pp.seen;
+  const n = Math.min(unseen, Math.max(10, Math.round(pp.total * 0.05)));
+  const up = n > 0 ? worldPassChance(pp, world, (n * 0.9) / pp.total) : null;
+  const col = (v) => (v >= 0.8 ? "var(--gold)" : v >= 0.5 ? "var(--sage)" : "#c9564e");
+  const ex = world.exam;
+  return (
+    <Box title={`いま試験なら（${ex.title.replace(/本番モード$/, "").trim()}の予想）`} icon={<TrendingUp size={18} />}>
+      <div className="jp">
+        <div className="text-center py-2 mb-2" style={{ background: "var(--paper)", border: `1.5px solid ${col(c.pPass)}`, borderRadius: 10 }}>
+          <div className="text-[10px]" style={{ color: "var(--ink-mute)" }}>合格する確率（全部の科目で合格点）</div>
+          <div style={{ fontSize: 30, fontWeight: 800, color: col(c.pPass), fontFamily: "'Cinzel', 'Shippori Mincho B1', serif" }}>{Math.round(c.pPass * 100)}<span className="text-sm">%</span></div>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          {c.parts.map((pt) => (
+            <div key={pt.name} className="text-center py-1.5" style={{ background: "var(--paper)", border: `1px solid ${col(pt.pPass)}`, borderRadius: 8 }}>
+              <div className="text-[10px]" style={{ color: "var(--ink-mute)" }}>{pt.name}（{pt.n}問中{pt.pass}問以上）</div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: col(pt.pPass) }}>{Math.round(pt.pPass * 100)}%</div>
+              <div className="text-[10px]" style={{ color: "var(--ink-soft)" }}>予想 {pt.exp.toFixed(1)}問（{Math.round(pt.exp * ex.points)}点）</div>
+            </div>
+          ))}
+        </div>
+        {up && <p className="text-[11px] mt-2 px-2 py-1.5" style={{ background: "var(--cream)", border: "1px solid var(--rule-soft)", borderRadius: 8, color: "var(--ink)" }}>未学習の問題をあと<b>{n}問</b>覚えると、合格する確率は <b>{Math.round(c.pPass * 100)}% → {Math.round(up.pPass * 100)}%</b> の見込みです。</p>}
+        <p className="text-[10px] mt-2" style={{ color: "var(--ink-mute)" }}>※ 科目ごとの「いま思い出せる確率」の平均から計算した目安です。4択なので、わからない問題も4分の1は当たるとして数えています。</p>
+      </div>
+    </Box>
+  );
+}
+
 function PaceDrill({ state, actions }) {
   const [run, setRun] = useState(null); // { list:[{b,q}], i, t0, qt0, recs:[], skipped:Set, show }
   const [now, setNow] = useState(Date.now());
