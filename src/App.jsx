@@ -2515,6 +2515,8 @@ function StudyRPG({ user }) {
       showRpgToast(`💀 賞金首を討伐！ ${prize}G・星霊石×${BOUNTY_REWARD.star}・EXP${BOUNTY_REWARD.xp}`, "#b08a3e");
     },
     logPace: (rec) => updateRpg((x) => ({ ...x, pace: { log: [...(((x.pace || {}).log) || []), { d: todayStr(), ...rec }].slice(-40) } })),
+    // 今日やること3つ（その日の朝に選んだもの）
+    setToday3: (v) => updateRpg((x) => ({ ...x, today3: v })),
     // パーティ編成：region が null ならふだんの編成、地域名ならその地域の編成（空にすると、ふだんの編成にもどる）
     setParty: ({ region, ids }) => updateRpg((x) => {
       const pt = x.party || {};
@@ -2751,7 +2753,7 @@ function StudyRPG({ user }) {
         return {
           ...x, gold: x.gold + gold, goldEarned: x.goldEarned + gold,
           materials: { ...x.materials, "m-star": (x.materials["m-star"] || 0) + star },
-          rehearsal: { ...rh, log: [...(rh.log || []), { id: uid(), d: todayStr(), full, mcOk, mcN, mc, desc, total, min: Math.round(min), pass, ...(split ? { split } : {}), ...(years ? { years } : {}) }].slice(-100) },
+          rehearsal: { ...rh, log: [...(rh.log || []), { id: uid(), d: todayStr(), h: new Date().getHours(), full, mcOk, mcN, mc, desc, total, min: Math.round(min), pass, ...(split ? { split } : {}), ...(years ? { years } : {}) }].slice(-100) },
         };
       });
       setTimeout(() => awardXp(full ? 80 : 40), 300);
@@ -3975,6 +3977,7 @@ function StudyRPG({ user }) {
               else if (id === "events" || id === "guide" || id === "quest") out.push(dash(id));
               else if (id === "quals") out.push(<div key="quals"><HomeTab state={state} liveSeconds={liveSeconds} setMainTitle={setMainTitle} setTab={setTab} todayCount={getTodayReviewItems().length} hideBanner dashboard /></div>);
             }
+            if (rmShow(state)) out.unshift(<TodayThree key="today3" state={state} actions={rpgActions} />);
             if (rmShow(state)) out.unshift(<RoadmapBanner key="roadmap" state={state} />);
             if ((state.qualifications || []).length) out.unshift(<StarBookBar key="book" state={state} onPick={(id) => updateDisplaySettings({ activeQual: id })} onNew={() => setTab("qual")} />);
             return out;
@@ -10159,6 +10162,8 @@ function RehearsalCard({ state, pp, actions, onStart }) {
       )}
       {rh.log.length > 0 && (
         <div className="jp mt-3 pt-3" style={{ borderTop: "1px dashed var(--rule-soft)" }}>
+          <div className="text-[10px] mb-1" style={{ color: "var(--ink-soft)" }}>時間帯ごとの成績</div>
+          <RehearsalBands log={rh.log} />
           {fulls.length > 0 && (<>
             <div className="text-[10px] mb-1" style={{ color: "var(--ink-soft)" }}>合計点の推移（本番と同じ形・直近10回）</div>
             <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ display: "block" }} aria-label="合計点の推移">
@@ -17775,6 +17780,100 @@ function TatakiDueCard({ state }) {
         <button onClick={() => window.dispatchEvent(new CustomEvent("sq-open-past", { detail: { to: "laps", tataki: true } }))} className="btn-primary text-xs px-3 py-1.5">叩き込む ▶</button>
       </div>
     </Box>
+  );
+}
+
+// ── 今日やること3つ（2026年10月20日）：記述式の復習日・申請書の叩き込み・今日の復習・本番リハーサル日・ロードマップの遅れ・計算から、
+//    その日の朝に3つ選んで rpg.today3 = {d, items:[{id, kind, ...base}]} に残す。できたかどうかは記録から自動で✓ ──
+const T3_ERAS = ["H17", "H18", "H19", "H20", "H21", "H22", "H23", "H24", "H25", "H26", "H27", "H28", "H29", "H30", "R1", "R2", "R3", "R4", "R5", "R6"];
+function t3Status(state) {
+  const today = todayStr();
+  const r = normRpg(state.rpg);
+  const sc = studyScope(state);
+  let due = 0;
+  state.questionBanks.forEach((b) => { if (!sc.inScope(b)) return; (b.questions || []).forEach((q) => { if (!q.excluded && q.sr_nextReview && q.sr_nextReview <= today) due++; }); });
+  const kj = kjDue((r.kijutsu || {}).res, today);
+  const tk = tatakiToday(state);
+  const month = today.slice(0, 7);
+  const fullThisMonth = ((r.rehearsal || {}).log || []).some((e) => e.full && (e.d || "").startsWith(month));
+  const cd = calcDueList(state, T3_ERAS, today);
+  // ロードマップ：いまの時期で、期間の進みより遅れている項目
+  let behind = null;
+  if (rmShow(state)) {
+    const ph = rmPhaseNow(today);
+    const span = Math.max(1, daysBetween(ph.from, ph.to)), el = Math.min(1, Math.max(0, daysBetween(ph.from, today) / span));
+    rmTasks(state, ph).forEach((t) => { if (!t.target) return; const p = roadmapProgress(state, t, ph); const gap = el - p.done / t.target; if (gap > 0.15 && (!behind || gap > behind.gap)) behind = { t, p, gap, ph }; });
+  }
+  return { due, kj, tk, fullThisMonth, cd, behind, weekend: [0, 6].includes(new Date().getDay()) };
+}
+function t3Pick(st) {
+  const out = [];
+  if (st.kj.length) out.push({ id: `kj:${st.kj[0].id}`, kind: "kijutsu", key: st.kj[0].id, label: `記述式の道場：${kjLabel(st.kj[0].id)}をもう一度`, sub: `前回 ${st.kj[0].r.last}点` });
+  if (st.tk.due + st.tk.newLeft > 0) out.push({ id: "tataki", kind: "tataki", label: `申請書の叩き込み（復習${st.tk.due}枚・新しい${st.tk.newLeft}枚）`, sub: "目的・原因・添付書類を毎日まわす" });
+  if (st.due > 0) out.push({ id: "review", kind: "review", label: `今日の復習（期限が来た${st.due}問）`, sub: "択一の記憶を保つ" });
+  if (st.weekend && !st.fullThisMonth) out.push({ id: `rh:${todayStr().slice(0, 7)}`, kind: "rehearsal", label: "今月の本番リハーサル日（150分）", sub: "できれば本番と同じ13時から。冒険 → 世界 → 鍛錬" });
+  if (st.behind) out.push({ id: `rm:${st.behind.t.id}`, kind: "roadmap", base: st.behind.p.done, label: `ロードマップ：${st.behind.t.label}`, sub: `この時期の目標 ${st.behind.t.target}${st.behind.p.unit}に対して ${st.behind.p.done}${st.behind.p.unit}（遅れぎみ）` });
+  if (st.cd.past.length) out.push({ id: `pc:${st.cd.past[0].k}${st.cd.past[0].era}`, kind: "pastcalc", k: st.cd.past[0].k, era: st.cd.past[0].era, label: `本試験の計算：${eraLabel(st.cd.past[0].era)}の${st.cd.past[0].k === "L" ? "土地" : "建物"}`, sub: st.cd.past[0].r.last ? "間をあけてもう一度" : "前回まちがえた計算" });
+  return out.slice(0, 3);
+}
+function t3Done(state, it, st) {
+  if (it.kind === "kijutsu") return !st.kj.some((x) => `kj:${x.id}` === it.id);
+  if (it.kind === "tataki") return st.tk.due + st.tk.newLeft === 0;
+  if (it.kind === "review") return st.due === 0;
+  if (it.kind === "rehearsal") return st.fullThisMonth;
+  if (it.kind === "roadmap") return !st.behind || st.behind.t.id !== it.id.slice(3) || st.behind.p.done > (it.base || 0);
+  if (it.kind === "pastcalc") return !st.cd.past.some((x) => `pc:${x.k}${x.era}` === it.id);
+  return false;
+}
+function t3Go(it) {
+  const ev = (detail) => window.dispatchEvent(new CustomEvent("sq-open-past", { detail }));
+  if (it.kind === "kijutsu") ev({ to: "laps", key: it.key });
+  else if (it.kind === "tataki") ev({ to: "laps", tataki: true });
+  else if (it.kind === "review") ev({ to: "today" });
+  else if (it.kind === "rehearsal") ev({ to: "adventure" });
+  else if (it.kind === "roadmap") openRoadmap();
+  else if (it.kind === "pastcalc") ev({ to: "calc", kind: it.k, id: it.era });
+}
+function TodayThree({ state, actions }) {
+  const today = todayStr();
+  const r = normRpg(state.rpg);
+  const st = t3Status(state);
+  const saved = r.today3 && r.today3.d === today ? r.today3.items : null;
+  const items = saved || t3Pick(st);
+  // その日の3つは朝に決めたものを残す（終わるたびに次が出てきて、終わりが見えなくならないように）
+  useEffect(() => { if (!saved && items.length) actions.setToday3({ d: today, items }); }, [today, !!saved]);
+  if (!items.length) return null;
+  const doneN = items.filter((it) => t3Done(state, it, st)).length;
+  return (
+    <div className="jp mb-3" style={{ borderRadius: 12, padding: "10px 12px", background: "var(--paper)", border: "1.5px solid var(--sky-deep)" }}>
+      <div className="flex items-baseline gap-2 mb-1">
+        <span className="text-[14px]" style={{ fontFamily: "'Shippori Mincho B1', serif", fontWeight: 800, color: "var(--ink)" }}>☀ 今日やること {items.length}つ</span>
+        <span className="text-[11px]" style={{ color: doneN === items.length ? "#4f7a3a" : "var(--ink-mute)", fontWeight: 700 }}>{doneN === items.length ? "全部できました！ おつかれさまでした" : `${doneN} / ${items.length} できた`}</span>
+      </div>
+      <div className="space-y-1">
+        {items.map((it, i) => { const ok = t3Done(state, it, st); return (
+          <button key={it.id} onClick={() => !ok && t3Go(it)} className="w-full text-left flex items-center gap-2 px-2 py-1.5" style={{ borderRadius: 8, border: `1px solid ${ok ? "#6d8454" : "var(--rule-soft)"}`, background: ok ? "rgba(109,132,84,0.1)" : "var(--paper)", cursor: ok ? "default" : "pointer", color: "var(--ink)" }}>
+            <span style={{ width: 22, height: 22, flexShrink: 0, borderRadius: 6, border: `1.5px solid ${ok ? "#6d8454" : "var(--rule-soft)"}`, background: ok ? "#6d8454" : "transparent", color: "#fff", fontSize: 13, fontWeight: 900, display: "flex", alignItems: "center", justifyContent: "center" }}>{ok ? "✓" : i + 1}</span>
+            <span className="flex-1 min-w-0"><span className="block text-[12px]" style={{ fontWeight: 800, textDecoration: ok ? "line-through" : "none", color: ok ? "var(--ink-mute)" : "var(--ink)" }}>{it.label}</span><span className="block text-[10px]" style={{ color: "var(--ink-mute)" }}>{it.sub}</span></span>
+            {!ok && <span className="text-[11px]" style={{ color: "var(--sky-deep)", fontWeight: 800 }}>やる ▶</span>}
+          </button>
+        ); })}
+      </div>
+    </div>
+  );
+}
+// 本番リハーサルの時間帯ごとの成績（午前・午後・夜。記録の h＝始めた時間）
+function RehearsalBands({ log }) {
+  const bands = [["午前", (h) => h < 12], ["午後（本番の時間）", (h) => h >= 12 && h < 17], ["夕方・夜", (h) => h >= 17]].map(([nm, f]) => {
+    const xs = log.filter((e) => typeof e.h === "number" && f(e.h));
+    const sc = xs.map((e) => (e.full && e.total != null ? e.total : e.mc * 2));
+    return { nm, n: xs.length, avg: sc.length ? Math.round((sc.reduce((a, b) => a + b, 0) / sc.length) * 10) / 10 : null };
+  });
+  if (!bands.some((b) => b.n)) return <div className="text-[10px] mb-2" style={{ color: "var(--ink-mute)" }}>これからのリハーサルは、解いた時間帯ごとの成績も残します（本番は13時から）。</div>;
+  return (
+    <div className="grid grid-cols-3 gap-1.5 mb-2">
+      {bands.map((b) => <div key={b.nm} className="text-center py-1" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)", borderRadius: 8 }}><div className="text-[10px]" style={{ color: "var(--ink-mute)" }}>{b.nm}</div><div className="text-[13px]" style={{ fontWeight: 800, color: "var(--ink)" }}>{b.avg != null ? `${b.avg}点` : "－"}</div><div className="text-[9px]" style={{ color: "var(--ink-mute)" }}>{b.n}回（100点満点）</div></div>)}
+    </div>
   );
 }
 
