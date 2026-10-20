@@ -26,6 +26,7 @@ export const WORLD_PRESETS = [
         { name: "無線工学", region: "雷鳴の工房", n: 12, pass: 8 },
       ],
     },
+    drills: ["radiocalc", "blocks"], // この世界の鍛錬：無線工学の計算ドリル・ブロック図の並べ替え
     mapHue: 150, // 地図の絵がないときは、王都の地図の色を変えて仮に使う
     // 地図：public/art/storymap-radio.webp（イラストフォルダの「電波の王国 冒険マップ」から、題名の帯を切り落とした）
     // nodes は元の絵（1672×941）の座標で、絵に描かれた印の位置。box は切り出した範囲。fog：クエストのない印は雲で隠す

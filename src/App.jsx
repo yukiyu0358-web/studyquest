@@ -16,6 +16,7 @@ import { STUDY_QUOTES } from "./data/quotes"; // 名言
 import { SANKO_SUBJECTS } from "./data/sankosho"; // 参考書道場（暗記の参考書）
 import { NIRIKUTOKU_SUBJECTS } from "./data/sankosho-radio"; // 参考書道場：二陸特
 import { HOME_WORLD, WORLD_PRESETS, genericChapters } from "./data/worlds"; // 冒険の世界（資格ごと）
+import { RADIO_CALC_TYPES, makeRadioCalc } from "./game/radiocalc"; // 無線工学の計算ドリル（二陸特）
 import { REGION_TALK, STORY_TALKS, REGION_ARC, regionArc, TRINITY_REGIONS, TRINITY_TALK, BOND_TALKS, COUNTDOWN_TALKS, ACADEMY_MEET, STUDY_GROUP_TALK } from "./data/story"; // 物語の会話
 
 
@@ -2272,6 +2273,19 @@ function StudyRPG({ user }) {
       showRpgToast(`💀 賞金首を討伐！ ${prize}G・星霊石×${BOUNTY_REWARD.star}・EXP${BOUNTY_REWARD.xp}`, "#b08a3e");
     },
     logPace: (rec) => updateRpg((x) => ({ ...x, pace: { log: [...(((x.pace || {}).log) || []), { d: todayStr(), ...rec }].slice(-40) } })),
+    // 無線工学の計算ドリル：種類ごとの正解率と最近の結果。正解1問 5G・EXP3、カイとの絆
+    logRadioCalc: (recs) => {
+      const ok = recs.filter((x) => x.ok).length;
+      updateRpg((x) => {
+        const c = x.radioCalc || {}, st = { ...(c.stats || {}) };
+        recs.forEach((r) => { const v = st[r.type] || {}; st[r.type] = { n: (v.n || 0) + 1, ok: (v.ok || 0) + (r.ok ? 1 : 0) }; });
+        let out = { ...x, gold: x.gold + ok * 5, goldEarned: x.goldEarned + ok * 5, radioCalc: { ...c, stats: st, log: [...(c.log || []), { d: todayStr(), n: recs.length, ok }].slice(-40) } };
+        if (ok) out = addBond(out, "kai", 1);
+        return out;
+      });
+      if (ok) setTimeout(() => awardXp(ok * 3), 200);
+      return ok ? `報酬：${ok * 5}G・EXP${ok * 3}` : "";
+    },
     // 資格の世界の本番モード：結果を世界ごとに残す（rpg.worldExam[世界id] = {log, best, passes}）。合格で 200G・EXP60、不合格でも EXP20
     worldExamFinish: ({ wid, parts, sec, passed }) => {
       const total = parts.reduce((t, x) => t + x.ok, 0);
@@ -12293,6 +12307,7 @@ function WorldView({ state, actions, todayCount, onWeekly, onDungeon, onGuardian
       </>)}
       {sec === "train" && world.id !== "home" && (<>
         {world.exam && <WorldExamCard key={world.id} state={state} world={world} pp={pp} actions={actions} />}
+        {(world.drills || []).includes("radiocalc") && <RadioCalcDrill state={state} actions={actions} />}
         <NumberDeck state={state} actions={actions} />
         <PaceDrill state={state} actions={actions} />
         <KumiaiDrill state={state} actions={actions} />
@@ -15703,6 +15718,102 @@ function WorldExamChance({ pp, world }) {
   );
 }
 
+// ── 無線工学の計算ドリル（2026年10月20日。二陸特は電卓が使えないので、暗算・筆算で解ける数字だけ。問題づくりは src/game/radiocalc.js）──
+// 1セット10問の4択。記録は rpgActions.logRadioCalc → rpg.radioCalc = { stats:{種類:{n,ok}}, log:[{d,n,ok}] }。選んだ種類は端末の sq-radiocalc-types
+function RadioCalcDrill({ state, actions }) {
+  const allIds = RADIO_CALC_TYPES.map((t) => t.id);
+  const [picked, setPickedRaw] = useState(() => { try { const v = JSON.parse(localStorage.getItem("sq-radiocalc-types") || "null"); if (Array.isArray(v) && v.length) return v.filter((x) => allIds.includes(x)); } catch (e) { /* 端末に保存できないときは全部 */ } return allIds; });
+  const setPicked = (v) => { setPickedRaw(v); try { localStorage.setItem("sq-radiocalc-types", JSON.stringify(v)); } catch (e) { /* 保存できなくても続ける */ } };
+  const [run, setRun] = useState(null); // { list:[問題], i, recs:[{type, ok}], sel, hint }
+  const [done, setDone] = useState(null);
+  const [open, setOpen] = useState(false);
+  const rec = normRpg(state.rpg).radioCalc || {};
+  const stats = rec.stats || {};
+  const acc = (id) => { const s = stats[id]; return s && s.n ? s.ok / s.n : null; };
+  const weakTypes = allIds.filter((id) => (stats[id] || {}).n >= 3).sort((a, b) => acc(a) - acc(b)).slice(0, 3).filter((id) => acc(id) < 0.8);
+  const start = (types) => {
+    const ts = types && types.length ? types : picked;
+    if (!ts.length) return;
+    const base = Date.now() % 1000003;
+    const order = shuffle(ts);
+    setDone(null);
+    setRun({ list: Array.from({ length: 10 }, (_, k) => makeRadioCalc(order[k % order.length], base * 31 + k * 977)), i: 0, recs: [], sel: null, hint: false });
+  };
+  const name = (id) => (RADIO_CALC_TYPES.find((t) => t.id === id) || {}).name || id;
+  if (run) {
+    const p = run.list[run.i];
+    const answered = run.sel !== null;
+    const choose = (k) => { if (answered) return; const ok = k === p.correct; SFX.play(ok ? "hit" : "miss"); setRun({ ...run, sel: k, recs: [...run.recs, { type: p.type, ok }] }); };
+    const next = () => {
+      if (run.i + 1 >= run.list.length) { const msg = actions.logRadioCalc(run.recs); SFX.play("result"); setDone({ recs: run.recs, list: run.list, msg }); setRun(null); return; }
+      setRun({ ...run, i: run.i + 1, sel: null, hint: false });
+    };
+    return (
+      <Box title={`無線工学の計算ドリル　${run.i + 1} / ${run.list.length}`} icon={<Pencil size={18} />}>
+        <div className="jp space-y-2">
+          <div className="flex items-center gap-2 text-[10px]" style={{ color: "var(--ink-mute)" }}>
+            <span className="px-1.5" style={{ border: "1px solid var(--rule-soft)", borderRadius: 4 }}>{name(p.type)}</span>
+            <span className="flex-1">電卓なしで解ける数字です</span>
+            <button onClick={() => { if (confirm("やめますか？（記録しません）")) setRun(null); }} className="btn-ghost text-[10px] px-2 py-0.5">やめる</button>
+          </div>
+          <div className="qtext text-base px-1" style={{ color: "var(--ink)", lineHeight: 1.8 }}>{p.q}</div>
+          {!answered && (run.hint
+            ? <div className="text-[12px] px-2 py-1" style={{ background: "var(--cream)", border: "1px dashed var(--gold)", borderRadius: 6, color: "var(--ink)" }}>💡 {p.hint}</div>
+            : <button onClick={() => setRun({ ...run, hint: true })} className="text-[11px] underline" style={{ background: "none", border: "none", color: "var(--ink-mute)", cursor: "pointer" }}>💡 公式のヒントを見る</button>)}
+          <div className="grid grid-cols-2 gap-2">
+            {p.opts.map((o, k) => {
+              const isOk = k === p.correct, isSel = k === run.sel;
+              const bg = !answered ? "var(--paper)" : isOk ? "rgba(109,132,84,0.15)" : isSel ? "rgba(201,86,78,0.1)" : "var(--paper)";
+              const bd = !answered ? "var(--rule-soft)" : isOk ? "#6d8454" : isSel ? "#c9564e" : "var(--rule-soft)";
+              return <button key={k} onClick={() => choose(k)} className="py-2.5 px-2 text-sm" style={{ borderRadius: 8, border: `1.5px solid ${bd}`, background: bg, color: "var(--ink)", fontWeight: 700, cursor: answered ? "default" : "pointer" }}>{answered && isOk ? "✓ " : answered && isSel ? "✕ " : ""}{o}</button>;
+            })}
+          </div>
+          {answered && (
+            <div className="px-2 py-1.5" style={{ background: "var(--sky-pale)", border: "1px solid var(--rule-soft)", borderRadius: 8 }}>
+              <div className="text-[12px] mb-0.5" style={{ fontWeight: 800, color: run.sel === p.correct ? "#4f7a3a" : "#c9564e" }}>{run.sel === p.correct ? "✓ 正解！" : `✕ 正解は ${p.opts[p.correct]}`}</div>
+              <div className="text-[11px]" style={{ color: "var(--ink-soft)" }}>公式：{p.hint}</div>
+              {p.steps.map((st, k) => <div key={k} className="text-[12px]" style={{ color: "var(--ink)" }}>{st}</div>)}
+            </div>
+          )}
+          {answered && <button onClick={next} className="btn-primary w-full py-2">{run.i + 1 >= run.list.length ? "結果を見る" : "次の問題へ"}</button>}
+        </div>
+      </Box>
+    );
+  }
+  const log = (rec.log || []).slice(-6);
+  return (
+    <Box title="無線工学の計算ドリル（電卓なし）" icon={<Pencil size={18} />}>
+      <div className="jp space-y-2">
+        <p className="text-[11px]" style={{ color: "var(--ink-soft)", lineHeight: 1.7 }}>デシベル・波長・オームの法則・レーダーの距離など、本番によく出る計算を4択で。毎回数字が変わります。電卓が使えない本番に合わせて、暗算・筆算で解ける数字だけにしています。</p>
+        {done && (
+          <div className="px-2 py-2" style={{ background: "var(--cream)", border: "1px solid var(--gold)", borderRadius: 8 }}>
+            <div className="flex items-baseline gap-2"><span style={{ fontFamily: "'Cinzel', serif", fontWeight: 900, fontSize: 22, color: "var(--gold)" }}>{done.recs.filter((x) => x.ok).length} / {done.recs.length}</span><span className="text-[11px]" style={{ color: "var(--ink-soft)" }}>{done.msg}</span></div>
+            {done.recs.map((x, k) => <div key={k} className="text-[11px]" style={{ color: x.ok ? "var(--ink-soft)" : "#c9564e" }}>{x.ok ? "○" : "✕"} {name(x.type)}{x.ok ? "" : `：${done.list[k].steps[done.list[k].steps.length - 1]}`}</div>)}
+          </div>
+        )}
+        <div className="grid grid-cols-2 gap-2">
+          <button onClick={() => start()} disabled={!picked.length} className="btn-primary py-2 text-sm">選んだ種類から10問</button>
+          <button onClick={() => start(weakTypes)} disabled={!weakTypes.length} className="btn-plum py-2 text-sm" style={{ opacity: weakTypes.length ? 1 : 0.5 }}>苦手な種類から10問</button>
+        </div>
+        <button onClick={() => setOpen(!open)} className="w-full text-[11px] py-1" style={{ background: "none", border: "1px dashed var(--rule-soft)", borderRadius: 8, color: "var(--ink-soft)", cursor: "pointer" }}>{open ? "▲ 種類を閉じる" : `▼ 出す種類を選ぶ（${picked.length} / ${allIds.length}）・種類ごとの正解率`}</button>
+        {open && (
+          <div className="space-y-1">
+            <div className="flex gap-2 text-[11px]"><button onClick={() => setPicked(allIds)} className="btn-ghost px-2 py-0.5">すべて選ぶ</button><button onClick={() => setPicked([])} className="btn-ghost px-2 py-0.5">すべて外す</button></div>
+            <div className="grid grid-cols-2 gap-1">
+              {RADIO_CALC_TYPES.map((t) => { const on = picked.includes(t.id), a = acc(t.id); return (
+                <button key={t.id} onClick={() => setPicked(on ? picked.filter((x) => x !== t.id) : [...picked, t.id])} className="flex items-center gap-1.5 px-2 py-1 text-left text-[11px]" style={{ borderRadius: 8, border: `1px solid ${on ? "var(--gold)" : "var(--rule-soft)"}`, background: on ? "var(--cream)" : "var(--paper)", color: "var(--ink)", cursor: "pointer" }}>
+                  <span>{on ? "☑" : "☐"}</span><span className="flex-1">{t.name}</span>{a !== null && <span style={{ color: a >= 0.8 ? "var(--sage)" : "#c9564e", fontWeight: 700 }}>{Math.round(a * 100)}%</span>}
+                </button>
+              ); })}
+            </div>
+          </div>
+        )}
+        {log.length > 0 && <p className="text-[10px]" style={{ color: "var(--ink-mute)" }}>最近：{log.map((l) => `${l.ok}/${l.n}`).join("　")}</p>}
+      </div>
+    </Box>
+  );
+}
+
 function PaceDrill({ state, actions }) {
   const [run, setRun] = useState(null); // { list:[{b,q}], i, t0, qt0, recs:[], skipped:Set, show }
   const [now, setNow] = useState(Date.now());
@@ -16429,6 +16540,7 @@ function CalcTab({ state, actions, startTimer, stopTimer, pastReq, onPastOpened 
   const missTotal = CALC_MISS.reduce((t, [id]) => t + (miss[id] || 0), 0);
   return (
     <div className="space-y-3">
+      {(curWorld(state).drills || []).includes("radiocalc") && <RadioCalcDrill state={state} actions={actions} />}
       {head}
       <PastCalcArea c2={c2} state={state} actions={actions} open={null} setOpen={setPastOpen} />
       <Box title="出題する種類（☑で選ぶ）" icon={<Pencil size={18} />}>
