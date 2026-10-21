@@ -237,6 +237,11 @@ state の主なキー：`player` / `qualifications` / `tasks` / `studyPlans`（�
   - ボス戦：挑発 `bossTaunt`（出題の中で苦手がいちばん多い地域を名指し、その地域の正解は「言い返した！」1.5倍）。障壁 shield（HPが半分を切ると張る。15問以上の戦いは7割と3.5割。◎を2回［終盤のボスは3回］続けると砕けて2倍、それまではダメージ4分の1・仲間の加勢も通らない）。BossArena に shield・taunt
   - 無限回廊 `EndlessCard` `EndlessRun`（クエストの欄。gapItems の問題が続き、正解で1階。BATTLE.dmgMul＝1階ごとに `ENDLESS_GROW`＝4%強く、ふんばったら終わり。rpgActions.endlessFinish → rpg.endless = {best, n, log, bestAt}）
   - 今日のハイライト `TodayHighlight`（ステータス画面）：emitReward の hl を `hlMerge` が rpg.hl に（討伐・最高連撃・最大ダメージ・先制・弱点・群れの全滅・必殺技・はじめて倒した魔物）。日が変わると rpg.hlLog、自己ベスト rpg.hlBest、10連撃以上の更新 rpg.hlRec は成長の年表に
+- キャラ絵の追加とクエスト失敗（2026年10月21日、イラストフォルダの ChatGPT 画像 2026年10月21日 22_27〜22_42）：
+  - ミニキャラ public/art/chibi/{luna,kaito,raven,lilia,ezra,fin,mirei,claude}.webp（紺の背景を透明にした。`CHIBI`）。動く絵のない仲間は戦いの後ろの列でミニキャラが動く（battleParty の chibi、`backRow` `BackRowAllies`）、パーティ編成は `PartyFace`
+  - 新しい仲間（`ALLIES` の group: "story"、ストーリークエストでクリアした話の数 `storyClears` が storyNeed で加入。出会いの会話は storyQuestFinish）：リリア（癒しの神官・回復。設定画なし、絵はミニキャラ。名前と役は仮）5話・エズラ（調査士）15話・フィン（狩人）30話・ミレイ（錬金術師）50話・クロード（機工師）75話。立ち絵 public/art/ally-{ezra,fin,mirei,claude}.jpg は設定画から切り出し。技は ALLY_SKILLS。仲間の欄に「冒険の仲間」
+  - カイトの設定画（カイト・アークブレイド 剣士）はまだ使っていない（いまの立ち絵のまま）
+  - ストーリークエストはふんばり無し（BATTLE.noRevive）：HPが0で BATTLE.down → クエスト失敗（記録は残さない、復習記録は残る）。魔物の攻撃はストーリーの進みで強くなる `questDmgMul`（クリアした話1つで `QUEST_GROW`＝8%、40話で4.2倍）。戦いの上に「1問のミスで約○ダメージ・あと約○回で力尽きる」。無限回廊も同じ noRevive
 - CSVの一括取り込み（2026年10月19日）：ImportPanel のファイル選択は multiple。2つ以上選ぶと `handleFiles`（ファイル名の順、1ファイル＝問題集1つ、名前はファイル名・年度は `yearFromFileName`［令和・平成・R・H＋数字、4けた＋年。「01」のような番号は年度にしない］、資格とフォルダは全部に同じもの）。同じ名前の問題集がすでにあるファイルは最初から☑を外す。CSV の読み方は `csvRowsToQuestions` `parseCsvFile`（1つのときと共通）
 - 試し表示：.claude/launch.json に demo（5174）と preview（公開版と同じビルドを 4173 で。本番の Firebase につながるのでログインはしない）
 - テーマ：`DISPLAY_DEFAULTS`（既定は white）`THEME_PAL`（classic/white の配色）`CLASSIC_CSS` `WHITE_CSS` `ClassicThemeStyle` `TitleScreen` `ClassicInfoBar` `MenuHome`（クラシック）`SignpostHome`（白金・道しるべ）`migrateDisplay`

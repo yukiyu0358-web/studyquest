@@ -2994,6 +2994,9 @@ function StudyRPG({ user }) {
         };
       });
       if (first) setTimeout(() => awardXp(30), 200);
+      // ストーリーの仲間との出会い（クリアした話の数が storyNeed に届いたとき）
+      const meetS = first ? ALLIES.find((a) => a.storyNeed && a.storyNeed === storyClears(r) + 1) : null;
+      if (meetS) setTimeout(() => { showRpgToast(`${meetS.name}（${meetS.role}）が仲間になった！ ${fxText(meetS.fx)}`, "#4f6fa8"); setTalk({ title: `${meetS.name}との出会い`, lines: [...meetS.intro.map((t) => [meetS.id, t]), ["hero", `${meetS.name}さん、よろしくお願いします！ いっしょに進みましょう。`], [meetS.id, meetS.cheer]] }); }, complete ? 4200 : 1600);
       if (complete) {
         setTimeout(() => showEvolution({ big: "地図完成", from: null, to: `${region}の地図`, sub: `すべての話をクリアしました！ 300G・賢者の結晶×1`, stage: heroStage(stateRef.current.player.level),
           afterTalk: { title: `${region}　地図完成`, lines: [["hero", "見てください、この地域の地図が、すべて描きあがりました！"], ["hero", "一話ずつ進んできた道のりが、そのまま知識の地図になっているんです。"], ["pet", "（相棒が、地図の上をうれしそうに歩き回っている）"], ["hero", "描いた土地は、★を集め直して、もっと確かなものにしていきましょうね。"]] } }), 1200);
@@ -10774,9 +10777,24 @@ ALLIES.push(
   { id: "raven", group: "academy", name: "レイヴン", role: "魔法学科の学生", img: "ally-raven.jpg", face: [70, 6], towerNeed: 30, fx: { xpPct: 3, critPct: 1 }, likes: ["測量の星見台", "書式の迷宮"], likeText: "測量・書式・計算ドリル・作図",
     intro: ["……レイヴンだ。魔法学科の学生。", "興味があるんだ。君たちがどこまでやれるのか。"], cheer: "才能より、続けたかどうかだよ。……今日も、置いていかれないようにね。" },
 );
+// 冒険の仲間（2026年10月21日）：ストーリークエストをクリアした話の数（storyNeed）で出会う。絵は利用者のイラストフォルダの設定画とミニキャラ
+ALLIES.push(
+  { id: "lilia", group: "story", name: "リリア", role: "癒しの神官", img: "chibi/lilia.webp", face: [57, 20], storyNeed: 5, fx: { dmgCutPct: 5 }, likes: ["民法の古の森", "調査士法の砦"], likeText: "民法・調査士法",
+    intro: ["はじめまして、リリアです！ みんなの傷を癒やすのがお仕事です。", "まちがえても大丈夫。何度でも、わたしが支えますから！"], cheer: "まちがえた問題は、伸びしろです。いっしょに、もう一回だけ見直しましょう！" },
+  { id: "ezra", group: "story", name: "エズラ", role: "調査士", img: "ally-ezra.jpg", face: [22, 15], storyNeed: 15, fx: { critPct: 2 }, likes: ["不動産登記法の王都", "測量の星見台"], likeText: "不動産登記法・測量",
+    intro: ["エズラ・スカイマップ、調査士です！ 地図に描かれていない景色を探して旅をしています。", "境界も、知識も、まだ見ぬ場所がたくさん。みんなで一緒に見つけにいこう！"], cheer: "知らない問題は、まだ地図にない景色。きっと見つけにいこう！" },
+  { id: "fin", group: "story", name: "フィン", role: "狩人", img: "ally-fin.jpg", face: [23, 6], storyNeed: 30, fx: { dropPct: 5 }, likes: ["民法の古の森", "区分所有の双子塔"], likeText: "民法・区分所有法",
+    intro: ["フィン・グリーンウッド。狩人だ。相棒の鷹と、森や空を見て回っている。", "見つけ、知り、守る。広い世界には、まだ知らない美しいものがあふれている。"], cheer: "遠くの真実を見抜くには、まず目の前の一問をよく見ることだ。" },
+  { id: "mirei", group: "story", name: "ミレイ", role: "錬金術師", img: "ally-mirei.jpg", face: [35, 7], storyNeed: 50, fx: { xpPct: 3 }, likes: ["書式の迷宮", "区分所有の双子塔"], likeText: "書式・区分所有法",
+    intro: ["ミレイ・アルケミア、錬金術師だよ！ ひらめきを、かたちにするのが大好き！", "知らないこと、まだまだたくさん！ 世界は不思議でいっぱいだよ！"], cheer: "うまくいかなくても、調合をちょっと変えればいいの！ 覚え方も同じだよ。" },
+  { id: "claude", group: "story", name: "クロード", role: "機工師", img: "ally-claude.jpg", face: [46, 1], storyNeed: 75, fx: { bossDmgPct: 5 }, likes: ["測量の星見台", "調査士法の砦"], likeText: "測量・調査士法・計算",
+    intro: ["……クロード・ギアハート。機工師だ。仕組みで、世界を動かす。", "まだ見ぬ仕組みが、この世界をもっと面白くする。"], cheer: "知識を、動かす力に。仕組みが分かれば、問題はただの部品の組み合わせだ。" },
+);
 const allyById = (id) => ALLIES.find((a) => a.id === id) || null;
+// ストーリークエストでクリアした話の数（★1以上）
+const storyClears = (r) => Object.values(r.sq || {}).filter((x) => x && (x.stars || 0) >= 1).length;
 const clearedCount = (r) => Object.values(r.regions || {}).filter((x) => x && x.cleared).length;
-const alliesJoined = (r) => { const n = clearedCount(r); const fl = (r.tower && r.tower.floor) || 0; return ALLIES.filter((a) => (a.towerNeed ? fl >= a.towerNeed : n >= a.need)); };
+const alliesJoined = (r) => { const n = clearedCount(r); const fl = (r.tower && r.tower.floor) || 0; const sc = storyClears(r); return ALLIES.filter((a) => (a.towerNeed ? fl >= a.towerNeed : a.storyNeed ? sc >= a.storyNeed : n >= a.need)); };
 // 仲間との絆：得意分野の問題に正解するたびに1つ深まる（rpg.bonds）。Lv2〜5で物語が開き、仲間の効果が強くなる
 const BOND_LV = [0, 30, 100, 250, 500];
 const bondLevel = (pts) => BOND_LV.filter((t) => (pts || 0) >= t).length;
@@ -10845,7 +10863,8 @@ function PartyEditor({ state, actions, regions }) {
         </div>
         <div className="flex items-center gap-2 px-2 py-2" style={{ background: "var(--paper)", border: "1px solid var(--gold)", borderRadius: 10 }}>
           <span className="text-[10px]" style={{ color: "var(--ink-mute)" }}>いまの<br />パーティ</span>
-          {party.map((p, i) => <span key={p.a.id} className="flex flex-col items-center"><AllyMedal p={p} size={40} /><span className="text-[10px]" style={{ fontWeight: 700, color: "var(--ink)" }}>{i + 1}. {p.a.name}</span></span>)}
+          <span className="flex flex-col items-center"><PartyFace id="luna" size={52} /><span className="text-[10px]" style={{ fontWeight: 800, color: "var(--gold)" }}>{HERO_NAME}</span></span>
+          {party.map((p, i) => <span key={p.a.id} className="flex flex-col items-center"><PartyFace id={p.a.id} p={p} size={52} /><span className="text-[10px]" style={{ fontWeight: 700, color: "var(--ink)" }}>{i + 1}. {p.a.name}</span></span>)}
           {!party.length && <span className="text-[11px]" style={{ color: "var(--ink-mute)" }}>（仲間なし）</span>}
           <span className="flex-1" />
           {reg && cur.length > 0 && <button onClick={() => setIds([])} className="text-[10px] underline" style={{ background: "none", border: "none", color: "var(--ink-mute)", cursor: "pointer" }}>ふだんの編成にもどす</button>}
@@ -10858,9 +10877,12 @@ function PartyEditor({ state, actions, regions }) {
             const sk = ALLY_SKILLS[a.id];
             const lv = bondLevel(((r.bonds || {})[a.id]) || 0);
             return (
-              <button key={a.id} onClick={() => toggle(a.id)} className="text-left px-2 py-1.5" style={{ borderRadius: 8, border: `1.5px solid ${on ? "var(--gold)" : "var(--rule-soft)"}`, background: on ? "var(--cream)" : "var(--paper)", color: "var(--ink)", cursor: "pointer" }}>
-                <div className="text-[12px]" style={{ fontWeight: 800 }}>{on ? "☑ " : "☐ "}{a.name}<span className="text-[10px] ml-1" style={{ color: "var(--ink-mute)", fontWeight: 500 }}>絆Lv{lv}</span></div>
-                <div className="text-[10px]" style={{ color: "var(--ink-soft)" }}>{ROLE_NAME[sk.kind]}：{sk.name}</div>
+              <button key={a.id} onClick={() => toggle(a.id)} className="text-left px-2 py-1.5 flex items-center gap-1.5" style={{ borderRadius: 8, border: `1.5px solid ${on ? "var(--gold)" : "var(--rule-soft)"}`, background: on ? "var(--cream)" : "var(--paper)", color: "var(--ink)", cursor: "pointer" }}>
+                {CHIBI[a.id] && <PartyFace id={a.id} size={34} />}
+                <span className="flex-1 min-w-0">
+                  <span className="block text-[12px]" style={{ fontWeight: 800 }}>{on ? "☑ " : "☐ "}{a.name}<span className="text-[10px] ml-1" style={{ color: "var(--ink-mute)", fontWeight: 500 }}>絆Lv{lv}</span></span>
+                  <span className="block text-[10px]" style={{ color: "var(--ink-soft)" }}>{ROLE_NAME[sk.kind]}：{sk.name}</span>
+                </span>
               </button>
             );
           })}
@@ -10880,9 +10902,17 @@ function PartyCard({ state, actions }) {
           {joined.size ? `いっしょに旅をする仲間 ${joined.size}人` : "地域を解放すると、仲間が加わります"}
         </div>
       </div>
-      {[["", null], ["academy", "魔法学院の三人"]].map(([grp, label]) => (
+      {[["", null], ["academy", "魔法学院の三人"], ["story", "冒険の仲間"]].map(([grp, label]) => (
       <div key={grp || "base"}>
-      {label && (
+      {grp === "story" && (
+        <div className="jp mt-3 mb-2 px-2 py-1.5" style={{ borderRadius: 8, border: "1px solid #6d8454", background: "linear-gradient(180deg, rgba(109,132,84,0.1), rgba(253,251,245,0))" }}>
+          <div className="flex items-end justify-center gap-1" style={{ height: 70 }}>
+            {ALLIES.filter((a) => a.group === "story").map((a) => <img key={a.id} src={CHIBI[a.id]} alt={joined.has(a.id) ? a.name : "まだ見ぬ仲間"} draggable={false} style={{ height: 66, width: 66, objectFit: "contain", filter: joined.has(a.id) ? "drop-shadow(0 2px 2px rgba(0,0,0,0.25))" : "brightness(0) opacity(0.35)" }} />)}
+          </div>
+          <div className="text-xs" style={{ color: "#22335c", fontWeight: 800 }}>{label}<span className="ml-2 text-[10px]" style={{ fontWeight: 500 }}>ストーリークエストを進めると出会えます</span></div>
+        </div>
+      )}
+      {label && grp === "academy" && (
         <div className="relative overflow-hidden mt-3 mb-2" style={{ borderRadius: 8, height: 120, border: "1px solid #4f6fa8" }}>
           <img src={`${ART_URL}trio.jpg`} alt="魔法学院の三人" className="w-full h-full" style={{ objectFit: "cover", objectPosition: "center 30%", filter: ALLIES.some((a) => a.group === grp && joined.has(a.id)) ? "none" : "grayscale(0.7) brightness(1.08)" }} />
           <div className="absolute inset-x-0 bottom-0 px-3 py-1 jp text-xs" style={{ background: "linear-gradient(0deg, rgba(253,251,245,0.95), rgba(253,251,245,0))", color: "#22335c", fontWeight: 800 }}>{label}<span className="ml-2 text-[10px]" style={{ fontWeight: 500 }}>試練の塔を登ると出会えます</span></div>
@@ -10896,7 +10926,7 @@ function PartyCard({ state, actions }) {
               <span style={ALLY_EVO[a.id] && on ? { width: 46, height: 46, flexShrink: 0, borderRadius: 10, border: "2px solid #b08a3e", backgroundImage: `url(${EVO_URL(ALLY_EVO[a.id], allyEvoStage(r, a, heroStage(state.player.level).idx))})`, backgroundSize: "cover", backgroundPosition: "center 18%" } : { width: 46, height: 46, flexShrink: 0, borderRadius: "50%", border: `2px solid ${on ? "#b08a3e" : "#d8c9a3"}`, backgroundColor: "#e9e4d6", backgroundImage: `url(${ART_URL}${a.img})`, backgroundSize: "300% auto", backgroundPosition: `${a.face[0]}% ${a.face[1]}%`, filter: on ? "none" : "brightness(0) opacity(0.3)" }} />
               <span className="flex-1 min-w-0">
                 <span className="block text-sm" style={{ fontWeight: 800, color: on ? "var(--ink)" : "var(--ink-mute)" }}>{on ? a.name : "？？？"}<span className="text-[10px] ml-1" style={{ color: "var(--ink-soft)", fontWeight: 500 }}>{on ? a.role : ""}</span></span>
-                <span className="block text-[10px]" style={{ color: on ? "var(--sky-deep)" : "var(--ink-mute)" }}>{on ? fxText(bondFx(a, r)) : a.towerNeed ? `試練の塔 第${a.towerNeed}階で出会う` : `地域を${a.need}つ解放すると仲間に`}</span>
+                <span className="block text-[10px]" style={{ color: on ? "var(--sky-deep)" : "var(--ink-mute)" }}>{on ? fxText(bondFx(a, r)) : a.towerNeed ? `試練の塔 第${a.towerNeed}階で出会う` : a.storyNeed ? `ストーリーを${a.storyNeed}話クリアで出会う（いま${storyClears(r)}話）` : `地域を${a.need}つ解放すると仲間に`}</span>
                 {on && (() => { const pts = r.bonds[a.id] || 0, lv = bondLevel(pts), lo = BOND_LV[lv - 1], hi = BOND_LV[lv]; return (
                   <span className="block mt-0.5">
                     <span className="flex items-center gap-1 text-[10px]" style={{ color: "#c9667e", fontWeight: 800 }}>{"♥".repeat(lv)}<span style={{ color: "var(--rule-soft)" }}>{"♥".repeat(BOND_LV.length - lv)}</span><span className="ml-auto" style={{ color: "var(--ink-mute)", fontWeight: 500 }}>{hi ? `絆 ${pts}/${hi}` : "絆 MAX"}</span></span>
@@ -12525,10 +12555,16 @@ function regionConquest(g, r) {
 }
 const SEC_PASS = 0.8;
 
-// ストーリークエストの戦い（1話）。最後の1問は「論点の主」
+// ストーリーの進み（クリアした話の数）で、魔物の攻撃が強くなる：1話ごとに8%、40話で4.2倍まで
+const QUEST_GROW = 0.08, QUEST_GROW_MAX = 40;
+const questDmgMul = (r) => 1 + QUEST_GROW * Math.min(QUEST_GROW_MAX, storyClears(r));
+// ストーリークエストの戦い（1話）。最後の1問は「論点の主」。HPが0になるとクエスト失敗
 function QuestRun({ state, run, actions, recordAnswer, startTimer, stopTimer, onExit, onNext }) {
   const pool = run.quest.qs.filter((q) => !q.excluded);
   const [battleKey] = useState(() => uid());
+  const [mul] = useState(() => questDmgMul(normRpg(state.rpg)));
+  useEffect(() => { BATTLE.noRevive = true; BATTLE.dmgMul = mul; return () => { BATTLE.noRevive = false; BATTLE.dmgMul = 1; }; }, [battleKey]);
+  const est = Math.round(14 * mul * (1 - getRpgBonuses(state).dmgCutPct / 100)); // 1問のミスで受けるおよそのダメージ
   const [laws, setLaws] = useState({});
   useEffect(() => { const t = questTopic(run.quest); if (t) loadLaw(t.law).then((d) => setLaws((p) => ({ ...p, [t.law]: d }))); }, []);
   const title = questTitle(run.quest, laws);
@@ -12555,13 +12591,35 @@ function QuestRun({ state, run, actions, recordAnswer, startTimer, stopTimer, on
   const cur = pool[idx];
   const q = cur ? (bank.questions || []).find((x) => x.id === cur.id) || cur : null;
   const answer = (correct, meta) => {
-    if (!q || done) return;
+    if (!q || done || finished.current) return;
     recordAnswer(bank.id, q.id, correct, meta);
     const list = [...res, correct];
     setRes(list);
     setShowAnswer(false);
+    // HPが尽きたらクエスト失敗（クエストの記録は残さない。解いた問題の復習記録は残る）
+    if (BATTLE.down) {
+      finished.current = true;
+      if (timerStartedByMe.current) { stopTimer(); timerStartedByMe.current = false; }
+      setTimeout(() => setDone({ failed: true, acc: list.filter((x) => x).length / pool.length, stars: 0, at: list.length }), 1500);
+      return;
+    }
     if (idx + 1 >= pool.length) finish(list); else setIdx(idx + 1);
   };
+  if (done && done.failed) return (
+    <Box title="クエスト失敗……" icon={<Skull size={18} />}>
+      <div className="jp text-center py-2 space-y-1">
+        <div className="text-[11px]" style={{ color: "var(--ink-mute)" }}>{bank.name} ・ 第{run.quest.idx + 1}話</div>
+        <div style={{ fontFamily: "'Shippori Mincho B1', serif", fontWeight: 800, fontSize: 17, color: "var(--ink)" }}>{title}</div>
+        <div style={{ fontFamily: "'Shippori Mincho B1', serif", fontWeight: 900, fontSize: 22, color: "var(--brick)" }}>{HERO_NAME}は力尽きた……</div>
+        <div className="text-sm" style={{ color: "var(--ink)" }}>{done.at} / {pool.length}問目で体力が尽きました。</div>
+        <div className="text-[12px]" style={{ color: "var(--ink-soft)", lineHeight: 1.7 }}>魔物の攻撃力は ×{mul.toFixed(2)}（ストーリー{storyClears(normRpg(state.rpg))}話ぶん）。1問のミスで約{est}のダメージです。<br />まちがえた問題を復習するか、防具・回復役の仲間（パーティ編成）で守りを固めて、もう一度挑みましょう。</div>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <button onClick={onExit} className="jp btn-ghost py-2">地図に戻る</button>
+        <button onClick={() => onNext(run.quest.key)} className="jp btn-primary py-2">もう一度挑む</button>
+      </div>
+    </Box>
+  );
   if (done) {
     const ok = done.stars >= 1;
     return (
@@ -12593,6 +12651,7 @@ function QuestRun({ state, run, actions, recordAnswer, startTimer, stopTimer, on
       </div>
       <div className="jp text-center" style={{ fontFamily: "'Shippori Mincho B1', serif", fontWeight: 800, color: "var(--ink)" }}>{title}</div>
       <div className="flex gap-1">{pool.map((_, i) => <span key={i} style={{ flex: 1, height: 5, borderRadius: 3, background: i < res.length ? (res[i] ? "#d6b56a" : "#e0948a") : i === idx ? "var(--sky-deep)" : "var(--beige)" }} />)}</div>
+      <div className="jp text-center text-[11px]" style={{ color: mul >= 2 ? "var(--brick)" : "var(--ink-soft)", fontWeight: 700 }}>⚔ 魔物の攻撃力 ×{mul.toFixed(2)}　1問のミスで約{est}ダメージ　HPが0でクエスト失敗{BATTLE.key === battleKey && BATTLE.hp > 0 ? `（あと約${Math.max(1, Math.ceil(BATTLE.hp / est))}回まちがえると力尽きる）` : ""}</div>
       {isBoss && <div className="jp text-center text-sm" style={{ color: "var(--brick)", fontWeight: 800, animation: "sqFadeIn .4s ease-out" }}>― 論点の主があらわれた！ ―</div>}
       <BattleStage state={state} q={q} bankName={bank.name} battleKey={battleKey} boss={isBoss} />
       <div className="rpg-box p-1">
@@ -13834,17 +13893,21 @@ const JOINT_EVERY = 6, JOINT_BOND = 3;
 const ALLY_SKILLS = {
   kaito: { kind: "chase", name: "ブレードラッシュ" }, serena: { kind: "heal", name: "ヒールライト" }, raven: { kind: "magic", name: "ダークバレット" },
   rine: { kind: "heal", name: "条文の加護" }, kai: { kind: "chase", name: "測量の一閃" }, mira: { kind: "magic", name: "書式の魔法陣" },
+  lilia: { kind: "heal", name: "セイクリッドヒール" }, ezra: { kind: "chase", name: "測点の一撃" }, fin: { kind: "chase", name: "鷹の連撃" },
+  mirei: { kind: "magic", name: "錬金爆薬" }, claude: { kind: "magic", name: "ギア・バースト" },
 };
+// ミニキャラの絵（public/art/chibi/。紺の背景を透明にしたもの）。動く絵のない仲間は、戦いの後ろの列でこの絵が動く
+const CHIBI = Object.fromEntries(["luna", "kaito", "raven", "lilia", "ezra", "fin", "mirei", "claude"].map((id) => [id, `${ART_URL}chibi/${id}.webp`]));
 // パーティ（2026年10月20日〜）：編成 rpg.party = { members:[仲間id…], byRegion:{地域:[仲間id…]} }。地域の編成 → ふだんの編成 → 加入順の3人
 function battleParty(state, region) {
   const r = normRpg(state.rpg), hi = heroStage(state.player.level).idx;
-  const order = ["kaito", "serena", "raven", "rine", "kai", "mira"];
+  const order = ["kaito", "serena", "raven", "rine", "kai", "mira", "lilia", "ezra", "fin", "mirei", "claude"];
   const joined = alliesJoined(r).filter((a) => ALLY_SKILLS[a.id]);
   const pt = r.party || {};
   const pick = (region && ((pt.byRegion || {})[region] || []).length ? pt.byRegion[region] : null) || ((pt.members || []).length ? pt.members : null);
   const list = pick ? pick.map((id) => joined.find((a) => a.id === id)).filter(Boolean) : joined.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
   return list.slice(0, 3)
-    .map((a) => ({ a, skill: ALLY_SKILLS[a.id], art: ALLY_EVO[a.id] ? EVO_URL(ALLY_EVO[a.id], allyEvoStage(r, a, hi)) : `${ART_URL}${a.img}`, evo: !!ALLY_EVO[a.id], sprite: SPRITES[a.id] ? a.id : null }));
+    .map((a) => ({ a, skill: ALLY_SKILLS[a.id], art: ALLY_EVO[a.id] ? EVO_URL(ALLY_EVO[a.id], allyEvoStage(r, a, hi)) : `${ART_URL}${a.img}`, evo: !!ALLY_EVO[a.id], sprite: SPRITES[a.id] ? a.id : null, chibi: !SPRITES[a.id] && CHIBI[a.id] ? CHIBI[a.id] : null }));
 }
 // パーティのそろい効果：役割（追撃・魔法・回復）がそろうとボス戦のダメージが上がる。絆Lv3以上の仲間だけなら、さらに上がる
 function partySynergy(party, r) {
@@ -13918,11 +13981,15 @@ function backRow(party, size) {
   let k = 0;
   return party.map((p) => {
     const i = k++;
-    return p.sprite ? { p, l: 6 + i * 16, b: 40 + (i % 2) * 5, size } : { p, l: 8 + i * 16, b: 66, size: 34 };
+    return p.sprite || p.chibi ? { p, l: 6 + i * 16, b: 40 + (i % 2) * 5, size } : { p, l: 8 + i * 16, b: 66, size: 34 };
   });
 }
 function BackRowAllies({ slots, actingId, actN, win }) {
-  return slots.map(({ p, l, b, size }) => p.sprite ? (
+  return slots.map(({ p, l, b, size }) => p.chibi ? (
+    <div key={p.a.id} style={{ position: "absolute", left: `${l}%`, bottom: `${b}%`, width: size, height: size, zIndex: 1 }}>
+      <img key={actingId === p.a.id ? `a${actN}` : "i"} src={p.chibi} alt={p.a.name} draggable={false} style={{ width: "100%", height: "100%", objectFit: "contain", "--dash": `${Math.round(size * 0.18)}px`, filter: actingId === p.a.id ? "drop-shadow(0 0 8px rgba(242,193,78,0.95))" : "drop-shadow(0 3px 3px rgba(0,0,0,0.3)) brightness(0.95)", animation: win ? "sqlJump 1s ease-out" : actingId === p.a.id ? "sqlDash .8s ease-out" : "sqlBob 2.2s ease-in-out infinite" }} />
+    </div>
+  ) : p.sprite ? (
     <div key={p.a.id} style={{ position: "absolute", left: `${l}%`, bottom: `${b}%`, width: size, height: size, zIndex: 1, filter: "brightness(0.95)" }}>
       <CharSprite who={p.sprite} size={size} pose={win ? "win" : actingId === p.a.id ? "attack" : "idle"} k={actingId === p.a.id ? actN : 0} />
     </div>
@@ -13930,7 +13997,9 @@ function BackRowAllies({ slots, actingId, actN, win }) {
     <div key={p.a.id} style={{ position: "absolute", left: `${l}%`, bottom: `${b}%`, zIndex: 1 }}><AllyMedal p={p} size={34} glow={actingId === p.a.id} /></div>
   ));
 }
-const slotOrigin = (slots, id) => { const o = slots.find((x) => x.p.a.id === id); return o ? [`calc(${o.l}% + ${o.p.sprite ? Math.round(o.size * 0.55) : 17}px)`, `calc(${100 - o.b}% - ${o.p.sprite ? Math.round(o.size * 0.5) : 17}px)`] : ["40px", "60px"]; };
+const slotOrigin = (slots, id) => { const o = slots.find((x) => x.p.a.id === id); const big = o && (o.p.sprite || o.p.chibi); return o ? [`calc(${o.l}% + ${big ? Math.round(o.size * 0.55) : 17}px)`, `calc(${100 - o.b}% - ${big ? Math.round(o.size * 0.5) : 17}px)`] : ["40px", "60px"]; };
+// パーティ編成の顔：ミニキャラの絵があれば全身、なければ丸い顔
+const PartyFace = ({ id, p, size = 48 }) => (CHIBI[id] ? <img src={CHIBI[id]} alt="" draggable={false} style={{ width: size, height: size, objectFit: "contain", filter: "drop-shadow(0 2px 2px rgba(0,0,0,0.25))" }} /> : p ? <AllyMedal p={p} size={Math.round(size * 0.8)} /> : null);
 
 // 装備のレア度の光（ルナの足もと）
 const auraOf = (state) => { const look = equippedLook(normRpg(state.rpg)); return look.rarity === "SSR" ? "rgba(242,193,78,0.85)" : look.rarity === "SR" ? "rgba(127,182,255,0.75)" : "rgba(255,255,255,0.35)"; };
@@ -14217,7 +14286,7 @@ function makePack(state, mon) {
 const xpTotalOf = (p) => { let t = p.xp || 0; for (let l = 1; l < (p.level || 1); l++) t += getXpForNextLevel(l); return t; };
 function resetBattle(state) {
   const b = getRpgBonuses(state);
-  Object.assign(BATTLE, { status: null, gauge: 0, ultArmed: false, chest: null, dmgMul: 1, pack: null, packWait: 0, packs: 0, hp: b.maxHp, maxHp: b.maxHp, combo: 0, maxCombo: 0, defeated: 0, crits: 0, escaped: 0, faints: 0, mats: {}, start: { xp: xpTotalOf(state.player), level: state.player.level, gold: normRpg(state.rpg).gold } });
+  Object.assign(BATTLE, { status: null, gauge: 0, ultArmed: false, chest: null, dmgMul: 1, noRevive: false, down: false, pack: null, packWait: 0, packs: 0, hp: b.maxHp, maxHp: b.maxHp, combo: 0, maxCombo: 0, defeated: 0, crits: 0, escaped: 0, faints: 0, mats: {}, start: { xp: xpTotalOf(state.player), level: state.player.level, gold: normRpg(state.rpg).gold } });
 }
 // コンボの節目で出る必殺技（カットイン）
 // ルナの技（イラストフォルダの「ルナの魔法剣士キャラクター図鑑」のスキルモーション例から）。必殺技のモーションの絵ができたら差し替える
@@ -14597,6 +14666,7 @@ function EndlessCard({ state, onStart }) {
 function EndlessRun({ state, actions, recordAnswer, startTimer, stopTimer, onExit }) {
   const [battleKey] = useState(() => uid());
   const used = useRef(new Set());
+  const over = useRef(false); // 力尽きた（結果を出すまでの間は答えを受け付けない）
   const [queue, setQueue] = useState(() => gapItems(state, 30));
   const [floor, setFloor] = useState(1);
   const [showAnswer, setShowAnswer] = useState(false);
@@ -14605,9 +14675,9 @@ function EndlessRun({ state, actions, recordAnswer, startTimer, stopTimer, onExi
   const best0 = (normRpg(state.rpg).endless || {}).best || 0;
   useEffect(() => {
     if (!state.timer.startMs) { startTimer(null, "qa"); timerStartedByMe.current = true; }
-    return () => { BATTLE.dmgMul = 1; if (timerStartedByMe.current) { stopTimer(); timerStartedByMe.current = false; } };
+    return () => { BATTLE.dmgMul = 1; BATTLE.noRevive = false; if (timerStartedByMe.current) { stopTimer(); timerStartedByMe.current = false; } };
   }, []);
-  useEffect(() => { BATTLE.dmgMul = 1 + (floor - 1) * ENDLESS_GROW; }, [floor, battleKey]);
+  useEffect(() => { BATTLE.dmgMul = 1 + (floor - 1) * ENDLESS_GROW; BATTLE.noRevive = true; }, [floor, battleKey]);
   const item = queue[0];
   const bank = item ? state.questionBanks.find((b) => b.id === item.bankId) : null;
   const q = bank ? (bank.questions || []).find((x) => x.id === item.qId) : null;
@@ -14623,11 +14693,11 @@ function EndlessRun({ state, actions, recordAnswer, startTimer, stopTimer, onExi
     setDone({ cleared, msg: actions.endlessFinish(cleared) });
   };
   const answer = (correct, meta) => {
-    if (!q || done) return;
+    if (!q || done || over.current) return;
     recordAnswer(bank.id, q.id, correct, meta);
     used.current.add(q.id);
     setShowAnswer(false);
-    if (BATTLE.faints > 0) { const cleared = floor - 1; setTimeout(() => end(cleared), 1400); return; }
+    if (BATTLE.down) { over.current = true; const cleared = floor - 1; setTimeout(() => end(cleared), 1400); return; }
     if (correct) setFloor(floor + 1);
     setQueue(refill(queue.slice(1)));
   };
@@ -14800,12 +14870,14 @@ function BattleStage({ state, q, bankName, battleKey, boss = false, scene: scene
         const statusNew = sk ? sk : null;
         if (sk) BATTLE.status = { k: sk, n: STATUS[sk].turns };
         let faint = false;
-        if (BATTLE.hp <= 0) { BATTLE.faints++; BATTLE.hp = Math.ceil(BATTLE.maxHp * (0.3 + (b.revivePct || 0) / 100)); faint = true; }
+        // ストーリークエスト・無限回廊はふんばり無し：HPが0で力尽きる（クエスト失敗）
+        if (BATTLE.hp <= 0 && BATTLE.noRevive) { BATTLE.hp = 0; BATTLE.down = true; }
+        else if (BATTLE.hp <= 0) { BATTLE.faints++; BATTLE.hp = Math.ceil(BATTLE.maxHp * (0.3 + (b.revivePct || 0) / 100)); faint = true; }
         // 魔物の反撃：種族ごとの技（ひっかき・かみつき・炎の息・魔弾など）
         const atk = monAttackFor(m.sp && m.sp.img);
         const t = impactOf(atk);
         hold += Math.round(t * 1000);
-        setFx({ n, ok: false, taken, faint, mon: m, side: "mon", atk, t, packAtk: packAlive, warned, statusNew, poisonDmg });
+        setFx({ n, ok: false, taken, faint, down: BATTLE.down, mon: m, side: "mon", atk, t, packAtk: packAlive, warned, statusNew, poisonDmg });
         SFX.play(["claw", "bite", "gust"].includes(atk.kind) ? "claw" : atk.kind === "tackle" || atk.kind === "rock" ? "roar" : "fire");
         setTimeout(() => SFX.play("miss"), t * 1000);
       }
@@ -14859,7 +14931,7 @@ function BattleStage({ state, q, bankName, battleKey, boss = false, scene: scene
       {/* 味方：後衛（仲間）と前衛（ルナ） */}
       <BackRowAllies slots={backRow(battleParty(state, mon.th && mon.th.region), 104)} actingId={fx && fx.cameo && !fx.cut ? fx.cameo.a.id : null} actN={fx ? fx.n : 0} />
       <div style={{ position: "absolute", left: "calc(40% - 74px)", bottom: -16, width: 180, height: 180, zIndex: 2 }}>
-        <LunaSprite size={180} pose={fx ? (fx.ok ? (fx.cut ? (fx.cut.ult ? "ult" : "skill") : "attack") : "hurt") : "idle"} delay={fx && !fx.ok ? fx.t || 0 : fx && fx.cut ? 0.6 : 0} k={fx ? fx.n : 0} aura={auraOf(state)} />
+        <LunaSprite size={180} pose={BATTLE.down ? "down" : fx ? (fx.ok ? (fx.cut ? (fx.cut.ult ? "ult" : "skill") : "attack") : "hurt") : "idle"} delay={fx && !fx.ok ? fx.t || 0 : fx && fx.cut ? 0.6 : 0} k={fx ? fx.n : 0} aura={auraOf(state)} />
       </div>
       {/* ルナの HP（左下） */}
       <div style={{ position: "absolute", left: 6, bottom: 6, width: 108, zIndex: 3, padding: "2px 6px 4px", borderRadius: 6, background: "rgba(20,28,50,0.55)" }}>
@@ -14875,6 +14947,7 @@ function BattleStage({ state, q, bankName, battleKey, boss = false, scene: scene
         {BATTLE.status && <div key={`stt${BATTLE.status.k}`} className="jp" title={STATUS[BATTLE.status.k].tip} style={{ position: "absolute", left: 0, top: -18, fontSize: 10, fontWeight: 800, color: "#fff", background: "rgba(90,40,110,0.9)", padding: "0 6px", borderRadius: 999, whiteSpace: "nowrap" }}>{STATUS[BATTLE.status.k].icon} {STATUS[BATTLE.status.k].name}（あと{BATTLE.status.n}）</div>}
         {fx && !fx.ok && <div key={`t${fx.n}`} className="jp" style={{ position: "absolute", left: "60%", top: -22, animation: `sqxNum .9s ease-out ${fx.t || 0}s both`, color: "#ff8a80", fontWeight: 900, fontSize: 18, textShadow: "0 1px 0 #3a1010, 0 0 4px rgba(0,0,0,0.6)" }}>-{fx.taken}</div>}
         {fx && fx.faint && <div className="jp" style={{ position: "absolute", left: 0, top: -38, fontSize: 11, fontWeight: 800, color: "#ffc2bc", whiteSpace: "nowrap", textShadow: "0 1px 3px rgba(0,0,0,0.8)" }}>ふんばった！</div>}
+        {fx && fx.down && <div className="jp" style={{ position: "absolute", left: 0, top: -40, fontSize: 13, fontWeight: 900, color: "#ff8a80", whiteSpace: "nowrap", textShadow: "0 1px 3px rgba(0,0,0,0.9)" }}>力尽きた……</div>}
       </div>
       {/* 必殺ゲージが満タン：押すと次の正解で必殺技 */}
       {(BATTLE.gauge || 0) >= GAUGE_MAX && !fx && (
