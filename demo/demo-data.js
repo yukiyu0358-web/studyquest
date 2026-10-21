@@ -29,6 +29,7 @@ function makeQuestions(prefix, offset, count = QA.length) {
       id: `${prefix}-${i}`, q, a,
       correct: k, wrong: (i + offset) % 3, marked: i % 5 === 0, excluded: false, memo: i === 1 ? "期限は1月以内" : "", clozes: [],
       ...(i % 7 === 3 ? { errTypes: { confusion: 1 } } : {}), // 混同ペアの確認用
+      ...(i % 9 === 2 ? { rule: "「1月以内」は表示の変更、「職権」は登記官もできる、と分けて読む" } : {}), // 自分ルールの確認用
       lastConf: k === 0 ? null : k % 3 === 0 ? "unsure" : "sure",
       ah,
       ...(k === 0 ? {} : { sr_nextReview: ymd(day(i % 3 === 0 ? 0 : 3)), sr_interval: 3, sr_streak: k % 3 }),

@@ -714,6 +714,30 @@ function mentorStatusLines(state, todayCount) {
   if (pp.total > 0) lines.push(pp.power >= PASS_LINE ? `合格力は${pctTxt(pp.power)}。魔王を倒せる力が宿っています。この力を試験の日まで保ちましょうね。` : `いまの合格力は${pctTxt(pp.power)}です。合格ラインの${Math.round(PASS_LINE * 100)}%まで、一緒に進みましょう。`);
   return lines;
 }
+// 自分ルールを仲間が話す（2026年10月21日）：問題に書いた自分ルール（q.rule）を、加入した仲間がホームの吹き出しで思い出させる。
+// 復習の日が近い問題・まちがいの多い問題のルールを先に
+const RULE_SAYS = [
+  "この前あなたが決めたルール、わたしも覚えましたよ。次の問題でも使いましょうね。",
+  "まちがえたところから生まれたルールは、いちばん強い武器です。",
+  "このひと言、試験の日にも思い出せるようにしておきましょう！",
+  "このルールのおかげで、同じ罠にはもうかかりませんね。",
+  "読み返すたびに、ルールが自分の言葉になっていきますよ。",
+];
+function myRules(state) {
+  const soon = addDays(todayStr(), 3);
+  const out = [];
+  state.questionBanks.forEach((b) => (b.questions || []).forEach((q) => { if (q.rule && !q.excluded) out.push({ b, q, soon: q.sr_nextReview && q.sr_nextReview <= soon ? 1 : 0 }); }));
+  return out.sort((x, y) => (y.soon - x.soon) || ((y.q.wrong || 0) - (x.q.wrong || 0))).slice(0, 12);
+}
+function ruleQuote(state, k) {
+  const rules = myRules(state);
+  if (!rules.length) return null;
+  const { b, q } = rules[k % rules.length];
+  const allies = alliesJoined(normRpg(state.rpg));
+  const a = allies.length ? allies[k % allies.length] : null;
+  const head = String(q.q || "").replace(/\s+/g, " ");
+  return { t: q.rule, by: `あなたの自分ルール（${b.name}）`, say: `${a ? `${a.name}「` : ""}${RULE_SAYS[k % RULE_SAYS.length]}${a ? "」" : ""}　問題：${head.length > 34 ? head.slice(0, 34) + "…" : head}` };
+}
 const shuffled = (arr) => { const a = [...arr]; for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
 // face：顔の位置（背景画像の位置 %）。override：メニューにカーソルを合わせたときの説明文
 const MENTOR_STYLE = {
@@ -726,7 +750,9 @@ function MentorBubble({ state, todayCount, theme = "white", avatar, face, overri
   const [n, setN] = useState(0);
   // 4回に1回は、今日の様子に合わせたひとことを話す
   const status = n % 4 === 3 ? mentorStatusLines(state, todayCount) : null;
-  const quote = status ? null : STUDY_QUOTES[deck[(n - Math.floor(n / 4)) % deck.length]];
+  // 4回に1回（2番目）は、自分ルールを仲間が話す（ルールがあるとき）
+  const rule = !status && n % 4 === 1 ? ruleQuote(state, Math.floor(n / 4)) : null;
+  const quote = status ? null : rule || STUDY_QUOTES[deck[(n - Math.floor(n / 4)) % deck.length]];
   const font = S.font ? { fontFamily: S.font } : {};
   return (
     <div className="rpg-box px-3 py-3 md:px-4 jp">
@@ -3983,7 +4009,7 @@ function StudyRPG({ user }) {
             return out;
           })()}
           {tab === "today" && <TodayTab state={state} recordSRAnswer={recordSRAnswer} updateSrSettings={updateSrSettings} startTimer={startTimer} stopTimer={stopTimer} toggleQuestionMark={toggleQuestionMark} rpgActionsForPairs={rpgActions} preset={quickPreset} onPresetUsed={() => setQuickPreset(null)} planActions={planActions} />}
-          {tab === "status" && <StatusTab state={state} setMainTitle={setMainTitle} uid={user.uid} />}
+          {tab === "status" && <StatusTab state={state} setMainTitle={setMainTitle} uid={user.uid} onTalk={rpgActions.openTalk} />}
           {tab === "adventure" && <AdventureTab state={state} actions={rpgActions} recordAnswer={recordAnswer} startTimer={startTimer} stopTimer={stopTimer} todayCount={getTodayReviewItems().length} />}
           {NOTE_TABS.includes(tab) && (
             <div className="grid grid-cols-5 gap-1 p-1 mb-3" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)", borderRadius: 999 }}>
@@ -4392,6 +4418,107 @@ function longestStudyStreak(state) {
   days.forEach((d) => { cur = prev && addDays(prev, 1) === d ? cur + 1 : 1; best = Math.max(best, cur); prev = d; });
   return { best, days: days.length, first: days[0] || null };
 }
+// ── 成長の年表（2026年10月21日。ステータス画面）：これまでの記録から「節目の日」を集めて年表にする。
+//    学習のはじまり・連続日数・勉強時間の節目・問題集の周回・記述式の80点・叩き込みと計算の周回・本番リハーサル・模試・合格力の節目 ──
+const TL_STREAK = [7, 30, 100, 200, 365];
+const TL_HOURS = [10, 50, 100, 200, 300, 500, 700, 1000];
+const TL_POWER = [0.5, 0.75, 0.85];
+function growthTimeline(state) {
+  const r = normRpg(state.rpg);
+  const ev = [];
+  const add = (d, icon, text, big = false) => { if (d) ev.push({ d, icon, text, big }); };
+  // 学習のはじまり・連続日数・勉強時間の節目
+  const logs = (state.studyLog || []).filter((l) => l.date).slice().sort((a, b) => (a.date < b.date ? -1 : 1));
+  const days = [...new Set(logs.map((l) => l.date))].sort();
+  let cur = 0, prev = null;
+  const hitS = new Set();
+  days.forEach((d) => { cur = prev && addDays(prev, 1) === d ? cur + 1 : 1; prev = d; TL_STREAK.forEach((n) => { if (cur === n && !hitS.has(n)) { hitS.add(n); add(d, "🔥", `${n}日連続で学習`, n >= 30); } }); });
+  let min = 0;
+  const hitH = new Set();
+  logs.forEach((l) => { min += Number(l.minutes) || 0; TL_HOURS.forEach((h) => { if (min >= h * 60 && !hitH.has(h)) { hitH.add(h); add(l.date, "⏳", `勉強時間が合計${h}時間に`, h >= 100); } }); });
+  // 問題集の周回（同じ日の分はまとめる）
+  const clears = new Map();
+  state.questionBanks.forEach((b) => (b.clearHistory || []).forEach((h, i) => { if (!h || !h.date) return; if (!clears.has(h.date)) clears.set(h.date, []); clears.get(h.date).push({ name: b.name, lap: (Math.max(b.clears || 0, (b.clearHistory || []).length) - (b.clearHistory || []).length) + i + 1, acc: h.accuracy }); }));
+  clears.forEach((xs, d) => {
+    const head = xs.slice(0, 2).map((x) => `『${x.name}』${x.lap}周目${typeof x.acc === "number" ? `（${x.acc}%）` : ""}`).join("・");
+    add(d, "📘", `${head}${xs.length > 2 ? ` ほか${xs.length - 2}冊` : ""}を周回`, xs.some((x) => x.lap === 1 || (typeof x.acc === "number" && x.acc >= 90)));
+  });
+  // 記述式の道場：はじめての答案・年度ごとにはじめて80点
+  const kres = (r.kijutsu || {}).res || {};
+  const firstKj = Object.values(kres).flatMap((x) => (x.hist || []).map((h) => h.d)).filter(Boolean).sort()[0];
+  if (firstKj) add(firstKj, "✒", "記述式の道場で、はじめて答案を書いた");
+  Object.entries(kres).forEach(([id, x]) => { const h = (x.hist || []).find((e) => e.s >= 80); if (h) add(h.d, "🏅", `記述式 ${kjLabel(id)}で80点以上（${h.s}点）`, true); });
+  // 申請書の叩き込み・本試験の計算・計算の問題集の周回
+  (((r.kjDeck || {}).lap || {}).at || []).forEach((d, i) => add(d, "📜", `申請書の叩き込み 第${i + 1}周を達成`, true));
+  const c2 = r.calc2 || {};
+  ((c2.past || {}).lapsAt || []).forEach((d, i) => add(d, "🧮", `本試験の計算（40題）第${i + 1}周を達成`, true));
+  ((c2.fixed || {}).lapsAt || []).forEach((d, i) => add(d, "🧮", `計算の問題集 第${i + 1}周を達成`));
+  // 本番リハーサル・模試・資格の世界の本番モード
+  const rh = (r.rehearsal || {}).log || [];
+  if (rh.length) add(rh[0].d, "⏱", "はじめての本番リハーサル");
+  const rhPass = rh.find((e) => e.full && e.pass);
+  if (rhPass) add(rhPass.d, "🎯", `本番リハーサルで、はじめて合格ライン突破（${rhPass.total}点）`, true);
+  (r.mocks || []).forEach((m) => add(m.d, "📝", `模試・答練「${m.name || "模試"}」${m.ta != null ? `　択一${m.ta}` : ""}${m.ki != null ? `・記述${m.ki}` : ""}`));
+  Object.entries(r.worldExam || {}).forEach(([wid, w]) => { const p = (w.log || []).find((e) => e.passed); if (p) add(p.d, "📡", `${worldOfQual((state.qualifications || []).find((q) => q.id === wid)).name}の本番モードで、はじめて合格`, true); });
+  // 合格力の節目（資格ごと）
+  const qn = new Map((state.qualifications || []).map((q) => [q.id, q.name]));
+  const hitP = new Set();
+  (r.powerLog || []).forEach((e) => TL_POWER.forEach((p) => { const k = `${e.q}:${p}`; if (e.p >= p && !hitP.has(k)) { hitP.add(k); add(e.d, "✨", `${qn.get(e.q) || "目標の資格"}の合格力が${Math.round(p * 100)}%に`, p >= 0.85); } }));
+  // 冒険のはじまり＝いちばん古い記録の日
+  const first = [logs.length ? logs[0].date : null, ...ev.map((e) => e.d)].filter(Boolean).sort()[0];
+  if (first) ev.push({ d: first, icon: "🌱", text: "冒険のはじまり。いちばん古い記録の日", big: true, first: true });
+  // 新しい順（同じ日なら「はじまり」をいちばん古い側に）
+  return ev.sort((a, b) => (a.d < b.d ? 1 : a.d > b.d ? -1 : (a.first ? 1 : 0) - (b.first ? 1 : 0)));
+}
+const tlDate = (d) => { const [y, m, dd] = d.split("-"); return `${y}年${Number(m)}月${Number(dd)}日`; };
+// 物語として読む：古い順に、大きな節目を主人公が語る
+function timelineTalk(state, ev) {
+  const r = normRpg(state.rpg);
+  const old = ev.slice().reverse();
+  const pick = old.filter((e) => e.big);
+  const list = (pick.length >= 4 ? pick : old).slice(-14);
+  const ally = alliesJoined(r)[0];
+  const lines = [["hero", "ここまでの冒険を、最初から読み返してみるね。"]];
+  if (old.length && list[0] !== old[0]) lines.push(["hero", `${tlDate(old[0].d)}。${old[0].text}。すべてはここから始まった。`]);
+  list.forEach((e) => lines.push(["hero", `${tlDate(e.d)}。${e.text}。`]));
+  const days = daysBetween(old[0].d, todayStr());
+  lines.push(["hero", `はじめの日から${days}日。一歩ずつ、ちゃんと積み上がってる。`]);
+  if (ally) lines.push([ally.id, ally.cheer]);
+  lines.push(["hero", "この年表の続きは、これからの毎日で書いていこう。"]);
+  return { title: "成長の年表", lines };
+}
+function GrowthTimeline({ state, onTalk }) {
+  const [all, setAll] = useState(false);
+  const ev = growthTimeline(state);
+  if (!ev.length) return null;
+  const shown = all ? ev : ev.slice(0, 12);
+  let month = "";
+  return (
+    <Box title={`成長の年表　${ev.length}の節目`} icon={<Award size={18} />}>
+      <div className="jp">
+        <p className="text-[11px] mb-2" style={{ color: "var(--ink-soft)", lineHeight: 1.7 }}>学習の記録から、節目になった日を自動で集めています（新しい順）。★は大きな節目です。</p>
+        {onTalk && <button onClick={() => onTalk(timelineTalk(state, ev))} className="btn-primary w-full py-1.5 mb-2 text-[12px]">📖 物語として読む</button>}
+        <div style={{ borderLeft: "2px solid #d6b56a", marginLeft: 6, paddingLeft: 12 }}>
+          {shown.map((e, i) => {
+            const m = e.d.slice(0, 7);
+            const head = m !== month ? (month = m) : null;
+            return (
+              <div key={`${e.d}${i}`}>
+                {head && <div className="text-[11px] mt-2 mb-1" style={{ color: "var(--gold)", fontWeight: 800, marginLeft: -4 }}>{m.slice(0, 4)}年{Number(m.slice(5))}月</div>}
+                <div className="flex items-start gap-2 py-1" style={{ position: "relative" }}>
+                  <span aria-hidden="true" style={{ position: "absolute", left: -19, top: 9, width: 12, height: 12, borderRadius: "50%", background: e.big ? "#d6b56a" : "var(--paper)", border: "2px solid #d6b56a" }} />
+                  <span className="text-[10px]" style={{ color: "var(--ink-mute)", width: 34, flexShrink: 0, paddingTop: 2 }}>{Number(e.d.slice(5, 7))}/{Number(e.d.slice(8))}</span>
+                  <span className="flex-1 text-[12px]" style={{ color: "var(--ink)", fontWeight: e.big ? 800 : 500, lineHeight: 1.6 }}>{e.icon} {e.text}{e.big ? " ★" : ""}</span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        {ev.length > 12 && <button onClick={() => setAll(!all)} className="w-full text-[11px] mt-2 py-1" style={{ background: "transparent", border: "1px dashed var(--rule-soft)", color: "var(--ink-soft)", cursor: "pointer" }}>{all ? "▲ 新しい12件だけ" : `▼ すべて表示（${ev.length}件）`}</button>}
+      </div>
+    </Box>
+  );
+}
 function AdventureBook({ state, onClose }) {
   const [pg, setPg] = useState(0);
   const r = normRpg(state.rpg);
@@ -4525,7 +4652,7 @@ function AdventureBook({ state, onClose }) {
   );
 }
 
-function StatusTab({ state, setMainTitle, uid }) {
+function StatusTab({ state, setMainTitle, uid, onTalk }) {
   const [book, setBook] = useState(false);
   const status = calculateStatus(state);
   const player = state.player;
@@ -4543,6 +4670,7 @@ function StatusTab({ state, setMainTitle, uid }) {
         <span style={{ color: "#b08a3e", fontWeight: 800 }}>▶</span>
       </button>
       {book && <AdventureBook state={state} onClose={() => setBook(false)} />}
+      <GrowthTimeline state={state} onTalk={onTalk} />
       <SubjectJobs state={state} />
       <Box title="冒険者ステータス" icon={<StatusIcon size={18} />}>
         <div className="flex items-center gap-3 mb-3 p-3" style={{ background: "var(--sky-pale)", border: "1px solid var(--rule-soft)" }}>
@@ -14682,6 +14810,13 @@ function reflectionTalk(state) {
   if (plans.length) lines.push(["hero", left === 0 ? `今日のタスクは全部できました${doneToday ? `（${doneToday}項目）` : ""}。すばらしいです！` : `今日のタスクは、あと${left}項目残っています。無理せず、できるところまで進めましょうね。`]);
   if (rv) lines.push(["shadow", rv.status === "ahead" ? `……今日のところは、お前が${(rv.diff * 100).toFixed(1)}%先を行っている。明日も同じとは限らんぞ。` : rv.status === "behind" ? `ふっ、今日も我のほうが${(Math.abs(rv.diff) * 100).toFixed(1)}%先だ。明日は追いつけるかな？` : "……今日は横並びだな。明日、差がつく。"]);
   if (tmr.length) lines.push(["hero", `明日のタスクは「${tmr.slice(0, 2).join("」「")}」${tmr.length > 2 ? "ほか" : ""}です。`]);
+  // 今日まちがえた問題に自分ルールがあれば、仲間がそのルールを読み上げる
+  const ruled = [];
+  state.questionBanks.forEach((b) => (b.questions || []).forEach((q) => { if (q.rule && (q.ah || []).some((h) => String(h).startsWith(code) && String(h).endsWith("w"))) ruled.push(q); }));
+  if (ruled.length) {
+    const al = alliesJoined(normRpg(state.rpg))[0];
+    lines.push([al ? al.id : "hero", `今日まちがえた問題に、あなたの自分ルールがありましたね。「${ruled[0].rule}」${ruled.length > 1 ? `（ほか${ruled.length - 1}つ）` : ""}。寝る前にもう一度、声に出して読んでみましょう。`]);
+  }
   const pet = getPetInfo(state);
   if (pet && pet.stage > 0) lines.push(["pet", pet.studiedToday ? "（うれしそうに、しっぽをふっている）" : "（あしたはいっしょに勉強しようね、と見上げている）"]);
   lines.push(["hero", ans > 0 ? "今日もおつかれさまでした。ゆっくり休んで、また明日。" : "また明日、一緒にがんばりましょうね。おやすみなさい。"]);
@@ -14817,6 +14952,7 @@ function LapRoom({ state, actions, rpgActions, pastReq, onPastOpened, startTimer
       {show && homeWorld && <TatakiDeck state={state} actions={rpgActions} pastReq={pastReq} onPastOpened={onPastOpened} />}
       {show && <StudyScopeBar state={state} />}
       {show && <PlanTasks state={state} actions={actions} />}
+      {show && <WeakBook state={state} />}
       {show && <LapGrowth state={state} actions={actions} />}
       {show && <StudyAnalysis state={state} />}
       {show && rpgActions && <MockLog state={state} actions={rpgActions} />}
@@ -17573,6 +17709,186 @@ function calcDueList(state, eras, today) {
   const untried = eras.length * 2 - Object.keys(res).filter((k) => /^[LF]:/.test(k)).length;
   return { past, types, untried };
 }
+// ── 弱点集（自動。2026年10月21日）：択一で2回以上まちがえた問題・叩き込みでまちがえたカード・正解率の低い計算・記述式の弱い欄を、
+//    記録から自動で集めて科目ごとにまとめる。ちがう日に3回続けて正解（カードは箱3以上・計算は7割以上）で「卒業」して消える ──
+const WEAK_GRAD = 3; // 択一：ちがう日に3回続けて正解で卒業（討伐依頼書と同じ）
+function weakBook(state, deck) {
+  const r = normRpg(state.rpg);
+  const sc = studyScope(state);
+  // 択一：科目（地域）ごと
+  const regions = new Map();
+  let qN = 0;
+  state.questionBanks.forEach((b) => {
+    if (!sc.inScope(b)) return;
+    (b.questions || []).forEach((q) => {
+      if (q.excluded || (q.wrong || 0) < 2) return;
+      const st = correctDayStreak(q);
+      if (st >= WEAK_GRAD) return;
+      const rg = themeOf(b.name).region || "そのほか";
+      if (!regions.has(rg)) regions.set(rg, []);
+      regions.get(rg).push({ b, q, st });
+      qN++;
+    });
+  });
+  const qs = [...regions.entries()].map(([name, list]) => ({ name, list: list.sort((x, y) => (y.q.wrong || 0) - (x.q.wrong || 0)) }))
+    .sort((a, b) => byRegionOrder({ name: a.name }, { name: b.name }));
+  // 叩き込み：まちがえたことがあり、まだ箱2以下のカード（項目ごと）
+  const recs = (r.kjDeck || {}).c || {};
+  const cards = deck ? deck.filter((c) => { const x = recs[c.id]; return x && (x.n || 0) > (x.ok || 0) && (x.b || 0) <= 2; })
+    .map((c) => ({ c, miss: (recs[c.id].n || 0) - (recs[c.id].ok || 0) })).sort((a, b) => b.miss - a.miss) : [];
+  // 計算：3回以上解いて正解率7割未満の種類・前回まちがえた本試験の計算・無線工学の計算
+  const c2 = r.calc2 || {};
+  const calc = Object.entries(c2.stats || {}).filter(([t, s]) => CALC2_TYPES[t] && s.n >= 3 && s.ok / s.n < 0.7).map(([t, s]) => ({ t, name: CALC2_TYPES[t], rate: s.ok / s.n, n: s.n })).sort((a, b) => a.rate - b.rate);
+  const past = Object.entries((c2.past || {}).res || {}).filter(([k, x]) => /^[LF]:/.test(k) && x.n && !x.last).map(([k, x]) => ({ k: k[0], era: k.slice(2), n: x.n, ok: x.ok || 0 }));
+  const radio = Object.entries((r.radioCalc || {}).stats || {}).filter(([, s]) => s.n >= 3 && s.ok / s.n < 0.7).map(([t, s]) => ({ t, name: (RADIO_CALC_TYPES.find((x) => x.id === t) || {}).name || t, rate: s.ok / s.n, n: s.n })).sort((a, b) => a.rate - b.rate);
+  // 記述式：自己採点の平均が6割未満の欄
+  const kf = (r.kijutsu || {}).fields || {};
+  const fields = KJ_FIELDS.filter((k) => kf[k] && kf[k].n >= 2 && kf[k].pts / kf[k].n < 0.6).map((k) => ({ k, rate: kf[k].pts / kf[k].n, n: kf[k].n })).sort((a, b) => a.rate - b.rate);
+  const total = qN + cards.length + calc.length + past.length + radio.length + fields.length;
+  return { qs, qN, cards, calc, past, radio, fields, total };
+}
+const weakItems = (list) => list.map(({ b, q }) => ({ bankId: b.id, bankName: b.name, year: b.year || "", qId: q.id }));
+function WeakBook({ state }) {
+  const { deck } = useKjDeck();
+  const [open, setOpen] = useState(null); // 開いている科目
+  const [print, setPrint] = useState(false);
+  const wb = weakBook(state, deck);
+  const fieldName = (id) => (DECK_FIELDS.find((f) => f.id === id) || {}).name || id;
+  const solve = (list, title) => window.dispatchEvent(new CustomEvent("sq-study-items", { detail: { items: weakItems(list.slice(0, 30)), kind: "weakbook", title } }));
+  const go = (detail) => window.dispatchEvent(new CustomEvent("sq-open-past", { detail }));
+  const row = { borderRadius: 8, border: "1px solid var(--rule-soft)", background: "var(--paper)", color: "var(--ink)" };
+  const sec = (t) => <div className="text-[11px] mt-2 mb-1" style={{ color: "var(--ink)", fontWeight: 800 }}>{t}</div>;
+  return (
+    <Box title={`弱点集（自動）　${wb.total}`} icon={<Skull size={18} />}>
+      <div className="jp space-y-1">
+        <p className="text-[11px]" style={{ color: "var(--ink-soft)", lineHeight: 1.7 }}>まちがいの記録から自動で集めた「自分だけの弱点」です。択一は<b>ちがう日に{WEAK_GRAD}回続けて正解</b>、叩き込みのカードは3日あけて正解、計算は正解率7割で<b>卒業</b>して消えます。</p>
+        {wb.total === 0 && <div className="text-[12px] text-center py-2" style={{ color: "var(--sage)", fontWeight: 700 }}>いま弱点はありません。この調子です！</div>}
+        {wb.qN > 0 && <>
+          {sec(`択一（2回以上まちがえた問題）${wb.qN}問`)}
+          {wb.qs.map((g) => (
+            <div key={g.name} style={row}>
+              <div className="flex items-center gap-2 px-2 py-1.5">
+                <button onClick={() => setOpen(open === g.name ? null : g.name)} className="flex-1 text-left text-[12px]" style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink)", fontWeight: 700 }}>{open === g.name ? "▼" : "▶"} {g.name}<span className="text-[10px] ml-1" style={{ color: "var(--ink-mute)", fontWeight: 500 }}>{g.list.length}問</span></button>
+                <button onClick={() => solve(g.list, `弱点集：${g.name}`)} className="btn-primary text-[10px] px-2 py-1">解く{g.list.length > 30 ? "（30問）" : ""}</button>
+              </div>
+              {open === g.name && <div className="px-2 pb-2 space-y-1">
+                {g.list.slice(0, 40).map(({ b, q, st }) => (
+                  <div key={q.id} className="text-[11px] px-2 py-1" style={{ borderTop: "1px dashed var(--rule-soft)" }}>
+                    <div style={{ color: "var(--ink)" }}><span className="text-[10px] px-1 mr-1" style={{ background: "#7a2b2b", color: "#fdfbf5", borderRadius: 3, fontWeight: 800 }}>✕{q.wrong}</span>{q.q}</div>
+                    <div className="text-[10px]" style={{ color: "var(--sky-deep)" }}>→ {q.a}</div>
+                    {q.rule && <div className="text-[10px]" style={{ color: "#8a6d2c" }}>自分ルール：{q.rule}</div>}
+                    <div className="text-[9px]" style={{ color: "var(--ink-mute)" }}>{b.name}　卒業まで {Array.from({ length: WEAK_GRAD }, (_, i) => <span key={i} style={{ color: i < st ? "#b08a3e" : "var(--rule-soft)" }}>★</span>)}</div>
+                  </div>
+                ))}
+                {g.list.length > 40 && <div className="text-[10px]" style={{ color: "var(--ink-mute)" }}>ほか{g.list.length - 40}問（印刷では全部出ます）</div>}
+              </div>}
+            </div>
+          ))}
+          {wb.qs.length > 1 && <button onClick={() => solve(wb.qs.flatMap((g) => g.list).sort((x, y) => (y.q.wrong || 0) - (x.q.wrong || 0)), "弱点集：まちがいの多い順")} className="btn-sky w-full py-1.5 text-[11px]">全科目から、まちがいの多い順に30問</button>}
+        </>}
+        {wb.cards.length > 0 && <>
+          {sec(`申請書の叩き込み（まちがえたカード）${wb.cards.length}枚`)}
+          <div className="px-2 py-1.5" style={row}>
+            {DECK_FIELDS.map((f) => { const n = wb.cards.filter((x) => x.c.field === f.id).length; return n ? <span key={f.id} className="text-[10px] mr-2" style={{ color: "var(--ink-soft)" }}>{f.name} {n}枚</span> : null; })}
+            <div className="text-[10px] mt-1 truncate" style={{ color: "var(--ink-mute)" }}>例：{wb.cards.slice(0, 3).map((x) => x.c.title || x.c.head).join("／")}</div>
+            <button onClick={() => go({ to: "laps", tataki: true, ids: wb.cards.slice(0, 30).map((x) => x.c.id) })} className="btn-primary w-full py-1.5 mt-1 text-[11px]">このカードだけ叩き込む（{Math.min(30, wb.cards.length)}枚）</button>
+          </div>
+        </>}
+        {(wb.calc.length > 0 || wb.past.length > 0 || wb.radio.length > 0) && <>
+          {sec("計算（正解率7割未満・前回まちがえた計算）")}
+          {wb.calc.length > 0 && <button onClick={() => go({ to: "calc", types: wb.calc.slice(0, 5).map((x) => x.t) })} className="w-full text-left text-[11px] px-2 py-1.5 flex items-center gap-2" style={{ ...row, cursor: "pointer" }}><span className="flex-1">{wb.calc.slice(0, 5).map((x) => `${x.name} ${Math.round(x.rate * 100)}%`).join("・")}</span><span style={{ color: "var(--sky-deep)", fontWeight: 800, whiteSpace: "nowrap" }}>5問 ▶</span></button>}
+          {wb.past.map((x) => <button key={x.k + x.era} onClick={() => go({ to: "calc", kind: x.k, id: x.era })} className="w-full text-left text-[11px] px-2 py-1.5 flex items-center gap-2" style={{ ...row, border: "1px solid #e0948a", cursor: "pointer" }}><span className="flex-1">本試験の計算：{eraLabel(x.era)}の{x.k === "L" ? "土地" : "建物"}（{x.ok}/{x.n}回正解）</span><span style={{ color: "var(--sky-deep)", fontWeight: 800 }}>解く ▶</span></button>)}
+          {wb.radio.length > 0 && <div className="text-[11px] px-2 py-1.5" style={row}>無線工学：{wb.radio.map((x) => `${x.name} ${Math.round(x.rate * 100)}%`).join("・")}<div className="text-[10px]" style={{ color: "var(--ink-mute)" }}>計算の部屋の「無線工学の計算ドリル」→「苦手な種類から10問」で</div></div>}
+        </>}
+        {wb.fields.length > 0 && <>
+          {sec("記述式の欄（自己採点の平均が6割未満）")}
+          <div className="text-[11px] px-2 py-1.5" style={row}>{wb.fields.map((x) => `${x.k} ${Math.round(x.rate * 100)}%`).join("・")}<div className="text-[10px]" style={{ color: "var(--ink-mute)" }}>記述式の道場の「欄ごとの出来」から、その欄だけの欄ドリルへ</div></div>
+        </>}
+        {wb.total > 0 && <button onClick={() => setPrint(true)} className="btn-ghost w-full py-1.5 mt-2 text-[11px]">🖨 弱点集を印刷・PDFにする</button>}
+      </div>
+      {print && <WeakBookPrint wb={wb} fieldName={fieldName} onClose={() => setPrint(false)} />}
+    </Box>
+  );
+}
+function WeakBookPrint({ wb, fieldName, onClose }) {
+  const [hideA, setHideA] = useState(false);
+  useEffect(() => { document.body.classList.add("sq-printing"); return () => document.body.classList.remove("sq-printing"); }, []);
+  let no = 0;
+  const answers = [];
+  return createPortal(
+    <div className="sq-print-root" style={{ position: "fixed", inset: 0, zIndex: 80, background: "#fff", overflowY: "auto", color: "#111" }}>
+      <style>{`
+        @media print {
+          body.sq-printing > *:not(.sq-print-root) { display: none !important; }
+          .sq-print-root { position: static !important; overflow: visible !important; }
+          .sq-noprint { display: none !important; }
+          .sq-pn-q { break-inside: avoid; }
+          @page { margin: 12mm; }
+        }
+        .sq-pn { font-family: 'Zen Kaku Gothic New', 'Hiragino Kaku Gothic ProN', sans-serif; max-width: 760px; margin: 0 auto; padding: 16px; font-size: 13px; line-height: 1.7; }
+        .sq-pn h1 { font-size: 20px; margin: 0 0 2px; font-family: 'Shippori Mincho B1', serif; }
+        .sq-pn h2 { font-size: 15px; margin: 18px 0 6px; padding: 2px 8px; border-left: 4px solid #b08a3e; background: #f6f1e4; }
+        .sq-pn-q { display: grid; grid-template-columns: 2.6em 1fr; gap: 2px 6px; padding: 5px 0; border-bottom: 1px dashed #ccc; }
+        .sq-pn-q .no { color: #888; font-size: 11px; padding-top: 2px; }
+        .sq-pn-q .a { grid-column: 2; color: #1e4b8f; font-weight: 600; white-space: pre-wrap; }
+        .sq-pn-q .memo { grid-column: 2; color: #8a6d2c; font-size: 11px; }
+      `}</style>
+      <div className="sq-noprint jp" style={{ position: "sticky", top: 0, background: "#fdfbf5", borderBottom: "1px solid #b08a3e", padding: "10px 16px", zIndex: 1 }}>
+        <div className="flex items-center gap-2">
+          <span className="flex-1 text-sm" style={{ fontWeight: 800, color: "#22335c" }}>弱点集</span>
+          <button onClick={() => setHideA(!hideA)} className="text-[11px] px-2.5 py-0.5" style={chipSt(hideA)}>{hideA ? "☑" : "☐"} 答えは最後にまとめる</button>
+          <button onClick={() => window.print()} className="btn-primary text-xs px-3 py-1.5">🖨 印刷・PDFにする</button>
+          <button onClick={onClose} className="btn-ghost text-xs px-3 py-1.5">閉じる</button>
+        </div>
+        <p className="text-[10px] mt-1" style={{ color: "#8a96b0" }}>iPhone・iPad では、印刷の画面で「共有 → ファイルに保存」を選ぶとPDFになります。</p>
+      </div>
+      <div className="sq-pn">
+        <h1>弱点集</h1>
+        <div style={{ color: "#666", fontSize: 11 }}>択一 {wb.qN}問・叩き込み {wb.cards.length}枚　／　{todayStr().replace(/-/g, "/")} 作成　Study Quest</div>
+        {wb.qs.map((g) => (
+          <div key={g.name}>
+            <h2>{g.name}（{g.list.length}問）</h2>
+            {g.list.map(({ b, q }) => { no++; if (hideA) answers.push({ no, a: q.a }); return (
+              <div key={q.id} className="sq-pn-q">
+                <span className="no">{no}.</span>
+                <span>{q.q}<span style={{ color: "#a33", fontSize: 10 }}>　✕{q.wrong}　{b.name}</span></span>
+                {!hideA && <span className="a">→ {q.a}</span>}
+                {!hideA && q.rule && <span className="memo">自分ルール：{q.rule}</span>}
+                {!hideA && q.memo && <span className="memo">メモ：{q.memo}</span>}
+              </div>); })}
+          </div>
+        ))}
+        {wb.cards.length > 0 && (
+          <div>
+            <h2>申請書の叩き込み（{wb.cards.length}枚）</h2>
+            {wb.cards.map(({ c, miss }) => { no++; const a = c.mode === "docs" ? (c.docs || []).join("、") : c.answer; if (hideA) answers.push({ no, a }); return (
+              <div key={c.id} className="sq-pn-q">
+                <span className="no">{no}.</span>
+                <span>【{fieldName(c.field)}】{c.head}　{c.ask}<span style={{ color: "#a33", fontSize: 10 }}>　✕{miss}</span></span>
+                {!hideA && <span className="a">→ {a}</span>}
+              </div>); })}
+          </div>
+        )}
+        {(wb.calc.length > 0 || wb.past.length > 0 || wb.radio.length > 0 || wb.fields.length > 0) && (
+          <div>
+            <h2>計算・記述式の苦手</h2>
+            {wb.calc.map((x) => <div key={x.t} className="sq-pn-q"><span className="no">計算</span><span>{x.name}（正解率 {Math.round(x.rate * 100)}%・{x.n}回）</span></div>)}
+            {wb.past.map((x) => <div key={x.k + x.era} className="sq-pn-q"><span className="no">本試験</span><span>{eraLabel(x.era)}の{x.k === "L" ? "土地" : "建物"}の計算（前回まちがえた）</span></div>)}
+            {wb.radio.map((x) => <div key={x.t} className="sq-pn-q"><span className="no">無線</span><span>{x.name}（正解率 {Math.round(x.rate * 100)}%・{x.n}回）</span></div>)}
+            {wb.fields.map((x) => <div key={x.k} className="sq-pn-q"><span className="no">記述</span><span>{x.k}の欄（自己採点の平均 {Math.round(x.rate * 100)}%・{x.n}回）</span></div>)}
+          </div>
+        )}
+        {hideA && answers.length > 0 && (
+          <div style={{ breakBefore: "page" }}>
+            <h2>答え</h2>
+            {answers.map((x) => <div key={x.no} className="sq-pn-q"><span className="no">{x.no}.</span><span className="a" style={{ gridColumn: "auto" }}>{x.a}</span></div>)}
+          </div>
+        )}
+      </div>
+    </div>,
+    document.body
+  );
+}
 function TatakiDeck({ state, actions, pastReq, onPastOpened }) {
   const { deck, years } = useKjDeck();
   const [fieldF, setFieldF] = useState("all");
@@ -17595,15 +17911,15 @@ function TatakiDeck({ state, actions, pastReq, onPastOpened }) {
   const lapLeft = deck ? deck.filter((c) => !lapOk[c.id] && filt(c)) : [];
   const card = cur && byId.get(cur.id);
   const open = (id) => { const c = byId.get(id); if (!c) return; setShowCase(false); setCur({ id, opts: c.mode === "choice" ? choicesOf(c) : null, picked: [], phase: "ask", grade: null }); };
-  const begin = (mode) => {
-    const list = mode === "lap" ? lapLeft.slice(0, 20) : [...dueCards, ...freshCards];
+  const begin = (mode, ids) => {
+    const list = ids ? ids.map((id) => byId.get(id)).filter(Boolean) : mode === "lap" ? lapLeft.slice(0, 20) : [...dueCards, ...freshCards];
     if (!list.length) return;
     setRun({ mode, queue: list.map((c) => c.id), back: {}, okN: 0, ngN: 0, done: 0 });
     open(list[0].id);
     setTimeout(() => boxRef.current && boxRef.current.scrollIntoView({ block: "start", behavior: "smooth" }), 50);
   };
   // 今日タブ・ホームの「叩き込み」から来たら、すぐに今日のカードを始める
-  useEffect(() => { if (pastReq && pastReq.tataki && deck) { if (!run) begin("today"); onPastOpened && onPastOpened(); } }, [pastReq, !!deck]);
+  useEffect(() => { if (pastReq && pastReq.tataki && deck) { if (!run) begin(pastReq.ids ? "weak" : "today", pastReq.ids); onPastOpened && onPastOpened(); } }, [pastReq, !!deck]);
   // 答えを記録（again＝同じ回のやり直しなら箱は動かさない）
   const commit = (grade, extra) => {
     const again = (run.back[cur.id] || 0) > 0;
