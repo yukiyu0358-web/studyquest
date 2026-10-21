@@ -33,6 +33,7 @@ function makeQuestions(prefix, offset, count = QA.length) {
       lastConf: k === 0 ? null : k % 3 === 0 ? "unsure" : "sure",
       ah,
       ...(k === 0 ? {} : { sr_nextReview: ymd(day(i % 3 === 0 ? 0 : 3)), sr_interval: 3, sr_streak: k % 3 }),
+      ...(i % 5 === 4 ? { ah: [`${code(day(-12))}s`, `${code(day(-5))}s`, `${code(day(-1))}s`], ts: [6, 5, 4], lastConf: "sure" } : {}), // 高速周回（定着）の確認用
     };
   });
 }

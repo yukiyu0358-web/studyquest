@@ -1438,6 +1438,22 @@ function choiceOf(text, ans) {
 }
 // 問題を id で書きかえる合図（自分ルール・メモへの追記など。StudyRPG が受け取る）
 const patchQuestion = (qId, patch) => window.dispatchEvent(new CustomEvent("sq-q-patch", { detail: { qId, patch } }));
+// PCのキーボードで答える（2026年10月21日）：文字を入力している欄・日本語の変換中・Ctrl などとの組み合わせは無視する
+const HAS_KB = typeof window !== "undefined" && !!window.matchMedia && window.matchMedia("(hover: hover) and (pointer: fine)").matches;
+function useAnswerKeys(onKey, deps) {
+  useEffect(() => {
+    const h = (e) => {
+      if (e.isComposing || e.ctrlKey || e.metaKey || e.altKey || e.repeat) return;
+      const t = e.target;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
+      if (document.body.classList.contains("sq-printing")) return;
+      if (onKey(e.key)) e.preventDefault();
+    };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, deps);
+}
+const KeyHint = ({ children }) => (HAS_KB ? <div className="jp text-[10px] mt-1.5 text-center" style={{ color: "var(--ink-mute)" }}>⌨ {children}</div> : null);
 function RevealButton({ q, onReveal }) {
   const [text, setText] = useState("");
   useEffect(() => { if (q) { THINK.id = q.id; THINK.t0 = Date.now(); delete THINK.pick[q.id]; } setText(""); }, [q && q.id]);
@@ -1448,6 +1464,12 @@ function RevealButton({ q, onReveal }) {
     if (q && typeof pick === "number") THINK.pick[q.id] = pick; else if (q) delete THINK.pick[q.id];
     onReveal();
   };
+  // スペース・Enter で答えを見る、4択は数字キーで番号を選ぶ
+  useAnswerKeys((k) => {
+    if (k === " " || k === "Enter") { reveal(null); return true; }
+    if (ch && /^[1-9]$/.test(k) && Number(k) <= ch.opts.length) { reveal(Number(k)); return true; }
+    return false;
+  }, [q && q.id, text, !!ch]);
   if (ch) return (
     <>
       {mode === "write" && (
@@ -1460,6 +1482,7 @@ function RevealButton({ q, onReveal }) {
         ))}
       </div>
       <button onClick={() => reveal(null)} className="jp w-full text-[11px] mt-2" style={{ background: "none", border: "none", color: "var(--ink-mute)", textDecoration: "underline", cursor: "pointer" }}>選ばずに答えを見る</button>
+      <KeyHint>数字キー 1〜{ch.opts.length} で選ぶ・スペースで選ばずに答えを見る</KeyHint>
     </>
   );
   return (
@@ -1470,6 +1493,7 @@ function RevealButton({ q, onReveal }) {
       )}
       {mode === "say" && <div className="jp text-[10px] mt-3 text-center" style={{ color: "var(--ink-mute)" }}>💭 答えを開く前に「なぜ？」をひとこと言ってみよう</div>}
       <button onClick={reveal} className={`jp btn-info ${mode === "off" ? "mt-3" : "mt-1.5"} py-2 flex items-center justify-center gap-1`}><Eye size={16} /> 答えを見る</button>
+      <KeyHint>スペース か Enter で答えを見る</KeyHint>
     </>
   );
 }
@@ -1597,6 +1621,16 @@ const ERROR_TYPES = [
 const isQuestionAutoWeak = (q) => !!q && ((q.wrong > 0 && q.correct < q.wrong) || q.lastConf === "unsure" || q.lastConf === "wrongSure");
 // 苦手（自動判定 + ⭐手動マーク）
 const isQuestionWeak = (q) => !!q && (isQuestionAutoWeak(q) || q.marked);
+// 高速周回（2026年10月21日）：最近3回とも◎（自信ありの正解）・ちがう日に2日以上・かかった秒数が FAST_SEC 以内の問題は「定着」として周回で飛ばす。
+// 飛ばした問題からも FAST_SPOT の割合で抜き打ちに出す（⭐の問題は飛ばさない）
+const FAST_SEC = 10, FAST_SPOT = 0.1;
+const isSettled = (q) => {
+  if (!q || q.excluded || q.marked) return false;
+  const ah = (q.ah || []).slice(-3).map(String);
+  if (ah.length < 3 || !ah.every((h) => h.endsWith("s")) || new Set(ah.map((h) => h.slice(0, 6))).size < 2) return false;
+  const ts = (q.ts || []).slice(-3);
+  return !ts.length || ts.every((x) => x <= FAST_SEC);
+};
 // 間違いの種類を「混同2・知識不足1」形式の文字列にする
 const formatErrTypes = (errTypes) => ERROR_TYPES.filter((t) => errTypes && errTypes[t.id]).map((t) => `${t.label}${errTypes[t.id]}`).join("・");
 // 回答時の確信度・間違いの種類を問題データに反映（meta が無ければ何もしない）
@@ -2650,6 +2684,16 @@ function StudyRPG({ user }) {
       return isBest;
     },
     logCalcMiss: (type, kind) => updateRpg((x) => { const c = x.calc2 || {}; return { ...x, calc2: { ...c, miss: { ...(c.miss || {}), [kind]: ((c.miss || {})[kind] || 0) + 1 }, missByType: { ...(c.missByType || {}), [type]: { ...((c.missByType || {})[type] || {}), [kind]: (((c.missByType || {})[type] || {})[kind] || 0) + 1 } } } }; }),
+    // 電卓の型を磨く：mode＝keys（最短手順）／mem（変数メモリ）／build（手順の組み立て）。results＝[{ok, extra}]
+    logCraft: (mode, results) => {
+      const ok = results.filter((r) => r.ok).length;
+      updateRpg((x) => {
+        const c = x.calc2 || {}, cr = c.craft || {}, o = cr[mode] || {};
+        const rec = mode === "keys" ? { n: (o.n || 0) + results.length, same: (o.same || 0) + ok, extra: (o.extra || 0) + results.reduce((t, r) => t + (r.extra || 0), 0) } : { n: (o.n || 0) + results.length, ok: (o.ok || 0) + ok };
+        return addBond({ ...x, calc2: { ...c, craft: { ...cr, [mode]: rec } } }, "kai", ok);
+      });
+      if (ok) setTimeout(() => awardXp(ok * 3), 100);
+    },
     logCalcDrill: (sec, miss) => {
       const prev = ((normRpg(stateRef.current.rpg).calc2 || {}).drill || {}).best;
       const best = !miss && (!prev || sec < prev);
@@ -2658,7 +2702,7 @@ function StudyRPG({ user }) {
       return best;
     },
     // 本試験の計算（土地の座標 L:年度・建物の床面積 F:年度）。40題そろうと1周で500G
-    logPastCalc: ({ key, ok, sec = 0, hints = 0 }) => {
+    logPastCalc: ({ key, ok, sec = 0, hints = 0, splits = [], verified = null }) => {
       const prev = ((((normRpg(stateRef.current.rpg).calc2 || {}).past || {}).res || {})[key] || {}).best;
       const isBest = ok && !hints && sec > 0 && (!prev || sec < prev);
       let lapUp = false, lapNo = 0;
@@ -2671,7 +2715,12 @@ function StudyRPG({ user }) {
         let lap = p.lap || 1;
         let lapsAt = p.lapsAt || [];
         if (Object.keys(done).length >= PAST_TOTAL) { lapUp = true; lapNo = lap; lap += 1; done = {}; lapsAt = [...lapsAt, todayStr()]; }
-        let out = { ...x, calc2: { ...c, past: { res, done, lap, lapsAt } } };
+        // 工程ごとの時間（区間タイム）と、検算した回・しなかった回の正解率
+        const stepT = { ...(p.stepT || {}) };
+        splits.forEach((s2) => { if (s2.sec > 0) { const v = stepT[s2.type] || {}; stepT[s2.type] = { n: (v.n || 0) + 1, sec: (v.sec || 0) + s2.sec }; } });
+        const vf = { ...(p.verify || {}) };
+        if (verified !== null) { const kk = verified ? "y" : "n"; const v = vf[kk] || {}; vf[kk] = { n: (v.n || 0) + 1, ok: (v.ok || 0) + (ok ? 1 : 0) }; }
+        let out = { ...x, calc2: { ...c, past: { ...p, res, done, lap, lapsAt, stepT, verify: vf } } };
         if (ok) out = addBond(out, "kai", 2);
         if (lapUp) out = { ...out, gold: out.gold + 500, goldEarned: out.goldEarned + 500 };
         return out;
@@ -6346,11 +6395,13 @@ function SessionConfig({ bank, state, onCancel, onStart }) {
   const [useTimer, setUseTimer] = useState(true);
   const [excludeMastered, setExcludeMastered] = useState(true);
   const [mode, setMode] = useState("qa");
+  const settledN = bank.questions.filter(isSettled).length;
+  const [fast, setFast] = useState(settledN >= 5);
   const totalCloze = bank.questions.reduce((a, q) => a + (q.clozes || []).length, 0);
   const excludedCount = bank.questions.filter(q => q.excluded).length;
   const resume = state?.sessionResume?.bankId === bank.id ? state.sessionResume : null;
   const start = (fromResume) => {
-    window.__qaConfig = { random, retryWrong, useTimer, excludeMastered, fromResume: fromResume || false };
+    window.__qaConfig = { random, retryWrong, useTimer, excludeMastered, fast: fast && mode === "qa", fromResume: fromResume || false };
     onStart(mode);
   };
   return (
@@ -6372,6 +6423,11 @@ function SessionConfig({ bank, state, onCancel, onStart }) {
           <ConfigToggle label="不正解の問題を再度出題" sub="正解するまで何度でも挑戦" value={retryWrong} onChange={setRetryWrong} />
           <ConfigToggle label="学習時間を計測する" sub="挑戦と同時にタイマー開始（終了時に自動停止）" value={useTimer} onChange={setUseTimer} />
           <ConfigToggle label={`習得済みを除外して出題${excludedCount > 0 ? ` (除外中 ${excludedCount}問)` : ""}`} sub="✓ 習得済みフラグのついた問題をスキップ" value={excludeMastered} onChange={setExcludeMastered} />
+          {mode === "qa" && settledN > 0 && (() => {
+            const spot = Math.ceil(settledN * FAST_SPOT);
+            const sec = bank.questions.filter(isSettled).reduce((t, q) => t + ((q.ts || []).length ? q.ts.slice(-3).reduce((a, b) => a + b, 0) / q.ts.slice(-3).length : 8) + 5, 0);
+            return <ConfigToggle label={`⚡ 高速周回：定着した${settledN}問を飛ばす`} sub={`最近3回とも◎で${FAST_SEC}秒以内に答えた問題。うち${spot}問は抜き打ちで出します（1周 約${Math.max(1, Math.round((sec - spot * 13) / 60))}分短縮）`} value={fast} onChange={setFast} />;
+          })()}
         </div>
         {(() => {
           const live = bank.questions.filter((q) => !q.excluded);
@@ -6865,6 +6921,7 @@ function QStudySession({ bank, state, recordAnswer, awardXp, startTimer, stopTim
   const [stampPressed, setStampPressed] = useState(false);
   const timerStartedByMe = useRef(false);
   const completionRecorded = useRef(false);
+  const fastSkip = useRef(0); // 高速周回で飛ばした問題の数
   const [memoEdit, setMemoEdit] = useState(false);
   const [memoText, setMemoText] = useState("");
   const [wrongList, setWrongList] = useState([]);   // 今回間違えた問題リスト
@@ -6910,7 +6967,14 @@ function QStudySession({ bank, state, recordAnswer, awardXp, startTimer, stopTim
       const activeQs = config.excludeMastered !== false
         ? bank.questions.filter(q => !q.excluded)
         : bank.questions;
-      const ids = (activeQs.length > 0 ? activeQs : bank.questions).map((q) => q.id);
+      let pool = activeQs.length > 0 ? activeQs : bank.questions;
+      if (config.fast) {
+        const settled = pool.filter(isSettled);
+        const spot = new Set(shuffle(settled.map((q) => q.id)).slice(0, Math.ceil(settled.length * FAST_SPOT)));
+        const kept = pool.filter((q) => !isSettled(q) || spot.has(q.id));
+        if (kept.length && settled.length) { fastSkip.current = settled.length - spot.size; pool = kept; setTimeout(() => showToast(`⚡ 定着した${fastSkip.current}問を飛ばしました（抜き打ち${spot.size}問）`, "var(--sky-deep)"), 300); }
+      }
+      const ids = pool.map((q) => q.id);
       setQueue(config.random ? shuffle(ids) : ids);
       setStats({ correct: 0, wrong: 0, totalAnswered: 0, streak: 0, bestStreak: 0 });
     }
@@ -6968,7 +7032,7 @@ function QStudySession({ bank, state, recordAnswer, awardXp, startTimer, stopTim
         if (!completionRecorded.current) {
           incrementBankClears(bank.id);
           const acc = (newCorrect + newWrong) > 0 ? Math.round((newCorrect / (newCorrect + newWrong)) * 100) : 0;
-          if (recordClearSnapshot) recordClearSnapshot(bank.id, { date: todayStr(), accuracy: acc, totalAns: newCorrect + newWrong, correct: newCorrect, wrong: newWrong });
+          if (recordClearSnapshot) recordClearSnapshot(bank.id, { date: todayStr(), accuracy: acc, totalAns: newCorrect + newWrong, correct: newCorrect, wrong: newWrong, ...(fastSkip.current ? { fast: fastSkip.current } : {}) });
           completionRecorded.current = true; setStampPressed(true);
         }
       }, 400);
@@ -8833,7 +8897,7 @@ function LapRecordsPanel({ state }) {
                   <div key={i} className="flex items-center justify-between gap-2 jp text-xs px-2 py-1" style={{ background: i % 2 ? "var(--paper)" : "var(--sky-pale)", border: "1px solid var(--rule-soft)" }}>
                     <span style={{ color: "var(--ink)", minWidth: 52 }}>{before + i + 1}周目</span>
                     <span style={{ color: "var(--ink-soft)" }}>{fmt(h.date)}</span>
-                    <span style={{ color: "var(--sky-deep)", minWidth: 90, textAlign: "right" }}>正答率 {accText(h)}</span>
+                    <span style={{ color: "var(--sky-deep)", minWidth: 90, textAlign: "right" }}>正答率 {accText(h)}{h.fast ? <span style={{ color: "var(--ink-mute)", fontSize: 10 }}>　⚡{h.fast}問とばし</span> : null}</span>
                   </div>
                 ))}
                 {before > 0 && hist.length > 0 && <p className="jp text-[10px]" style={{ color: "var(--ink-mute)" }}>※ 記録を始める前に {before} 周しています</p>}
@@ -14693,6 +14757,20 @@ function AnswerPanel({ onAnswer: onAnswerRaw, wrongLabel = "不正解", correctL
   const onAnswer = (correct, meta) => { const m = { ...(meta || {}), sec: sec || undefined }; if (qid) delete THINK.pick[qid]; emitBattle({ correct, conf: m.conf }); onAnswerRaw(correct, m); };
   const pv = question ? previewIntervals(question, srSettings) : null; // 次回までの日数
   const submitWrong = (errType) => onAnswer(false, { errType: errType || null, confident, rule: rule.trim() || undefined });
+  // キーボード：1＝✕／2＝△／3＝◎。✕のあとは 1〜4＝原因、0 か Enter＝原因を選ばずに次へ、Esc＝戻る
+  useAnswerKeys((k) => {
+    if (stage === "choose") {
+      if (k === "1") { setStage("wrong"); return true; }
+      if (k === "2") { onAnswer(true, { conf: "unsure" }); return true; }
+      if (k === "3") { onAnswer(true, slow ? { conf: "unsure", slow: true } : { conf: "sure" }); return true; }
+      return false;
+    }
+    const i = Number(k);
+    if (/^[1-9]$/.test(k) && i <= ERROR_TYPES.length) { submitWrong(ERROR_TYPES[i - 1].id); return true; }
+    if (k === "0" || k === "Enter") { submitWrong(null); return true; }
+    if (k === "Escape" && pickOk !== false) { setStage("choose"); return true; }
+    return false;
+  }, [stage, qid, confident, rule, slow]);
   // 答えを開く前に書いたひとこと・かかった時間・自分ルール（答えの下、ボタンの上に出す）
   const info = (
     <>
@@ -14753,6 +14831,7 @@ function AnswerPanel({ onAnswer: onAnswerRaw, wrongLabel = "不正解", correctL
         <button onClick={() => submitWrong(null)} className="w-full jp text-[11px] py-1 mt-1" style={{ background: "transparent", border: "none", color: "var(--ink-mute)", textDecoration: "underline" }}>
           原因を選ばずに次へ
         </button>
+        <KeyHint>1〜{ERROR_TYPES.length} で原因・0 か Enter で選ばずに次へ{pickOk !== false ? "・Esc で戻る" : ""}</KeyHint>
       </div>
       </>
     );
@@ -14775,6 +14854,7 @@ function AnswerPanel({ onAnswer: onAnswerRaw, wrongLabel = "不正解", correctL
         <span className="text-[10px]" style={{ opacity: 0.9 }}>{slow ? `確実・時間かかり→${pv ? fmtDays(pv.hard) : "短め"}後` : <>確実{pv && `・${fmtDays(pv.good)}後`}</>}</span>
       </button>
     </div>
+    <KeyHint>1 ✕・2 △・3 ◎</KeyHint>
     </>
   );
 }
@@ -17351,6 +17431,8 @@ function PastSection({ sec }) {
 
 // 本試験の計算（土地）：与えられた座標から、求める点の座標と面積
 function PastLandRun({ item, state, actions, onExit, onNext }) {
+  const [laps, setLaps] = useState([]); // 区間タイム：区切りごとに「済」を押した時刻
+  const [verified, setVerified] = useState(false); // 検算した
   const [vals, setVals] = useState({});
   const [checked, setChecked] = useState(null);
   const [hint, setHint] = useState(0);
@@ -17367,7 +17449,8 @@ function PastLandRun({ item, state, actions, onExit, onNext }) {
     const ok = good.every(Boolean);
     const sec = Math.round((Date.now() - t0) / 1000);
     SFX.play(ok ? "defeat" : "miss");
-    const best = actions.logPastCalc({ key: `L:${item.id}`, ok, sec, hints: hint });
+    const splits = laps.map((t, i) => ({ type: pastSecType((item.sections || [])[i].title), sec: Math.round((t - (i ? laps[i - 1] : t0)) / 1000) }));
+    const best = actions.logPastCalc({ key: `L:${item.id}`, ok, sec, hints: hint, splits: hint ? [] : splits, verified });
     setChecked(good); setRes({ ok, sec, best, n: good.filter(Boolean).length });
   };
   const secs = item.sections || [];
@@ -17403,8 +17486,10 @@ function PastLandRun({ item, state, actions, onExit, onNext }) {
               <div key={k} className="flex items-center gap-1.5"><span className="text-xs" style={{ width: 96, flexShrink: 0, color: "var(--ink)", fontWeight: 800 }}>面積 {a.label}</span><input disabled={!!checked} inputMode="decimal" value={vals[k] || ""} onChange={(e) => setV(k, e.target.value)} style={pastInp} /><span className="text-xs">㎡</span>{checked && <span style={{ fontWeight: 900, color: checked[fi] ? "var(--sage)" : "#c9564e" }}>{checked[fi] ? "○" : "✕"}</span>}</div>
             ); })}
           </div>
+          <LapSplits secs={secs} t0={t0} laps={laps} setLaps={setLaps} done={!!checked} />
           {!checked && (<>
             {secs.slice(0, hint).map((s, i) => <PastSection key={i} sec={s} />)}
+            <VerifyToggle on={verified} set={setVerified} text="検算した（面積を2通り・交点を逆の方向角で確かめる など）" />
             <div className="grid grid-cols-3 gap-2">
               <button disabled={hint >= secs.length} onClick={() => setHint(hint + 1)} className="btn-ghost py-2 text-xs" style={{ opacity: hint >= secs.length ? 0.4 : 1 }}>💡 手順を1つ（{hint}/{secs.length}）</button>
               <button onClick={check} className="btn-primary py-2 col-span-2">答え合わせ</button>
@@ -17434,6 +17519,7 @@ function PastLandRun({ item, state, actions, onExit, onNext }) {
 
 // 本試験の計算（建物）：床面積の求積
 function PastFloorRun({ y, state, actions, onExit, onNext }) {
+  const [verified, setVerified] = useState(false); // 検算した
   const rows = floorRows(y).filter((r) => r.v != null);
   const keys = floorKeys(y);
   const [vals, setVals] = useState({});
@@ -17449,7 +17535,7 @@ function PastFloorRun({ y, state, actions, onExit, onNext }) {
     const ok = good.every(Boolean);
     const sec = Math.round((Date.now() - t0) / 1000);
     SFX.play(ok ? "defeat" : "miss");
-    const best = actions.logPastCalc({ key: `F:${y.era}`, ok, sec });
+    const best = actions.logPastCalc({ key: `F:${y.era}`, ok, sec, verified });
     setChecked(good); setRes({ ok, sec, best, n: good.filter(Boolean).length });
   };
   return (
@@ -17470,6 +17556,7 @@ function PastFloorRun({ y, state, actions, onExit, onNext }) {
               {checked && <div className="text-[11px]" style={{ color: "#34508c", fontWeight: 700 }}>答え：{r.ans}</div>}
             </div>
           ))}
+          {!checked && <VerifyToggle on={verified} set={setVerified} text="検算した（式をもう一度打つ・各階の合計を確かめる など）" />}
           {!checked && <button onClick={check} className="btn-primary w-full py-2">答え合わせ</button>}
           {checked && res && (<>
             <div className="text-center py-1" style={{ fontWeight: 900, fontSize: 18, color: res.ok ? "var(--sage)" : "#c9564e" }}>{res.ok ? "全問正解！" : `${res.n} / ${rows.length} 正解`}{res.best ? <span className="block text-[12px]" style={{ color: "var(--gold)" }}>🏆 自己ベスト {mmssOf(res.sec)}</span> : null}</div>
@@ -17493,6 +17580,259 @@ function PastFloorRun({ y, state, actions, onExit, onNext }) {
 }
 
 // 計算の部屋：本試験の計算の一覧と、解く画面
+// ── 電卓の型を磨く（2026年10月21日。本試験の計算の欄）：計算マニュアル20年分の手順から
+//    ① 最短手順（自分でキーを組んで、模範の手順と1打ずつ比べる）② 変数メモリ（いまどの変数に何が入っているかを追う）③ 手順の組み立て（区切りの中の手順を正しい順に）
+//    記録は rpg.calc2.craft = { keys:{n, same, extra}, mem:{n, ok}, build:{n, ok} } ──
+const CRAFT_MODES = [
+  ["keys", "最短手順", "やることを見て、自分でキーを組み立てます。模範の手順と1打ずつ比べて、余計なキー・抜けたキーを示します"],
+  ["mem", "変数メモリ", "いまメモリにある点・値の表を見て、手順の「？」に入る変数を選びます。どこに何が入っているかを追う力"],
+  ["build", "手順の組み立て", "1つの区切りの手順（出てくる答え）がばらばらに並びます。計算する順にタップします"],
+];
+const CRAFT_N = 5;
+// 1打ずつの比べ（最長共通部分列）：same＝同じ、miss＝模範にあって自分にない、extra＝自分だけ
+function keyDiff(model, mine) {
+  const n = model.length, m = mine.length;
+  const dp = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0));
+  for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) dp[i][j] = model[i] === mine[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+  const ops = [];
+  let i = 0, j = 0;
+  while (i < n && j < m) {
+    if (model[i] === mine[j]) { ops.push({ k: model[i], t: "same" }); i++; j++; }
+    else if (dp[i + 1][j] >= dp[i][j + 1]) ops.push({ k: model[i++], t: "miss" });
+    else ops.push({ k: mine[j++], t: "extra" });
+  }
+  while (i < n) ops.push({ k: model[i++], t: "miss" });
+  while (j < m) ops.push({ k: mine[j++], t: "extra" });
+  return ops;
+}
+const MEM_RE = /^[A-FxyM]$/;
+// 区切りの手順をたどって、各手順の直前のメモリ（変数→中身の説明）を作る
+function memTrace(sec) {
+  const mem = {};
+  (sec.vars || []).forEach((v) => { mem[v.v] = `${v.pt}（${v.val}）`; });
+  const before = [];
+  (sec.steps || []).forEach((st, i) => {
+    before.push({ ...mem });
+    const k = st.k || [];
+    for (let j = 0; j < k.length - 1; j++) {
+      if (k[j] === "[STO]" && MEM_RE.test(k[j + 1])) {
+        const own = String(st.o || "").replace(/\s*(を)?\s*[A-FxyM]\s*へ.*$/, "").trim();
+        const prev = i > 0 ? String(sec.steps[i - 1].o || "") : "";
+        const txt = own && !/^[A-FxyM]$/.test(own) ? own : prev || st.o || "";
+        const cur = mem[k[j + 1]];
+        if (!(cur && txt && cur.startsWith(txt.replace(/（.*$/, "")))) mem[k[j + 1]] = txt; // 座標を入れるだけの手順は、はじめの表（点と座標）のまま
+      }
+    }
+  });
+  return before;
+}
+function craftTasks(data, mode) {
+  const out = [];
+  (data || []).forEach((it) => (it.sections || []).forEach((sec) => {
+    const steps = sec.steps || [];
+    const head = `${it.label} ${it.purpose}｜${sec.title.replace(/^[①-⑨]\s*/, "")}`;
+    if (mode === "build") {
+      const os = steps.filter((s) => s.o && !/^[A-FxyM]\s*へ$/.test(s.o));
+      if (os.length >= 3 && os.length <= 9) out.push({ head, sec, order: os.map((s) => s.o) });
+      return;
+    }
+    const mems = mode === "mem" ? memTrace(sec) : null;
+    steps.forEach((st, i) => {
+      if (mode === "keys") {
+        const keys = pastDrillOf(st.k || []);
+        if (keys && keys.filter((k) => k !== "数").length >= 5 && st.o) out.push({ head, sec, i, keys, goal: st.o, prev: i > 0 ? steps[i - 1].o : null });
+      } else {
+        const k = st.k || [];
+        const j = k.findIndex((t, x) => t === "[ALPHA]" && MEM_RE.test(k[x + 1] || ""));
+        if (j < 0 || !st.o) return;
+        const ans = k[j + 1], mem = mems[i];
+        if (!mem[ans] || Object.keys(mem).length < 2) return;
+        out.push({ head, sec, i, seq: k.map((t, x) => (x === j + 1 ? "？" : t)), ans, mem, goal: st.o });
+      }
+    });
+  }));
+  return out.map((x) => [Math.random(), x]).sort((a, b) => a[0] - b[0]).slice(0, CRAFT_N).map((x) => x[1]);
+}
+function CalcCraft({ c2, actions }) {
+  const data = usePastData("pastcalc");
+  const [run, setRun] = useState(null); // { mode, tasks, i, mine:[], done:null|{...}, got:[], miss, picked, results:[] }
+  const st = c2.craft || {};
+  const start = (mode) => { const tasks = craftTasks(data, mode); if (tasks.length) setRun({ mode, tasks, i: 0, mine: [], done: null, got: [], miss: 0, picked: null, results: [], shuffled: tasks[0].order ? shuffle(tasks[0].order.map((o, x) => x)) : null }); };
+  const next = (result) => {
+    const results = [...run.results, result];
+    const i = run.i + 1;
+    if (i >= run.tasks.length) { actions.logCraft(run.mode, results); setRun({ ...run, results, i, fin: true }); return; }
+    const t = run.tasks[i];
+    setRun({ ...run, results, i, mine: [], done: null, got: [], miss: 0, picked: null, shuffled: t.order ? shuffle(t.order.map((o, x) => x)) : null });
+  };
+  const box = (children) => <Box title="電卓の型を磨く" icon={<Pencil size={18} />}><div className="jp space-y-2">{children}</div></Box>;
+  if (!data) return null;
+  if (!run) {
+    const rate = (o) => (o && o.n ? `${Math.round(((o.ok ?? o.same) / o.n) * 100)}%・${o.n}問` : "まだ");
+    return box(<>
+      <p className="text-[11px]" style={{ color: "var(--ink-soft)", lineHeight: 1.7 }}>計算マニュアル20年分の手順（複素数モード）で、電卓の「型」を1つずつ鍛えます。速さは、キーの数・メモリの使い方・手順の順番で決まります。</p>
+      {CRAFT_MODES.map(([id, nm, tx]) => (
+        <button key={id} onClick={() => start(id)} className="w-full text-left px-2 py-2" style={{ borderRadius: 8, border: "1px solid var(--rule-soft)", background: "var(--paper)", color: "var(--ink)", cursor: "pointer" }}>
+          <div className="flex items-baseline gap-2"><span className="text-[13px]" style={{ fontWeight: 800 }}>{nm}</span><span className="text-[10px]" style={{ color: "var(--ink-mute)" }}>{id === "keys" ? (st.keys && st.keys.n ? `模範と同じ ${rate(st.keys)}` : "まだ") : rate(st[id])}</span><span className="flex-1" /><span className="text-[11px]" style={{ color: "var(--sky-deep)", fontWeight: 800 }}>{CRAFT_N}問 ▶</span></div>
+          <div className="text-[10px]" style={{ color: "var(--ink-soft)" }}>{tx}</div>
+        </button>
+      ))}
+    </>);
+  }
+  const name = CRAFT_MODES.find((m) => m[0] === run.mode)[1];
+  if (run.fin) {
+    const ok = run.results.filter((r) => r.ok).length;
+    const extra = run.results.reduce((t, r) => t + (r.extra || 0), 0);
+    return box(<>
+      <div className="text-center"><div style={{ fontFamily: "'Cinzel', serif", fontWeight: 900, fontSize: 26, color: "var(--gold)" }}>{ok} / {run.results.length}</div><div className="text-[11px]" style={{ color: "var(--ink-soft)" }}>{name}{run.mode === "keys" ? `　模範と同じ手順 ${ok}問・余計なキー 合計${extra}打` : ""}</div></div>
+      <div className="grid grid-cols-2 gap-2"><button onClick={() => setRun(null)} className="btn-ghost py-2">もどる</button><button onClick={() => start(run.mode)} className="btn-primary py-2">もう一度</button></div>
+    </>);
+  }
+  const t = run.tasks[run.i];
+  const top = (
+    <div className="flex items-center gap-2 text-[11px]" style={{ color: "var(--ink-soft)" }}>
+      <button onClick={() => setRun(null)} style={{ background: "none", border: "none", color: "var(--ink-soft)", cursor: "pointer" }}>✕ やめる</button>
+      <span className="flex-1 text-right" style={{ fontWeight: 700 }}>{name}　{run.i + 1} / {run.tasks.length}</span>
+    </div>
+  );
+  const ctx = <div className="text-[11px] px-2 py-1" style={{ background: "var(--cream)", border: "1px solid var(--rule-soft)", borderRadius: 6, color: "var(--ink)" }}>{t.head}</div>;
+  const memTable = (mem) => (
+    <div className="px-2 py-1.5" style={{ background: "#1f2a44", borderRadius: 8 }}>
+      <div className="text-[10px] mb-0.5" style={{ color: "#f1dfae", fontWeight: 800 }}>いまのメモリ</div>
+      {Object.entries(mem).map(([v, d]) => <div key={v} className="text-[11px]" style={{ color: "#dfe8f6" }}><b style={{ fontFamily: "ui-monospace, monospace", fontStyle: /^[xy]$/.test(v) ? "italic" : "normal", color: "#fff" }}>{v}</b>　{d}</div>)}
+    </div>
+  );
+  // ① 最短手順
+  if (run.mode === "keys") {
+    const press = (k) => setRun((r) => (r.done ? r : { ...r, mine: [...r.mine, k] }));
+    const judge = () => {
+      const ops = keyDiff(t.keys, run.mine);
+      const extra = ops.filter((o) => o.t === "extra").length, miss = ops.filter((o) => o.t === "miss").length;
+      const ok = !extra && !miss;
+      SFX.play(ok ? "defeat" : "miss");
+      setRun({ ...run, done: { ops, extra, miss, ok } });
+    };
+    const mem = memTrace(t.sec)[t.i];
+    return box(<>
+      {top}{ctx}
+      {Object.keys(mem).length > 0 && memTable(mem)}
+      {t.prev && <div className="text-[11px]" style={{ color: "var(--ink-mute)" }}>直前の手順の結果：{t.prev}</div>}
+      <div className="text-[13px] px-2 py-1.5" style={{ background: "var(--sky-pale)", border: "1px solid var(--sky-deep)", borderRadius: 8, color: "var(--ink)", fontWeight: 800 }}>やること：{t.goal}</div>
+      <div className="flex flex-wrap gap-1 min-h-[28px] px-2 py-1" style={{ background: "var(--paper)", border: "1px dashed var(--rule-soft)", borderRadius: 6 }}>
+        {run.mine.length === 0 && <span className="text-[11px]" style={{ color: "var(--ink-mute)" }}>下のキーで手順を組み立てます（数を入れるところは「数」）</span>}
+        {(run.done ? run.done.ops : run.mine.map((k) => ({ k, t: "" }))).map((o, j) => <span key={j} style={{ ...KEYCAP, fontSize: 11, opacity: o.t === "miss" ? 0.75 : 1, background: o.t === "extra" ? "#f3c4bf" : o.t === "miss" ? "#fff3cf" : KEYCAP.background, outline: o.t === "miss" ? "2px dashed #d6b56a" : "none", textDecoration: o.t === "extra" ? "line-through" : "none" }}>{o.k}</span>)}
+      </div>
+      {!run.done ? (<>
+        <div className="grid grid-cols-6 gap-1.5 p-2" style={{ background: "#2a3550", borderRadius: 10 }}>
+          {PAST_PAD.map((k) => <button key={k} onClick={() => press(k)} style={{ ...KEYCAP, padding: "8px 0", fontSize: 13, background: k === "SHIFT" ? "linear-gradient(180deg, #f6e2a8, #d6b56a)" : k === "数" ? "linear-gradient(180deg, #dfe8f6, #b8c6dc)" : KEYCAP.background }}>{k}</button>)}
+        </div>
+        <div className="grid grid-cols-3 gap-2">
+          <button onClick={() => setRun({ ...run, mine: run.mine.slice(0, -1) })} className="btn-ghost py-2 text-xs">⌫ 1つ消す</button>
+          <button onClick={() => setRun({ ...run, mine: [] })} className="btn-ghost py-2 text-xs">クリア</button>
+          <button disabled={!run.mine.length} onClick={judge} className="btn-primary py-2 text-xs">比べる</button>
+        </div>
+      </>) : (<>
+        <div className="text-[12px] px-2 py-1.5" style={{ background: run.done.ok ? "rgba(109,132,84,0.12)" : "var(--cream)", border: `1px solid ${run.done.ok ? "var(--sage)" : "var(--gold)"}`, borderRadius: 8, color: "var(--ink)", lineHeight: 1.7 }}>
+          {run.done.ok ? <b style={{ color: "#4f7a3a" }}>✓ 模範と同じ手順です（{t.keys.length}打）</b>
+            : <>あなた <b>{run.mine.length}打</b>／模範 <b>{t.keys.length}打</b>　<span style={{ background: "#f3c4bf", padding: "0 4px" }}>余計 {run.done.extra}</span>　<span style={{ background: "#fff3cf", padding: "0 4px" }}>抜け {run.done.miss}</span>
+              <div className="text-[10px]" style={{ color: "var(--ink-soft)" }}>{run.done.extra && run.mine.length > t.keys.length ? "模範より多い打数です。メモリ（ALPHA＋変数）や Ans を使うと、数を打ち直さずに済みます。" : run.mine.length < t.keys.length && t.keys.length - run.done.miss >= t.keys.length * 0.6 ? "模範より少ない打数です。別の正しい手順のこともあるので、実際の電卓で答えが合うか確かめましょう。" : ""}　黄色の点線＝抜けたキー、赤の取り消し線＝余計なキー</div></>}
+        </div>
+        <div className="text-[10px]" style={{ color: "var(--ink-mute)" }}>模範の手順</div>
+        <div className="px-2 py-1.5" style={{ background: "#fdfbf5", border: "1px solid var(--rule-soft)", borderRadius: 6 }}><KeySeq seq={t.sec.steps[t.i].k} /></div>
+        <button onClick={() => next({ ok: run.done.ok, extra: run.done.extra })} className="btn-primary w-full py-2">{run.i + 1 >= run.tasks.length ? "結果へ" : "次へ"}</button>
+      </>)}
+    </>);
+  }
+  // ② 変数メモリ
+  if (run.mode === "mem") {
+    const opts = Object.keys(t.mem);
+    const pick = (v) => { if (run.picked) return; const ok = v === t.ans; SFX.play(ok ? "defeat" : "miss"); setRun({ ...run, picked: v }); };
+    return box(<>
+      {top}{ctx}{memTable(t.mem)}
+      <div className="text-[13px] px-2 py-1.5" style={{ background: "var(--sky-pale)", border: "1px solid var(--sky-deep)", borderRadius: 8, color: "var(--ink)", fontWeight: 800 }}>やること：{t.goal}</div>
+      <div className="px-2 py-1.5" style={{ background: "#fdfbf5", border: "1px solid var(--rule-soft)", borderRadius: 6 }}><KeySeq seq={run.picked ? t.sec.steps[t.i].k : t.seq} /></div>
+      <div className="text-[11px]" style={{ color: "var(--ink-soft)" }}>「？」に入る変数は？</div>
+      <div className="grid grid-cols-4 gap-1.5">
+        {opts.map((v) => { const right = run.picked && v === t.ans, bad = run.picked === v && v !== t.ans; return <button key={v} onClick={() => pick(v)} style={{ ...KEYCAP, padding: "10px 0", fontSize: 15, fontStyle: /^[xy]$/.test(v) ? "italic" : "normal", background: right ? "#cfe6c4" : bad ? "#f3c4bf" : KEYCAP.background }}>{v}</button>; })}
+      </div>
+      {run.picked && <>
+        <div className="text-[12px]" style={{ color: run.picked === t.ans ? "#4f7a3a" : "#c9564e", fontWeight: 800 }}>{run.picked === t.ans ? "✓ 正解" : `✕ 正解は ${t.ans}`}：{t.ans} には「{t.mem[t.ans]}」が入っています</div>
+        <button onClick={() => next({ ok: run.picked === t.ans })} className="btn-primary w-full py-2">{run.i + 1 >= run.tasks.length ? "結果へ" : "次へ"}</button>
+      </>}
+    </>);
+  }
+  // ③ 手順の組み立て
+  const order = t.order;
+  const tap = (x) => {
+    if (run.got.includes(x) || run.got.length >= order.length) return;
+    if (x === run.got.length) { const got = [...run.got, x]; if (got.length === order.length) SFX.play("defeat"); setRun({ ...run, got }); }
+    else { SFX.play("miss"); setRun({ ...run, miss: run.miss + 1, flash: x }); }
+  };
+  const fin = run.got.length === order.length;
+  return box(<>
+    {top}{ctx}
+    {t.sec.vars && t.sec.vars.length > 0 && <div className="text-[11px]" style={{ color: "var(--ink-soft)" }}>はじめに入れる点：{t.sec.vars.map((v) => `${v.v}＝${v.pt}`).join("　")}</div>}
+    <div className="text-[11px]" style={{ color: "var(--ink-soft)" }}>計算する順にタップ（{run.got.length} / {order.length}）　まちがい {run.miss}</div>
+    <div className="space-y-1">
+      {run.shuffled.map((x) => { const at = run.got.indexOf(x); return (
+        <button key={x} onClick={() => tap(x)} className="w-full text-left text-[12px] px-2 py-1.5 flex gap-2" style={{ borderRadius: 6, border: `1px solid ${at >= 0 ? "var(--sage)" : run.flash === x ? "#c9564e" : "var(--rule-soft)"}`, background: at >= 0 ? "rgba(109,132,84,0.12)" : "var(--paper)", color: "var(--ink)", cursor: at >= 0 ? "default" : "pointer", fontFamily: "ui-monospace, monospace" }}>
+          <span style={{ width: 18, fontWeight: 900, color: "var(--sage)" }}>{at >= 0 ? at + 1 : ""}</span><span className="flex-1">{order[x]}</span>
+        </button>
+      ); })}
+    </div>
+    {fin && <>
+      <div className="text-[12px]" style={{ color: run.miss ? "var(--gold)" : "#4f7a3a", fontWeight: 800 }}>{run.miss ? `完成（まちがい ${run.miss}回）` : "✓ ノーミスで完成！"}</div>
+      <PastSection sec={t.sec} />
+      <button onClick={() => next({ ok: run.miss === 0 })} className="btn-primary w-full py-2">{run.i + 1 >= run.tasks.length ? "結果へ" : "次へ"}</button>
+    </>}
+  </>);
+}
+const VerifyToggle = ({ on, set, text }) => (
+  <button onClick={() => set(!on)} className="w-full text-left text-[11px] px-2 py-1.5" style={{ borderRadius: 6, border: `1px solid ${on ? "var(--sage)" : "var(--rule-soft)"}`, background: on ? "rgba(109,132,84,0.12)" : "var(--paper)", color: "var(--ink)", cursor: "pointer" }}>{on ? "☑" : "☐"} ✔ {text}</button>
+);
+// ── 区間タイム（本試験の土地の計算）：手順の区切りごとに「済」を押して、どの工程が遅いかを測る ──
+const pastSecType = (title) => (PAST_DRILL_TYPES.slice(1).find((x) => x[2].test(title)) || ["other", "そのほか"])[1];
+function LapSplits({ secs, t0, laps, setLaps, done }) {
+  const [, tick] = useState(0);
+  useEffect(() => { if (done) return undefined; const id = setInterval(() => tick((n) => n + 1), 1000); return () => clearInterval(id); }, [done]);
+  if (!secs.length) return null;
+  const at = (i) => (i < 0 ? t0 : laps[i]);
+  const cur = laps.length;
+  return (
+    <div className="px-2 py-1.5 space-y-1" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)", borderRadius: 8 }}>
+      <div className="text-[11px]" style={{ color: "var(--ink)", fontWeight: 800 }}>⏱ 区間タイム（実際の電卓で1つの区切りを終えたら「済」）</div>
+      {secs.map((s, i) => {
+        const sec = i < cur ? Math.round((laps[i] - at(i - 1)) / 1000) : i === cur && !done ? Math.round((Date.now() - at(i - 1)) / 1000) : null;
+        return (
+          <div key={i} className="flex items-center gap-2 text-[11px]">
+            <span className="flex-1 min-w-0 truncate" style={{ color: i < cur ? "var(--ink-mute)" : "var(--ink)" }}>{s.title}</span>
+            <span style={{ width: 44, textAlign: "right", fontFamily: "ui-monospace, monospace", color: i === cur ? "var(--sky-deep)" : "var(--ink-soft)", fontWeight: 700 }}>{sec != null ? mmssOf(sec) : ""}</span>
+            {i === cur && !done ? <button onClick={() => setLaps([...laps, Date.now()])} className="btn-sky text-[10px] px-2 py-0.5">済</button> : <span style={{ width: 30 }} />}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+// 本試験の計算の欄：工程ごとの平均時間（遅い順）と、検算した回・しなかった回の正解率
+function PastHabits({ past }) {
+  const stepT = past.stepT || {};
+  const rows = Object.entries(stepT).filter(([, v]) => v.n).map(([k, v]) => ({ k, n: v.n, avg: Math.round(v.sec / v.n) })).sort((a, b) => b.avg - a.avg);
+  const vf = past.verify || {};
+  const rate = (o) => (o && o.n ? `${Math.round((o.ok / o.n) * 100)}%（${o.n}回）` : "－");
+  if (!rows.length && !(vf.y && vf.y.n) && !(vf.n && vf.n.n)) return null;
+  const max = rows.length ? rows[0].avg : 1;
+  return (
+    <div className="px-2 py-1.5 space-y-1" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)", borderRadius: 8 }}>
+      {rows.length > 0 && <>
+        <div className="text-[11px]" style={{ color: "var(--ink)", fontWeight: 800 }}>⏱ 工程ごとの平均時間（遅い順）</div>
+        {rows.map((x) => <div key={x.k} className="flex items-center gap-2 text-[11px]"><span style={{ width: 120, color: "var(--ink)" }}>{x.k}</span><span className="flex-1" style={{ height: 6, borderRadius: 3, background: "var(--beige)", overflow: "hidden" }}><span style={{ display: "block", width: `${(x.avg / max) * 100}%`, height: "100%", background: x === rows[0] ? "#c9564e" : "#d6b56a" }} /></span><span style={{ width: 70, textAlign: "right", color: "var(--ink-soft)" }}>{mmssOf(x.avg)}・{x.n}回</span></div>)}
+        <div className="text-[10px]" style={{ color: "var(--ink-mute)" }}>いちばん遅い「{rows[0].k}」を、下の「本試験の手順の早押し」で型ごとに練習すると効果的です。</div>
+      </>}
+      {((vf.y && vf.y.n) || (vf.n && vf.n.n)) ? <div className="text-[11px]" style={{ color: "var(--ink)" }}>✔ 検算した回の正解率 <b>{rate(vf.y)}</b>　／　しなかった回 <b>{rate(vf.n)}</b></div> : null}
+    </div>
+  );
+}
 function PastCalcArea({ c2, state, actions, open, setOpen }) {
   const land = usePastData("pastcalc");
   const kj = usePastData("kijutsu");
@@ -17523,6 +17863,7 @@ function PastCalcArea({ c2, state, actions, open, setOpen }) {
   );
   const firstTodo = (kind) => listOf(kind).find((e) => !(past.done || {})[keyOf(kind, e)]) || listOf(kind)[0];
   return (
+    <>
     <Box title="本試験の計算（記述式 H17〜R6）" icon={<Award size={18} />}>
       <div className="jp space-y-2">
         <p className="text-[11px]" style={{ color: "var(--ink-soft)" }}>計算マニュアルの20年分の座標と、建物の攻略本の床面積で、本番と同じ数字を解きます。手順は計算マニュアルと同じ複素数モードのキー操作。全{PAST_TOTAL}題を正解すると1周（500G）。いま第{past.lap || 1}周・{doneN}/{PAST_TOTAL}。</p>
@@ -17535,9 +17876,12 @@ function PastCalcArea({ c2, state, actions, open, setOpen }) {
             <div className="flex items-center justify-between"><span className="text-xs" style={{ color: "var(--ink)", fontWeight: 800 }}>🏠 建物：床面積（{bldg.length}年）</span><button onClick={() => setOpen({ kind: "F", id: firstTodo("F") })} className="btn-sky px-2 py-0.5 text-[11px]">続きから</button></div>
             {chipRow("F", bldg.map((y) => y.era))}
           </div>
+          <PastHabits past={past} />
         </>)}
       </div>
     </Box>
+    <CalcCraft c2={c2} actions={actions} />
+    </>
   );
 }
 
