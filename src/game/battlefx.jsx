@@ -43,14 +43,20 @@ const ATK = {
 };
 // 科目（地域）ごとの得意な属性
 const REGION_EL = { "不動産登記法の王都": "holy", "民法の古の森": "wind", "区分所有の双子塔": "ice", "調査士法の砦": "fire", "測量の星見台": "thunder", "書式の迷宮": "fire", "電波法の港町": "wind", "雷鳴の工房": "thunder" }; // 二陸特の世界の地域は src/data/worlds.js
-const ELEMENTS = ["fire", "ice", "thunder", "holy", "wind"];
+export const ELEMENTS = ["fire", "ice", "thunder", "holy", "wind"];
+// 属性の名前と印（魔物の弱点の表示に使う）
+export const EL_NAME = { fire: "炎", ice: "氷", thunder: "雷", holy: "光", wind: "風" };
+export const EL_ICON = { fire: "🔥", ice: "❄", thunder: "⚡", holy: "✨", wind: "🌀" };
 const MAGIC_W = ["w-staff", "w-tome", "w-star"], BOW_W = ["w-bow"], SWORD_W = ["w-chain", "w-holy", "w-divine", "w-sky"];
 const pick = (a) => a[Math.floor(Math.random() * a.length)];
-export function heroAttackFor({ weapon, region, crit, combo = 0 }) {
+export function heroAttackFor({ weapon, region, crit, combo = 0, weak = null }) {
   const el = REGION_EL[region] || pick(ELEMENTS);
   const melee = () => (combo >= 6 ? "triple" : combo >= 3 ? pick(["cross", "triple", "slash"]) : pick(["slash", "slash", "cross"]));
   let id;
   const r = Math.random();
+  // 魔物の弱点の属性：魔法の武器ほど弱点を突きやすい（杖・魔導書・星の杖 6割、武器なし 3割、剣 2割、弓 1.5割）
+  const wr = MAGIC_W.includes(weapon) ? 0.6 : BOW_W.includes(weapon) ? 0.15 : SWORD_W.includes(weapon) ? 0.2 : 0.3;
+  if (weak && ATK[weak] && Math.random() < wr) { const a = ATK[weak]; return { id: weak, ...a, name: crit ? a.crit : a.name, crit: !!crit }; }
   if (MAGIC_W.includes(weapon)) id = r < 0.75 ? (r < 0.5 ? el : pick(ELEMENTS)) : melee();
   else if (BOW_W.includes(weapon)) id = r < 0.7 ? "arrow" : r < 0.85 ? "wind" : melee();
   else if (SWORD_W.includes(weapon)) id = r < 0.72 ? melee() : el;

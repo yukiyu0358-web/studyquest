@@ -6,7 +6,7 @@ import { fbAuth, fbDb, fbFieldValue, getPushToken, FCM_VAPID_KEY } from "./fireb
 import { LINE_ICONS, Ico, Sword, Plus, Check, Trash2, Sparkles, ScrollIcon, Upload, Play, Pause, BookOpen, Calendar, Home, FileQuestion, Eye, Shuffle, XIcon, Award, Clock, TrendingUp, Crown, Pencil, Bookmark, StarIcon, FolderIcon, Up, Down, Skull, Sword2, StatusIcon, LogoutIcon, Search, Castle, GA, swordArt, crossedSwords, oniArt, GAME_ART, GAME_ART_BY_ID, GAME_RING, GameIcon, paintedUrl, MON_ART_URL } from "./game/icons"; // アイコン
 import { SFX } from "./game/sfx"; // 効果音
 import { CALC_TYPES, makeCalcProblem, checkCalc, calcAnsText, SAKUZU_TYPES, makeSakuzuProblem } from "./game/calc"; // 計算ドリル・作図ドリルの問題づくり
-import { BATTLE_FX_CSS, heroAttackFor, monAttackFor, impactOf, AttackFx, SkillBanner, Ambient } from "./game/battlefx"; // 戦いの技と演出
+import { BATTLE_FX_CSS, heroAttackFor, monAttackFor, impactOf, AttackFx, SkillBanner, Ambient, ELEMENTS, EL_NAME, EL_ICON } from "./game/battlefx"; // 戦いの技と演出
 import { CALC2_GROUPS, CALC2_TYPES, CALC2_ALL, FIXED_PER_TYPE, CALC_MISS, makeCalc2, fixedSeed, checkCalc2, fieldAnsText, stagesOf, keyDrillOf } from "./game/calcplus"; // 計算強化（fx-JP500）
 import { makeCloze, BLANK_LABELS, makeTrap, isTrueAnswer } from "./game/cloze"; // 条文の穴埋め・○×のひっかけ版の問題づくり
 import { parseQuickText, TEXT_IMPORT_MODES } from "./game/textimport"; // 貼り付けた文章を一問一答に分ける
@@ -2381,6 +2381,15 @@ function StudyRPG({ user }) {
       return { ok: success, plus: success ? p + 1 : p, msg: success ? `${it.name} +${p + 1} に強化成功！` : "強化に失敗…（素材は失われました）" };
     },
     // 週替わりボスの結果（勝てば星霊石・賢者の結晶も。勝てるのは週に1回）
+    // 無限回廊：たどり着いた階（正解した数）。1階5G・EXP3、自己ベスト更新で+100G
+    endlessFinish: (cleared) => {
+      const e0 = normRpg(stateRef.current.rpg).endless || {};
+      const isBest = cleared > (e0.best || 0);
+      const gold = cleared * 5 + (isBest && cleared ? 100 : 0);
+      updateRpg((x) => { const e = x.endless || {}; return { ...x, gold: x.gold + gold, goldEarned: x.goldEarned + gold, endless: { best: Math.max(e.best || 0, cleared), n: (e.n || 0) + 1, log: [...(e.log || []), { d: todayStr(), f: cleared }].slice(-30), bestAt: isBest ? todayStr() : e.bestAt } }; });
+      if (cleared) setTimeout(() => awardXp(cleared * 3), 200);
+      return `報酬：${gold}G・EXP${cleared * 3}${isBest && cleared ? "（自己ベスト更新ボーナス100G）" : ""}`;
+    },
     weeklyFinish: ({ won, gold, xp, itemId }) => {
       const wk = weekKey();
       updateRpg((x) => {
@@ -3227,7 +3236,10 @@ function StudyRPG({ user }) {
   useEffect(() => {
     if (!battleBus) return undefined;
     const on = (e) => {
-      const { mats, xp, stat } = e.detail || {};
+      const { mats, xp, stat, gold: gold0, hl } = e.detail || {};
+      // 宝箱のゴールドと、今日のハイライト（討伐・連撃・先制など）
+      if (gold0) updateRpg((x) => ({ ...x, gold: x.gold + gold0, goldEarned: x.goldEarned + gold0 }));
+      if (hl) updateRpg((x) => hlMerge(x, hl));
       if ((mats && Object.keys(mats).length) || stat) updateRpg((x) => {
         const m = { ...x.materials };
         Object.entries(mats || {}).forEach(([k, n]) => { m[k] = (m[k] || 0) + n; });
@@ -4527,6 +4539,9 @@ function growthTimeline(state) {
   const qn = new Map((state.qualifications || []).map((q) => [q.id, q.name]));
   const hitP = new Set();
   (r.powerLog || []).forEach((e) => TL_POWER.forEach((p) => { const k = `${e.q}:${p}`; if (e.p >= p && !hitP.has(k)) { hitP.add(k); add(e.d, "✨", `${qn.get(e.q) || "目標の資格"}の合格力が${Math.round(p * 100)}%に`, p >= 0.85); } }));
+  // 冒険：最高連撃の更新（10連撃以上）・無限回廊の自己ベスト
+  (r.hlRec || []).forEach((e) => { if (e.k === "combo") add(e.d, "⚔", `最高連撃を更新（${e.v}連撃）`, e.v >= 30); });
+  if (r.endless && r.endless.bestAt && r.endless.best) add(r.endless.bestAt, "🌀", `無限回廊の自己ベスト ${r.endless.best}階`);
   // 冒険のはじまり＝いちばん古い記録の日
   const first = [logs.length ? logs[0].date : null, ...ev.map((e) => e.d)].filter(Boolean).sort()[0];
   if (first) ev.push({ d: first, icon: "🌱", text: "冒険のはじまり。いちばん古い記録の日", big: true, first: true });
@@ -4734,6 +4749,7 @@ function StatusTab({ state, setMainTitle, uid, onTalk }) {
       </button>
       {book && <AdventureBook state={state} onClose={() => setBook(false)} />}
       <GrowthTimeline state={state} onTalk={onTalk} />
+      <TodayHighlight state={state} />
       <SubjectJobs state={state} />
       <Box title="冒険者ステータス" icon={<StatusIcon size={18} />}>
         <div className="flex items-center gap-3 mb-3 p-3" style={{ background: "var(--sky-pale)", border: "1px solid var(--rule-soft)" }}>
@@ -12823,7 +12839,7 @@ function TrialRun({ state, run, recordAnswer, startTimer, stopTimer, onExit, onF
   );
 }
 
-function WorldView({ state, actions, todayCount, onWeekly, onDungeon, onGuardian, onStory, onTower, onSecBoss, onRehearsal, onStudyGroup }) {
+function WorldView({ state, actions, todayCount, onWeekly, onDungeon, onGuardian, onStory, onTower, onSecBoss, onRehearsal, onStudyGroup, onEndless }) {
   const qual = mainQual(state);
   const linked = qual && state.questionBanks.some((b) => b.qualId === qual.id);
   const pp = passPower(state, linked ? qual.id : null);
@@ -12881,6 +12897,7 @@ function WorldView({ state, actions, todayCount, onWeekly, onDungeon, onGuardian
         <WeekdayDungeon state={state} />
         <LumiErrand state={state} actions={actions} />
         <StudyGroupCard state={state} onStart={onStudyGroup} />
+        {onEndless && <EndlessCard state={state} onStart={onEndless} />}
         <DailyQuests state={state} actions={actions} todayCount={todayCount} />
         <CategoryQuests state={state} pp={pp} actions={actions} />
         <WeeklyBossCard state={state} pp={pp} onStart={onWeekly} />
@@ -12941,11 +12958,13 @@ function AdventureTab({ state, actions, recordAnswer, startTimer, stopTimer, tod
   const [towerRun, setTowerRun] = useState(null);   // { floor, pool, n }（試練の塔）
   const [secRun, setSecRun] = useState(null);       // { bank, region, pool, n }（節の守護者）
   const [groupRun, setGroupRun] = useState(null);   // { allyId, pool, n }（仲間の勉強会）
+  const [endless, setEndless] = useState(0);        // 無限回廊（数が変わるたびに最初から）
   const [slotOpen, setSlotOpen] = useState(null);   // 装備を選んでいるスロット
   const [qualId, setQualId] = useState("all");
   const [msg, setMsg] = useState("");
   const [view, setView] = useState("world"); // world（世界）| base（拠点・ボス）| skill | forge | dex
 
+  if (endless) return <EndlessRun key={`e${endless}`} state={state} actions={actions} recordAnswer={recordAnswer} startTimer={startTimer} stopTimer={stopTimer} onExit={() => setEndless(0)} />;
   if (groupRun) {
     const a = allyById(groupRun.allyId);
     return <TrialRun key={`g-${groupRun.n || 0}`} state={state} recordAnswer={recordAnswer} startTimer={startTimer} stopTimer={stopTimer}
@@ -13032,7 +13051,7 @@ function AdventureTab({ state, actions, recordAnswer, startTimer, stopTimer, tod
   if (view === "skill") return <div className="space-y-4">{nav}{msgBox}<SkillPanel state={state} actions={actions} flash={flash} /></div>;
   if (view === "forge") return <div className="space-y-4">{nav}{msgBox}<ForgePanel state={state} actions={actions} /></div>;
   if (view === "dex") return <div className="space-y-4">{nav}<EvolutionRoad state={state} /><MonsterDex state={state} /></div>;
-  if (view === "world") return <div className="space-y-4">{nav}<WorldView state={state} actions={actions} todayCount={todayCount} onWeekly={(boss, pool) => { if (pool.length === 0) { flash("出題できる問題がありません"); return; } setBattle({ boss, pool }); }} onDungeon={(n, pool) => setDungeon({ pool, minutes: n })} onRehearsal={(run) => setRehearsal(run)} onStudyGroup={(allyId) => { const a = allyById(allyId); const pool = studyGroupPool(state, a); if (pool.length) setGroupRun({ allyId, pool }); else flash("出題できる問題がありません"); }} onStory={(run) => setStoryRun(run)} onTower={(run) => setTowerRun(run)} onSecBoss={({ bank, region }) => { const pool = buildPoolFromBanks([bank], 15); if (pool.length) setSecRun({ bank, region, pool }); }} onGuardian={(g) => { const info = regionInfo(g.name); const pool = buildPoolFromBanks(g.banks, 15); if (pool.length === 0) { flash("出題できる問題がありません"); return; } setBattle({ boss: { id: info.boss, guardian: true, region: g.name, idx: 3, loop: 0, icon: info.icon, name: info.guardian, label: `${g.name}の守護者 ${info.guardian}`, hp: 200, atk: 20 }, pool }); }} /></div>;
+  if (view === "world") return <div className="space-y-4">{nav}<WorldView state={state} actions={actions} todayCount={todayCount} onWeekly={(boss, pool) => { if (pool.length === 0) { flash("出題できる問題がありません"); return; } setBattle({ boss, pool }); }} onDungeon={(n, pool) => setDungeon({ pool, minutes: n })} onRehearsal={(run) => setRehearsal(run)} onEndless={() => setEndless(Date.now())} onStudyGroup={(allyId) => { const a = allyById(allyId); const pool = studyGroupPool(state, a); if (pool.length) setGroupRun({ allyId, pool }); else flash("出題できる問題がありません"); }} onStory={(run) => setStoryRun(run)} onTower={(run) => setTowerRun(run)} onSecBoss={({ bank, region }) => { const pool = buildPoolFromBanks([bank], 15); if (pool.length) setSecRun({ bank, region, pool }); }} onGuardian={(g) => { const info = regionInfo(g.name); const pool = buildPoolFromBanks(g.banks, 15); if (pool.length === 0) { flash("出題できる問題がありません"); return; } setBattle({ boss: { id: info.boss, guardian: true, region: g.name, idx: 3, loop: 0, icon: info.icon, name: info.guardian, label: `${g.name}の守護者 ${info.guardian}`, hp: 200, atk: 20 }, pool }); }} /></div>;
 
   return (
     <div className="space-y-4">
@@ -13217,7 +13236,12 @@ function BossBattle({ state, boss, pool, actions, recordAnswer, startTimer, stop
   const [phase2, setPhase2] = useState(false); // 第2形態（HPが半分を切ったら1回だけ変身。攻撃が1.2倍）
   const [hp, setHp] = useState(bonus.maxHp);
   const [maxHp] = useState(bonus.maxHp);
-  const [log, setLog] = useState([`${boss.icon} ${boss.label}があらわれた！`]);
+  const [taunt] = useState(() => bossTaunt(state, pool)); // 苦手な地域を名指しする挑発
+  const [log, setLog] = useState(() => [`${boss.icon} ${boss.label}があらわれた！`, ...(taunt ? [`💬 ${boss.name}「${taunt.line}」`] : [])]);
+  const [shield, setShield] = useState(null); // 障壁 { need, left }：◎で need 回続けて正解すると砕ける
+  const shieldAt = useRef(pool.length >= 15 ? [0.7, 0.35] : [0.5]); // HPがこの割合を切ったら障壁を張る（短い戦いは1回だけ）
+  const shieldNeed = boss.idx >= 3 && !boss.weekly && !boss.guardian ? 3 : 2;
+  const [chest] = useState(() => rollChest(0.5)); // 勝ったときの宝箱
   const [fx, setFx] = useState(null); // 技の演出 { n, side: "hero"|"mon", atk, t, dmg, crit, assist }
   const [assist, setAssist] = useState(null); // 仲間の加勢の演出 { n, p, val, heal, joint }
   const [charging, setCharging] = useState(false); // ボスが力を溜めている
@@ -13261,6 +13285,7 @@ function BossBattle({ state, boss, pool, actions, recordAnswer, startTimer, stop
     if (!q || result || busy.current) return;
     recordAnswer(item.bankId, q.id, correct, meta);
     let nb = bossHp, nh = hp;
+    let sh = shield;
     const n = ++fxN.current;
     let t = 0;
     if (correct) {
@@ -13271,7 +13296,18 @@ function BossBattle({ state, boss, pool, actions, recordAnswer, startTimer, stop
       // 連続で正解すると、2連目から少しずつ威力が上がる（最大+30%）
       const comboMul = 1 + Math.min(0.3, (nc - 1) * 0.06);
       const breakMul = charging ? 1.3 : 1; // 溜めを止めた一撃
-      const dmg = Math.max(1, Math.round(base * mult * comboMul * breakMul * (1 + bonus.bossDmgPct / 100) * (1 + synergy.dmgPct / 100) * (crit ? 2 : 1)));
+      // 挑発された苦手の地域に正解すると「言い返した！」で1.5倍
+      const tauntHit = !!taunt && !!bank && themeOf(bank.name).region === taunt.region;
+      let dmg = Math.max(1, Math.round(base * mult * comboMul * breakMul * (1 + bonus.bossDmgPct / 100) * (1 + synergy.dmgPct / 100) * (crit ? 2 : 1) * (tauntHit ? 1.5 : 1)));
+      // 障壁：◎（自信ありの正解）を続けて砕く。砕けるまでダメージは4分の1
+      let shieldMsg = null;
+      if (sh) {
+        if (meta && meta.conf === "sure") {
+          const left = sh.left - 1;
+          if (left <= 0) { dmg *= 2; sh = null; shieldMsg = `💥 障壁を砕いた！ この一撃はダメージ2倍`; SFX.play("crit"); }
+          else { dmg = Math.max(1, Math.round(dmg * 0.25)); sh = { ...sh, left }; shieldMsg = `🛡 障壁に阻まれた……あと${left}回の◎で砕ける`; }
+        } else { dmg = Math.max(1, Math.round(dmg * 0.25)); sh = { ...sh, left: sh.need }; shieldMsg = `🛡 障壁に阻まれた。◎で${sh.need}回続けて正解しないと砕けない`; }
+      }
       const atk = heroAttackFor({ weapon: equippedWeaponId(r), region: bossRegion, crit, combo: nc });
       t = impactOf(atk) + (bossCut(nc) ? (bossCut(nc).ult ? 1.6 : 1.3) : 0); // カットイン → ルナの必殺技 → 命中
       // 仲間の加勢：カイトなどは3連撃ごとに追撃、レイヴンなどは会心か2割で魔法
@@ -13279,7 +13315,8 @@ function BossBattle({ state, boss, pool, actions, recordAnswer, startTimer, stop
       let as = null;
       // 連携技（絆レベル3以上の仲間と、6連撃ごと）
       const partner = nc % JOINT_EVERY === 0 ? party.find((p) => JOINT_SKILLS[p.a.id] && bondLevel(((r.bonds || {})[p.a.id]) || 0) >= JOINT_BOND) : null;
-      if (partner) as = { p: partner, val: Math.max(1, Math.round(dmg * 0.6)), joint: JOINT_SKILLS[partner.a.id] };
+      if (sh) as = null; // 障壁があるあいだは仲間の加勢も通らない
+      else if (partner) as = { p: partner, val: Math.max(1, Math.round(dmg * 0.6)), joint: JOINT_SKILLS[partner.a.id] };
       else if (chase && nc % 3 === 0) as = { p: chase, val: Math.max(1, Math.round(dmg * 0.4)) };
       else if (magic && (crit || Math.random() < 0.2)) as = { p: magic, val: Math.max(1, Math.round(dmg * 0.3)) };
       nb = Math.max(0, bossHp - dmg - (as ? as.val : 0));
@@ -13296,9 +13333,12 @@ function BossBattle({ state, boss, pool, actions, recordAnswer, startTimer, stop
       }
       const cutName = bossCut(nc);
       addLog(cutName ? `🌟 ${HERO_NAME}の${cutName.ult ? "必殺技" : "スキル"}「${cutName.name}」！ ${dmg}のダメージ（${nc}連撃）` : crit ? `💥 会心の一撃！ ${atk.name}で ${dmg}のダメージ！` : `⚔ ${HERO_NAME}の${atk.name}！ ${boss.name}に${dmg}のダメージ${nc >= 2 ? `（${nc}連撃）` : ""}`);
+      if (tauntHit) addLog(`💬 言い返した！ 苦手な「${taunt.region}」を正解（ダメージ1.5倍）`);
+      if (shieldMsg) addLog(shieldMsg);
       if (as) addLog(as.joint ? `🤝 連携技「${as.joint}」！ ${HERO_NAME}と${as.p.a.name}の合体技で、さらに${as.val}のダメージ` : `✨ ${as.p.a.name}の${as.p.skill.name}！ さらに${as.val}のダメージ`);
       if (charging) { setCharging(false); addLog(`🛡 溜めを止めた！ ${boss.name}の力が霧散した（ダメージ1.3倍）`); }
     } else {
+      if (sh && sh.left !== sh.need) { sh = { ...sh, left: sh.need }; addLog("🛡 障壁が元に戻った……"); }
       const raw = boss.atk * (meta && meta.confident ? 1.3 : 1) * (charging ? 2.5 : 1) * (phase2 ? 1.2 : 1);
       const dmg = Math.max(1, Math.round(raw * (1 - bonus.dmgCutPct / 100)));
       const atk = monAttackFor(boss.art);
@@ -13330,6 +13370,14 @@ function BossBattle({ state, boss, pool, actions, recordAnswer, startTimer, stop
         addLog(`🌿 ${boss.name}は傷を癒やした！ HPが${hv}回復した`);
       }
     }
+    // 障壁：HPが半分を切ったら張る（15問以上の戦いは7割と3.5割の2回）
+    if (!sh && nb > 0 && shieldAt.current.length && nb <= boss.hp * shieldAt.current[0]) {
+      shieldAt.current = shieldAt.current.filter((v) => nb > boss.hp * v);
+      sh = { need: shieldNeed, left: shieldNeed };
+      setTimeout(() => SFX.play("holy"), t * 1000 + 700);
+      addLog(`🔮 ${boss.name}は障壁を張った！ ◎で${shieldNeed}回続けて正解して砕こう`);
+    }
+    setShield(sh);
     // 第2形態：HPが半分を切ったら、1回だけ真の姿に
     if (!phase2 && nb > 0 && nb <= boss.hp * 0.5) {
       setTimeout(() => { setPhase2(true); SFX.play("roar"); }, t * 1000 + 900);
@@ -13377,6 +13425,7 @@ function BossBattle({ state, boss, pool, actions, recordAnswer, startTimer, stop
               <div className="jp text-[10px]" style={{ color: "var(--sky-deep)" }}>{fxText(it.fx)}</div>
             </div>
           )}
+          {result.won && <div className="mt-3"><TreasureChest tier={chest} size={72} /></div>}
           {!result.won && <p className="jp text-[11px] mt-3" style={{ color: "var(--ink-soft)" }}>出題された問題は苦手として記録されています。復習してから再挑戦しましょう。</p>}
         </div>
         <button onClick={onExit} className="jp btn-primary w-full py-2">拠点に戻る</button>
@@ -13391,7 +13440,7 @@ function BossBattle({ state, boss, pool, actions, recordAnswer, startTimer, stop
         <button onClick={() => { if (confirm("戦いから逃げますか？（敗北として記録されます）")) finish(false, true); }} className="jp text-xs flex items-center gap-1" style={{ color: "var(--ink-soft)" }}><XIcon size={14} /> 逃げる</button>
         <div className="pixel text-xs" style={{ color: "var(--brick)" }}>⚔ {idx + 1}/{pool.length}</div>
       </div>
-      <BossArena state={state} boss={boss} bossHp={bossHp} hp={hp} maxHp={maxHp} fx={fx} combo={combo} dying={dying} party={party} assist={assist} charging={charging} phase2={phase2} />
+      <BossArena state={state} boss={boss} bossHp={bossHp} hp={hp} maxHp={maxHp} fx={fx} combo={combo} dying={dying} party={party} assist={assist} charging={charging} phase2={phase2} shield={shield} taunt={taunt} />
       <div className="flex items-stretch gap-2">
         <div className="jp text-[11px] p-1.5 flex-1" style={{ background: "var(--cream)", color: "var(--ink)", minHeight: 40, border: "1px solid var(--rule-soft)", borderRadius: 8 }}>
           {log.map((l, i) => <div key={i} style={{ opacity: i === log.length - 1 ? 1 : 0.55 }}>{l}</div>)}
@@ -13440,7 +13489,7 @@ const BOSS_CSS = `
 @keyframes sqyRays{0%{opacity:0;transform:translate(-50%,-50%) rotate(0) scale(.4)}30%{opacity:.85}100%{opacity:.5;transform:translate(-50%,-50%) rotate(40deg) scale(1.2)}}
 @keyframes sqyDark{0%{opacity:0}100%{opacity:.75}}
 `;
-function BossArena({ state, boss, bossHp, hp, maxHp, fx, combo, dying, party = [], assist = null, charging = false, phase2 = false }) {
+function BossArena({ state, boss, bossHp, hp, maxHp, fx, combo, dying, party = [], assist = null, charging = false, phase2 = false, shield = null, taunt = null }) {
   const arenaRef = useRef(null);
   useEffect(() => { if (fx || dying) bringIntoView(arenaRef.current); }, [fx && fx.n, dying]);
   const theme = (state.displaySettings && state.displaySettings.theme) || "white";
@@ -13471,6 +13520,7 @@ function BossArena({ state, boss, bossHp, hp, maxHp, fx, combo, dying, party = [
       <div style={{ position: "absolute", inset: 0, background: "inherit", transformOrigin: "70% 60%", animation: fx && fx.side === "hero" && fx.big ? `sqxCam ${fx.cut ? 1.5 : 1}s ease-out ${t}s` : undefined }}>
       {fx && fx.side === "hero" && fx.big && <div key={`dim${fx.n}`} style={{ position: "absolute", inset: 0, background: "rgba(6,10,28,0.45)", animation: `sqxDim ${fx.cut ? 1.6 : 1.05}s ease-out both`, pointerEvents: "none" }} />}
       <Ambient region={region} kind={boss.id === "maou" || boss.art === "darkdragon" ? "fire" : ["grimoire", "ghost", "magolem"].includes(boss.art) ? "dark" : null} n={18} seed={hashStr(boss.id + (boss.art || ""))} />
+      <SkyLayer seed={hashStr(boss.id + (boss.art || ""))} />
       <div aria-hidden="true" style={{ position: "absolute", inset: 0, pointerEvents: "none", background: enraged ? "radial-gradient(ellipse at 70% 45%, transparent 40%, rgba(160,30,30,0.35) 100%)" : "radial-gradient(ellipse at 50% 50%, transparent 50%, rgba(10,16,32,0.35) 100%)", animation: enraged ? "sqxPulse 1.4s ease-in-out infinite" : undefined }} />
       {/* ボスの名前と HP */}
       <div className="jp" style={{ position: "absolute", right: 10, top: 8, width: "48%", zIndex: 2 }}>
@@ -13491,6 +13541,8 @@ function BossArena({ state, boss, bossHp, hp, maxHp, fx, combo, dying, party = [
       ))}
       <div style={{ position: "absolute", right: "8%", bottom: "6%", width: 214, height: 214, zIndex: 1 }}>
         <div style={{ position: "absolute", inset: phase2 ? -24 : -14, borderRadius: "50%", background: `radial-gradient(circle, ${enraged ? "rgba(220,50,50,0.6)" : phase2 ? "rgba(150,60,200,0.5)" : "rgba(255,236,190,0.35)"} 0%, transparent 68%)`, animation: "sqyAura 2s ease-in-out infinite" }} />
+        {shield && !dying && <div aria-hidden="true" style={{ position: "absolute", inset: -18, borderRadius: "50%", zIndex: 3, background: "radial-gradient(circle, rgba(140,200,255,0.05) 45%, rgba(140,200,255,0.35) 62%, rgba(200,230,255,0.75) 70%, transparent 72%)", border: "2px solid rgba(200,230,255,0.7)", boxShadow: "0 0 18px rgba(140,200,255,0.8), inset 0 0 22px rgba(140,200,255,0.5)", animation: "sqcShield 1.6s ease-in-out infinite", pointerEvents: "none" }} />}
+        {shield && !dying && <div className="jp" style={{ position: "absolute", left: "50%", top: -6, transform: "translateX(-50%)", zIndex: 4, fontSize: 11, fontWeight: 900, color: "#0f2a4a", background: "rgba(220,238,255,0.95)", border: "1px solid #8fc8ff", borderRadius: 999, padding: "1px 9px", whiteSpace: "nowrap" }}>🔮 障壁　あと◎{shield.left}回</div>}
         {charging && !dying && <div style={{ position: "absolute", inset: -26, borderRadius: "50%", background: "repeating-conic-gradient(rgba(150,40,190,0.55) 0 12deg, transparent 12deg 30deg)", WebkitMaskImage: "radial-gradient(circle, transparent 30%, #000 45%, transparent 72%)", maskImage: "radial-gradient(circle, transparent 30%, #000 45%, transparent 72%)", animation: "sqyCharge 1.2s linear infinite" }} />}
         <div key={fx ? `b${fx.n}` : "b"} style={{ position: "absolute", inset: 0, animation: bossAnim }}>
           {boss.art
@@ -13499,6 +13551,8 @@ function BossArena({ state, boss, bossHp, hp, maxHp, fx, combo, dying, party = [
         </div>
         <div style={{ position: "absolute", left: "15%", right: "15%", bottom: -8, height: 12, borderRadius: "50%", background: "rgba(0,0,0,0.35)", filter: "blur(2px)" }} />
       </div>
+      {/* ボスの挑発（はじめの数秒） */}
+      {taunt && !dying && <div className="jp" style={{ position: "absolute", right: "6%", top: 46, maxWidth: "52%", zIndex: 6, fontSize: 11, fontWeight: 800, color: "#fdfbf5", background: "rgba(60,14,30,0.9)", border: "1px solid #e0948a", borderRadius: 10, padding: "4px 9px", lineHeight: 1.5, animation: "sqcTaunt 5.5s ease-out both", pointerEvents: "none" }}>{taunt.line}<div style={{ fontSize: 9, color: "#ffc2bc", fontWeight: 600 }}>この地域の問題に正解すると、言い返して1.5倍</div></div>}
       {/* 主人公（前衛） */}
       <div style={{ position: "absolute", left: "calc(40% - 86px)", bottom: -18, width: 214, height: 214, zIndex: 2 }}>
         <LunaSprite size={214} pose={dying === "me" ? "down" : dying === "boss" ? "win" : fx ? (fx.side === "hero" ? (fx.cut ? (fx.cut.ult ? "ult" : "skill") : "attack") : "hurt") : "idle"} delay={fx && fx.side === "mon" ? t : fx && fx.cut ? 0.6 : 0} k={fx ? fx.n : dying ? 999 : 0} aura={auraOf(state)} />
@@ -14163,7 +14217,7 @@ function makePack(state, mon) {
 const xpTotalOf = (p) => { let t = p.xp || 0; for (let l = 1; l < (p.level || 1); l++) t += getXpForNextLevel(l); return t; };
 function resetBattle(state) {
   const b = getRpgBonuses(state);
-  Object.assign(BATTLE, { pack: null, packWait: 0, packs: 0, hp: b.maxHp, maxHp: b.maxHp, combo: 0, maxCombo: 0, defeated: 0, crits: 0, escaped: 0, faints: 0, mats: {}, start: { xp: xpTotalOf(state.player), level: state.player.level, gold: normRpg(state.rpg).gold } });
+  Object.assign(BATTLE, { status: null, gauge: 0, ultArmed: false, chest: null, dmgMul: 1, pack: null, packWait: 0, packs: 0, hp: b.maxHp, maxHp: b.maxHp, combo: 0, maxCombo: 0, defeated: 0, crits: 0, escaped: 0, faints: 0, mats: {}, start: { xp: xpTotalOf(state.player), level: state.player.level, gold: normRpg(state.rpg).gold } });
 }
 // コンボの節目で出る必殺技（カットイン）
 // ルナの技（イラストフォルダの「ルナの魔法剣士キャラクター図鑑」のスキルモーション例から）。必殺技のモーションの絵ができたら差し替える
@@ -14340,6 +14394,11 @@ const BATTLE_THEME = {
   dot: { bg: "linear-gradient(180deg, #cfe6f5 0%, #e3edf5 55%, #d9e8c8 100%)", ground: "linear-gradient(180deg, rgba(109,132,84,0), rgba(109,132,84,0.25))", border: "2px solid var(--rule)", text: "var(--ink)", sub: "var(--ink-soft)", chip: "var(--paper)", gold: "var(--gold)", avatar: HERO_URL, face: [52, 13], ring: "var(--rule)", hill: "rgba(109,132,84,0.25)", hill2: "rgba(53,65,86,0.15)" },
 };
 const BATTLE_CSS = `
+@keyframes sqcFall{0%{transform:translate(0,-10px) rotate(0)}100%{transform:translate(var(--dx),360px) rotate(320deg)}}
+@keyframes sqcFinish{0%{opacity:0;transform:translate(-50%,-50%) scale(2.6)}18%{opacity:1;transform:translate(-50%,-50%) scale(1)}78%{opacity:1}100%{opacity:0;transform:translate(-50%,-50%) scale(1.08)}}
+@keyframes sqcSlow{0%{opacity:0}15%{opacity:1}80%{opacity:1}100%{opacity:0}}
+@keyframes sqcTaunt{0%{opacity:0;transform:translateY(6px)}8%{opacity:1;transform:none}85%{opacity:1}100%{opacity:0}}
+@keyframes sqcShield{0%,100%{opacity:.75;transform:scale(1)}50%{opacity:1;transform:scale(1.03)}}
 @keyframes sqcLow{0%,100%{box-shadow:inset 0 0 26px rgba(201,40,40,0.35)}50%{box-shadow:inset 0 0 56px rgba(201,40,40,0.7)}}
 @keyframes sqcWarn{0%{opacity:0;transform:translateY(-6px) scale(.9)}20%{opacity:1;transform:none}100%{opacity:1}}
 @keyframes sqcPhase{0%{opacity:0;transform:scale(1.6)}18%{opacity:1;transform:scale(1)}80%{opacity:1}100%{opacity:0}}
@@ -14391,6 +14450,245 @@ function MonsterView({ m, anim, delay = 0, size = 92, hitAt = 0, lunge = false }
   );
 }
 
+// ── 戦いの強化（2026年10月21日）──
+// 状態異常：まちがいの原因（errType）で、混乱（混同）・毒（ケアレス）・暗闇（読み違い）。◎の正解で治る
+const STATUS = {
+  confuse: { name: "混乱", icon: "💫", turns: 2, tip: "攻撃の威力が半分に" },
+  poison: { name: "毒", icon: "☠", turns: 3, tip: "答えるたびにHPが4減る" },
+  blind: { name: "暗闇", icon: "🌑", turns: 2, tip: "魔物の予告が見えない" },
+};
+const STATUS_OF_ERR = { confusion: "confuse", careless: "poison", misread: "blind" };
+const QUICK_SEC = 10; // この秒数以内に思い出した◎は「先制」の一撃
+const GAUGE_MAX = 100; // 必殺ゲージ
+// 魔物の弱点の属性（初見の魔物は「？」）
+const monWeak = (m) => (m && m.rank !== "unknown" ? ELEMENTS[hashStr(`${m.key}#weak`) % ELEMENTS.length] : null);
+// 現実の時間と季節：朝・昼・夕・夜の色合いと、季節の粒（冬の雪・春の桜・6月の雨・秋の落ち葉）
+function skyNow(d = new Date()) {
+  const h = d.getHours(), mo = d.getMonth() + 1;
+  const tod = h >= 5 && h < 9 ? "dawn" : h >= 9 && h < 16 ? "day" : h >= 16 && h < 19 ? "dusk" : "night";
+  const season = mo === 12 || mo <= 2 ? "snow" : mo === 3 || mo === 4 ? "sakura" : mo === 6 ? "rain" : mo === 10 || mo === 11 ? "leaf" : null;
+  return { tod, season };
+}
+const SKY_TINT = {
+  dawn: "linear-gradient(180deg, rgba(255,190,170,0.3), rgba(255,230,200,0.08) 60%, transparent)",
+  day: null,
+  dusk: "linear-gradient(180deg, rgba(255,140,60,0.34), rgba(160,60,90,0.18) 70%, rgba(60,30,80,0.15))",
+  night: "linear-gradient(180deg, rgba(10,18,60,0.5), rgba(20,30,80,0.32) 60%, rgba(10,14,40,0.28))",
+};
+const SKY_FALL = {
+  snow: { c: "#ffffff", n: 18, s: [3, 6], dur: [5, 9], r: "50%" },
+  sakura: { c: "#ffc8da", n: 14, s: [5, 8], dur: [5, 8], r: "60% 0" },
+  rain: { c: "rgba(200,220,255,0.75)", n: 26, s: [1, 2], dur: [0.6, 1.1], r: "1px", tall: true },
+  leaf: { c: "#e0954a", n: 10, s: [6, 9], dur: [6, 9], r: "60% 0" },
+};
+function SkyLayer({ seed = 1 }) {
+  const { tod, season } = skyNow();
+  const rnd = (i) => { const x = Math.sin(seed * 97 + i * 13.7) * 10000; return x - Math.floor(x); };
+  const P = SKY_FALL[season];
+  return (
+    <div aria-hidden="true" style={{ position: "absolute", inset: 0, pointerEvents: "none", zIndex: 1, overflow: "hidden" }}>
+      {SKY_TINT[tod] && <div style={{ position: "absolute", inset: 0, background: SKY_TINT[tod] }} />}
+      {tod === "night" && Array.from({ length: 14 }, (_, i) => <span key={`st${i}`} style={{ position: "absolute", left: `${rnd(i) * 100}%`, top: `${rnd(i + 50) * 38}%`, width: 2, height: 2, borderRadius: "50%", background: "#fff", animation: `sqxPulse ${2 + rnd(i + 9) * 2}s ease-in-out ${rnd(i + 3) * 2}s infinite` }} />)}
+      {P && Array.from({ length: P.n }, (_, i) => {
+        const w = P.s[0] + rnd(i + 20) * (P.s[1] - P.s[0]);
+        return <span key={`p${i}`} style={{ position: "absolute", left: `${rnd(i + 30) * 100}%`, top: -14, width: w, height: P.tall ? w * 9 : w, borderRadius: P.r, background: P.c, opacity: 0.85, animation: `sqcFall ${P.dur[0] + rnd(i + 40) * (P.dur[1] - P.dur[0])}s linear ${-rnd(i + 60) * 8}s infinite`, "--dx": `${P.tall ? -8 : Math.round((rnd(i + 70) - 0.5) * 60)}px` }} />;
+      })}
+    </div>
+  );
+}
+// 宝箱：群れの全滅・ボスの撃破で出る。レア度で光の色が変わる（luck を上げると良い箱が出やすい）
+const CHEST_TIERS = [
+  { id: "rainbow", name: "虹の宝箱", p: 0.01, gold: 300, mats: { "m-sage": 1, "m-star": 2 }, color: "#c78bff", glow: "conic-gradient(from 0deg, #ff8a8a, #ffd36b, #8fe39a, #8fd3ff, #c78bff, #ff8a8a)" },
+  { id: "gold", name: "金の宝箱", p: 0.09, gold: 120, mats: { "m-star": 1 }, color: "#f2c14e", glow: "radial-gradient(circle, rgba(255,226,120,0.95), transparent 70%)" },
+  { id: "silver", name: "銀の宝箱", p: 0.3, gold: 50, mats: {}, color: "#c9d3e6", glow: "radial-gradient(circle, rgba(225,235,255,0.9), transparent 70%)" },
+  { id: "bronze", name: "銅の宝箱", p: 0.6, gold: 20, mats: {}, color: "#c08a52", glow: "radial-gradient(circle, rgba(240,190,140,0.85), transparent 70%)" },
+];
+function rollChest(luck = 0) {
+  let r = Math.random() * (1 - Math.min(0.9, luck)), acc = 0;
+  for (const t of CHEST_TIERS) { acc += t.p; if (r < acc) return t; }
+  return CHEST_TIERS[CHEST_TIERS.length - 1];
+}
+function TreasureChest({ tier, size = 64, onOpen, dark = false }) {
+  const [open, setOpen] = useState(false);
+  const click = () => { if (open) return; setOpen(true); SFX.play(tier.id === "rainbow" || tier.id === "gold" ? "victory" : "drop"); emitReward({ gold: tier.gold, mats: tier.mats }); onOpen && onOpen(tier); };
+  const mats = Object.entries(tier.mats || {}).map(([k, v]) => `${(matById(k) || {}).name || k}×${v}`).join("・");
+  return (
+    <button onClick={click} className="jp" style={{ background: "none", border: "none", cursor: open ? "default" : "pointer", display: "inline-flex", flexDirection: "column", alignItems: "center", gap: 2, padding: 0 }}>
+      <span style={{ position: "relative", width: size, height: size * 0.8, display: "block" }}>
+        {open && <span aria-hidden="true" style={{ position: "absolute", left: "50%", top: "40%", width: size * 2, height: size * 2, marginLeft: -size, marginTop: -size, borderRadius: "50%", background: tier.glow, opacity: 0.85, animation: "sqfGlow 1.2s ease-out both", WebkitMaskImage: "radial-gradient(circle, #000 30%, transparent 70%)", maskImage: "radial-gradient(circle, #000 30%, transparent 70%)" }} />}
+        <svg viewBox="0 0 64 52" width={size} height={size * 0.8} style={{ position: "relative", overflow: "visible", animation: open ? undefined : "sqbIdle 1.6s ease-in-out infinite" }}>
+          <rect x="6" y="22" width="52" height="28" rx="3" fill="#8a5a2b" stroke="#4a2f14" strokeWidth="2" />
+          <rect x="6" y="30" width="52" height="5" fill={tier.color} />
+          <rect x="28" y="26" width="8" height="12" rx="2" fill={tier.color} stroke="#4a2f14" strokeWidth="1.2" />
+          <g style={{ transformOrigin: "6px 22px", transform: open ? "rotate(-38deg)" : "none", transition: "transform .35s ease-out" }}>
+            <path d="M6 22c0-12 10-18 26-18s26 6 26 18z" fill="#a46c35" stroke="#4a2f14" strokeWidth="2" />
+            <path d="M6 18h52" stroke={tier.color} strokeWidth="5" />
+          </g>
+        </svg>
+      </span>
+      <span className="text-[10px]" style={{ fontWeight: 800, color: dark ? "#fdfbf5" : "var(--ink)", textShadow: dark ? "0 1px 3px rgba(0,0,0,0.85)" : "none", whiteSpace: "nowrap" }}>{open ? `${tier.name}：${tier.gold}G${mats ? `・${mats}` : ""}` : "宝箱！ タップで開ける"}</span>
+    </button>
+  );
+}
+// 仲間の掛け合い（加勢のとき）。絆レベル3以上で親しい言葉に
+const ALLY_BARKS = {
+  low: ["援護します！", "続けて、{hero}さん！", "いい流れです！", "ここは任せてください！"],
+  high: ["さすが{hero}、次も決めよう！", "背中は任せて！", "この調子なら魔王城も近いね！", "息ぴったりだね、{hero}！"],
+};
+const allyBark = (p, r, n = 0) => {
+  const lv = bondLevel(((r.bonds || {})[p.a.id]) || 0);
+  const list = lv >= 3 ? ALLY_BARKS.high : ALLY_BARKS.low;
+  return list[n % list.length].replace("{hero}", HERO_NAME);
+};
+// 今日のハイライト：rpg.hl = {d, combo, dmg, kills, packs, ults, quick, weak, kinds:[初めて倒した種族]}。日が変わると rpg.hlLog に。
+// 自己ベスト rpg.hlBest、10連撃以上の最高連撃の更新は rpg.hlRec（成長の年表に出す）
+function hlMerge(x, hl) {
+  const today = todayStr();
+  const prev = x.hl;
+  const log = prev && prev.d !== today ? [...(x.hlLog || []), prev].slice(-60) : x.hlLog || [];
+  const cur = prev && prev.d === today ? { ...prev, kinds: [...(prev.kinds || [])] } : { d: today, combo: 0, dmg: 0, kills: 0, packs: 0, ults: 0, quick: 0, weak: 0, kinds: [] };
+  if (hl.combo) cur.combo = Math.max(cur.combo, hl.combo);
+  if (hl.dmg) cur.dmg = Math.max(cur.dmg, hl.dmg);
+  if (hl.kind) { cur.kills++; if (!((x.kills || {})[hl.kind]) && !cur.kinds.includes(hl.kind)) cur.kinds.push(hl.kind); }
+  cur.packs += hl.pack || 0; cur.ults += hl.ult || 0; cur.quick += hl.quick || 0; cur.weak += hl.weak || 0;
+  const best = { ...(x.hlBest || {}) };
+  let rec = x.hlRec || [];
+  if (hl.combo && hl.combo > (best.combo || 0)) { best.combo = hl.combo; if (hl.combo >= 10) rec = [...rec.filter((e) => !(e.k === "combo" && e.d === today)), { d: today, k: "combo", v: hl.combo }].slice(-40); }
+  if (hl.dmg && hl.dmg > (best.dmg || 0)) best.dmg = hl.dmg;
+  return { ...x, hl: cur, hlLog: log, hlBest: best, hlRec: rec };
+}
+function TodayHighlight({ state }) {
+  const r = normRpg(state.rpg);
+  const h = r.hl && r.hl.d === todayStr() ? r.hl : null;
+  const best = r.hlBest || {};
+  const names = (h ? h.kinds : []).map((k) => ([...MON_PAINTED, ...MON_BOSS].find((z) => z.img === k) || {}).name).filter(Boolean);
+  const cells = h ? [["討伐", `${h.kills}体`], ["最高連撃", `${h.combo}${h.combo && h.combo >= (best.combo || 0) ? " 🏆" : ""}`], ["最大ダメージ", `${h.dmg}${h.dmg && h.dmg >= (best.dmg || 0) ? " 🏆" : ""}`], ["先制", `${h.quick}回`], ["弱点を突いた", `${h.weak}回`], ["群れの全滅", `${h.packs}回`], ["必殺技", `${h.ults}回`]] : [];
+  return (
+    <Box title="今日のハイライト" icon={<Sword size={18} />}>
+      <div className="jp space-y-1.5">
+        {!h ? <p className="text-[11px]" style={{ color: "var(--ink-mute)" }}>今日はまだ戦っていません。問題を解くと、今日の戦いの記録がここにたまります。</p> : <>
+          <div className="grid grid-cols-4 gap-1.5">
+            {cells.map(([k, v]) => <div key={k} className="text-center py-1" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)", borderRadius: 8 }}><div className="text-[9px]" style={{ color: "var(--ink-mute)" }}>{k}</div><div className="text-[13px]" style={{ fontWeight: 800, color: "var(--ink)" }}>{v}</div></div>)}
+          </div>
+          {names.length > 0 && <div className="text-[11px] px-2 py-1" style={{ background: "rgba(214,181,106,0.15)", border: "1px solid #d6b56a", borderRadius: 6, color: "var(--ink)" }}>✨ はじめて倒した魔物：{names.join("・")}</div>}
+        </>}
+        <div className="text-[10px]" style={{ color: "var(--ink-mute)" }}>自己ベスト：最高連撃 {best.combo || 0}・最大ダメージ {best.dmg || 0}（🏆＝今日が自己ベスト）</div>
+      </div>
+    </Box>
+  );
+}
+// 無限回廊（耐久モード）：体力が尽きるまで、苦手と忘れかけの問題が続く。階が進むほど魔物の攻撃が強くなる（1階ごとに4%）
+const ENDLESS_GROW = 0.04;
+function EndlessCard({ state, onStart }) {
+  const e = normRpg(state.rpg).endless || {};
+  return (
+    <Box title="無限回廊" icon={<Skull size={18} />}>
+      <div className="jp space-y-1.5">
+        <p className="text-[11px]" style={{ color: "var(--ink-soft)", lineHeight: 1.7 }}>体力が尽きるまで、苦手と忘れかけの問題が続く耐久の回廊です。1問正解するごとに1階進み、上の階ほど魔物の攻撃が強くなります（ふんばりは無し）。</p>
+        <div className="flex items-center gap-2">
+          <span className="text-[12px]" style={{ color: "var(--ink)" }}>自己ベスト <b style={{ fontFamily: "'Cinzel', serif", fontSize: 18, color: "var(--gold)" }}>{e.best || 0}</b> 階{e.n ? `　挑戦 ${e.n}回` : ""}</span>
+          <span className="flex-1" />
+          <button onClick={onStart} className="btn-primary px-3 py-1.5 text-xs">回廊に入る ▶</button>
+        </div>
+      </div>
+    </Box>
+  );
+}
+function EndlessRun({ state, actions, recordAnswer, startTimer, stopTimer, onExit }) {
+  const [battleKey] = useState(() => uid());
+  const used = useRef(new Set());
+  const [queue, setQueue] = useState(() => gapItems(state, 30));
+  const [floor, setFloor] = useState(1);
+  const [showAnswer, setShowAnswer] = useState(false);
+  const [done, setDone] = useState(null);
+  const timerStartedByMe = useRef(false);
+  const best0 = (normRpg(state.rpg).endless || {}).best || 0;
+  useEffect(() => {
+    if (!state.timer.startMs) { startTimer(null, "qa"); timerStartedByMe.current = true; }
+    return () => { BATTLE.dmgMul = 1; if (timerStartedByMe.current) { stopTimer(); timerStartedByMe.current = false; } };
+  }, []);
+  useEffect(() => { BATTLE.dmgMul = 1 + (floor - 1) * ENDLESS_GROW; }, [floor, battleKey]);
+  const item = queue[0];
+  const bank = item ? state.questionBanks.find((b) => b.id === item.bankId) : null;
+  const q = bank ? (bank.questions || []).find((x) => x.id === item.qId) : null;
+  const refill = (rest) => {
+    if (rest.length >= 5) return rest;
+    const more = gapItems(state, 30).filter((it) => !used.current.has(it.qId) && !rest.some((x) => x.qId === it.qId));
+    return [...rest, ...(more.length ? more : gapItems(state, 30))];
+  };
+  useEffect(() => { if (item && !q && !done) setQueue((qq) => refill(qq.slice(1))); }, [item && item.qId, !!q]);
+  const end = (cleared) => {
+    if (timerStartedByMe.current) { stopTimer(); timerStartedByMe.current = false; }
+    BATTLE.dmgMul = 1;
+    setDone({ cleared, msg: actions.endlessFinish(cleared) });
+  };
+  const answer = (correct, meta) => {
+    if (!q || done) return;
+    recordAnswer(bank.id, q.id, correct, meta);
+    used.current.add(q.id);
+    setShowAnswer(false);
+    if (BATTLE.faints > 0) { const cleared = floor - 1; setTimeout(() => end(cleared), 1400); return; }
+    if (correct) setFloor(floor + 1);
+    setQueue(refill(queue.slice(1)));
+  };
+  if (done) return (
+    <Box title="無限回廊　探索の結果" icon={<Skull size={18} />}>
+      <div className="jp text-center py-2">
+        <div className="text-[12px]" style={{ color: "var(--ink-soft)" }}>力尽きるまでに 討伐 {BATTLE.defeated}体・最大コンボ {BATTLE.maxCombo}・会心 {BATTLE.crits}回</div>
+        <div style={{ fontFamily: "'Cinzel', serif", fontWeight: 900, fontSize: 36, color: "var(--gold)" }}>{done.cleared}<span style={{ fontSize: 14 }}> 階</span></div>
+        <div className="text-sm" style={{ fontWeight: 700, color: "var(--ink)" }}>{done.cleared > best0 ? "🏆 自己ベスト更新！" : `自己ベストは ${best0} 階`}</div>
+        {done.msg && <div className="text-xs mt-1" style={{ color: "var(--gold)", fontWeight: 700 }}>{done.msg}</div>}
+      </div>
+      <button onClick={onExit} className="jp btn-primary w-full py-2">もどる</button>
+    </Box>
+  );
+  if (!q) return <div className="jp text-center text-sm py-6" style={{ color: "var(--ink-soft)" }}>{queue.length ? "問題を探しています…" : "出題できる問題がありません。まずは問題集を1周してみましょう。"}{!queue.length && <button onClick={onExit} className="btn-ghost w-full py-2 mt-2">もどる</button>}</div>;
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between jp text-xs">
+        <button onClick={() => { if (confirm("回廊から出ますか？（ここまでの階で記録します）")) end(floor - 1); }} className="flex items-center gap-1" style={{ color: "var(--ink-soft)" }}><XIcon size={14} /> 回廊を出る</button>
+        <span style={{ color: "var(--ink-soft)", fontWeight: 700 }}>自己ベスト {best0}階</span>
+      </div>
+      <div className="jp text-center" style={{ fontFamily: "'Shippori Mincho B1', serif", fontWeight: 800, color: "var(--ink)" }}>無限回廊　第{floor}階<span className="text-[11px] ml-2" style={{ color: "var(--brick)", fontWeight: 700 }}>魔物の攻撃 ×{(1 + (floor - 1) * ENDLESS_GROW).toFixed(2)}</span></div>
+      <BattleStage state={state} q={q} bankName={bank.name} battleKey={battleKey} boss={floor % 10 === 0} scene={towerSceneUrl(Math.min(TOWER_MAX, floor))} />
+      <div className="rpg-box p-1">
+        <div className="rpg-inner-border min-h-[180px] flex flex-col">
+          <div className="jp text-[10px] mb-2" style={{ color: "var(--ink-mute)" }}>{bank.name}</div>
+          <div className="qtext jp text-base md:text-lg flex-1 break-words" style={{ color: "var(--ink)" }}>{renderQText(q.q, q.q_formats, q.a)}</div>
+          <QuestionImages bankId={bank.id} question={q} side="q" />
+          {showAnswer ? (
+            <>
+              <div className="jp text-[10px] mt-3 mb-1" style={{ color: "var(--gold)" }}>答え</div>
+              <div className="qtext jp text-base md:text-lg break-words p-2" style={{ background: "var(--sky-pale)", border: "1px solid var(--gold)", color: "var(--ink)" }}>{renderFormattedText(q.a, q.a_formats)}</div>
+              <QuestionImages bankId={bank.id} question={q} side="a" />
+              <LawRefChips q={q} />
+              <AnswerPanel onAnswer={answer} question={q} srSettings={effectiveSr(state)} />
+            </>
+          ) : (
+            <RevealButton q={q} onReveal={() => setShowAnswer(true)} />
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+// ボスの挑発：出題される問題のうち、苦手な問題がいちばん多い地域を名指しする。その地域の問題に正解すると「言い返した！」でダメージ1.5倍
+function bossTaunt(state, pool) {
+  const cnt = new Map();
+  pool.forEach((it) => {
+    const b = state.questionBanks.find((x) => x.id === it.bankId);
+    const q = b && (b.questions || []).find((x) => x.id === it.qId);
+    if (!q) return;
+    const rg = themeOf(b.name).region;
+    const v = cnt.get(rg) || { weak: 0, wrong: 0 };
+    if (isQuestionWeak(q)) v.weak++;
+    v.wrong += q.wrong || 0;
+    cnt.set(rg, v);
+  });
+  const best = [...cnt.entries()].sort((a, b) => b[1].weak - a[1].weak || b[1].wrong - a[1].wrong)[0];
+  if (!best || (!best[1].weak && !best[1].wrong)) return null;
+  return { region: best[0], line: `お前は「${best[0]}」が苦手なのだろう……その弱さ、突かせてもらうぞ！` };
+}
 // battleKey：1回の学習（セット）ごとに変わる値。変わったときだけ HP・コンボを最初からにする
 function BattleStage({ state, q, bankName, battleKey, boss = false, scene: sceneProp = null }) {
   if (BATTLE.key !== battleKey) { resetBattle(state); BATTLE.key = battleKey; }
@@ -14414,68 +14712,100 @@ function BattleStage({ state, q, bankName, battleKey, boss = false, scene: scene
   useEffect(() => {
     if (!battleBus) return undefined;
     const on = (e) => {
-      const { correct, conf } = e.detail || {};
+      const { correct, conf, errType, sec } = e.detail || {};
       const m = monRef.current;
       if (!m) return;
       const b = getRpgBonuses(stRef.current);
       const n = ++fxN.current;
       let hold = 900;
+      // 状態異常：◎の正解で治る。それ以外は1回ごとに残りが減り、毒はHPを削る
+      const st0 = BATTLE.status;
+      let cured = null, poisonDmg = 0;
+      if (st0) {
+        if (correct && conf === "sure") { cured = st0.k; BATTLE.status = null; }
+        else {
+          if (st0.k === "poison") { poisonDmg = Math.min(4, Math.max(0, BATTLE.hp - 1)); BATTLE.hp -= poisonDmg; }
+          BATTLE.status = st0.n > 1 ? { ...st0, n: st0.n - 1 } : null;
+        }
+      }
       if (correct) {
         const crit = conf === "sure";
+        const quick = crit && sec > 0 && sec <= QUICK_SEC; // 速く思い出した◎は先制の一撃
+        const ult = !!BATTLE.ultArmed; // 必殺ゲージで構えた必殺技
+        const confused = st0 && st0.k === "confuse" && !cured;
         BATTLE.combo++; BATTLE.maxCombo = Math.max(BATTLE.maxCombo, BATTLE.combo); BATTLE.defeated++; if (crit) BATTLE.crits++;
-        const dmg = Math.round((30 + stRef.current.player.level * 2) * (1 + b.bossDmgPct / 100) * (crit ? 2 : 1) * (0.9 + Math.random() * 0.2));
-        const cut = comboCut(BATTLE.combo);
+        const cut = ult ? { ...LUNA_SKILLS[3], n: 0 } : comboCut(BATTLE.combo);
         if (cut) hold = 1100;
+        // 技：装備中の武器・科目の属性・コンボ・魔物の弱点で変わる（斬撃・魔法・弓）
+        const weak = monWeak(m);
+        const atk = heroAttackFor({ weapon: equippedWeaponId(normRpg(stRef.current.rpg)), region: m.th && m.th.region, crit, combo: BATTLE.combo, weak });
+        const weakHit = !!weak && atk.id === weak;
+        const base = Math.round((30 + stRef.current.player.level * 2) * (1 + b.bossDmgPct / 100) * (crit ? 2 : 1) * (0.9 + Math.random() * 0.2) * (confused ? 0.5 : 1) * (weakHit ? 1.5 : 1) * (ult ? 3 : 1));
+        const quickHit = quick ? Math.max(1, Math.round(base * 0.3)) : 0;
+        const dmg = base + quickHit;
+        // 必殺ゲージ：◎で20・△で10・先制で+5。必殺技を放つと0に
+        BATTLE.gauge = ult ? 0 : Math.min(GAUGE_MAX, (BATTLE.gauge || 0) + (crit ? 20 : 10) + (quick ? 5 : 0));
+        if (ult) BATTLE.ultArmed = false;
         // 素材のドロップ：欠片は科目ごと、手強い魔物は星霊石も、10コンボごとの必殺技で賢者の結晶
         const dropMul = 1 + (b.dropPct || 0) / 100;
         const mats = {};
         if (Math.random() < (m.rank === "elite" ? 1 : m.rank === "unknown" ? 0.5 : 0.35) * dropMul) mats[m.th.mat || "m-meikyu"] = m.rank === "elite" ? 2 : 1;
         if (Math.random() < (m.rank === "elite" ? 0.3 : crit ? 0.03 : 0) * dropMul) mats["m-star"] = 1;
-        if (cut && cut.n >= 10) mats["m-sage"] = 1;
+        if ((cut && cut.n >= 10) || ult) mats["m-sage"] = 1;
         const xpBonus = cut && b.comboXp ? b.comboXp : 0;
         Object.entries(mats).forEach(([k, v]) => { BATTLE.mats[k] = (BATTLE.mats[k] || 0) + v; });
-        // 戦利品と、デイリークエスト用の記録（倒した魔物の種類・会心・コンボ）
-        emitReward({ mats, xp: xpBonus, stat: { elite: m.rank === "elite", fresh: m.rank === "unknown", crit, combo: BATTLE.combo, region: m.th && m.th.region, kind: m.sp && m.sp.img } });
-        // 技：装備中の武器・科目の属性・コンボで変わる（斬撃・魔法・弓）
-        const atk = heroAttackFor({ weapon: equippedWeaponId(normRpg(stRef.current.rpg)), region: m.th && m.th.region, crit, combo: BATTLE.combo });
         const t = impactOf(atk) + (cut ? (cut.ult ? 1.6 : 1.3) : 0); // カットイン → ルナの必殺技 → 命中
         hold += Math.round(t * 1000);
         const party = battleParty(stRef.current, m.th && m.th.region);
         const cameo = party.length && BATTLE.combo >= 3 && BATTLE.combo % 3 === 0 ? party[(BATTLE.combo / 3 - 1) % party.length] : null;
         const big = crit || !!cut || BATTLE.combo >= 3;
         if (big) hold += cut ? (cut.ult ? 1500 : 300) : 450;
-        // 群れ：狙った控えに1撃（会心・3連撃以上は全体に）。リーダーを倒すと残りは逃げる。全滅でボーナス
+        // 群れ：狙った控えに1撃（会心・3連撃以上・必殺技は全体に）。リーダーを倒すと残りは逃げる。全滅でボーナスと宝箱
         let packHit = null;
         const pk = BATTLE.pack;
         if (pk && pk.list.some((x) => x.hp > 0)) {
           const hitIds = big ? pk.list.filter((x) => x.hp > 0).map((x) => x.id) : [((pk.list.find((x) => x.id === pk.target && x.hp > 0)) || pk.list.find((x) => x.hp > 0)).id];
-          pk.list.forEach((x) => { if (hitIds.includes(x.id)) x.hp = Math.max(0, x.hp - 1); });
+          pk.list.forEach((x) => { if (hitIds.includes(x.id)) x.hp = Math.max(0, x.hp - (ult ? x.hp : 1)); });
           const leaderDown = pk.list.some((x) => x.leader && x.hp === 0 && hitIds.includes(x.id));
           if (leaderDown) pk.list.forEach((x) => { if (x.hp > 0) { x.hp = 0; x.fled = true; } });
           const wiped = pk.list.every((x) => x.hp === 0);
           packHit = { ids: hitIds, leaderDown, wiped };
-          if (wiped) { BATTLE.packs++; BATTLE.packWait = 2; const bx = pk.list.length * 8 + (leaderDown ? 10 : 0); emitReward({ mats: {}, xp: bx }); packHit.bonus = bx; }
+          if (wiped) {
+            BATTLE.packs++; BATTLE.packWait = 2;
+            const bx = pk.list.length * 8 + (leaderDown ? 10 : 0);
+            emitReward({ mats: {}, xp: bx, hl: { pack: 1 } }); packHit.bonus = bx;
+            BATTLE.chest = { ...rollChest(leaderDown ? 0.2 : 0), id: n };
+          }
           const alive = pk.list.find((x) => x.hp > 0);
           if (alive && !pk.list.some((x) => x.id === pk.target && x.hp > 0)) pk.target = alive.id;
         }
-        setFx({ n, ok: true, crit, dmg, cut, mon: m, drops: Object.keys(mats), side: "hero", atk, t, cameo, big, packHit, guarded: m.rank === "elite", hits: big ? splitHits(dmg, cut ? 4 : 3) : [dmg] });
+        // 戦利品と、デイリークエスト・今日のハイライト用の記録
+        emitReward({ mats, xp: xpBonus, stat: { elite: m.rank === "elite", fresh: m.rank === "unknown", crit, combo: BATTLE.combo, region: m.th && m.th.region, kind: m.sp && m.sp.img }, hl: { combo: BATTLE.combo, dmg, kind: m.sp && m.sp.img, quick: quick ? 1 : 0, weak: weakHit ? 1 : 0, ult: ult ? 1 : 0 } });
+        const finish = ult ? "必殺！" : packHit && packHit.wiped ? "殲滅！" : m.rank === "elite" ? "撃破！" : null;
+        const hits = big ? splitHits(base, cut ? 4 : 3) : [base];
+        setFx({ n, ok: true, crit, dmg, cut, mon: m, drops: Object.keys(mats), side: "hero", atk, t, cameo, bark: cameo ? allyBark(cameo, normRpg(stRef.current.rpg), n) : null, big, packHit, guarded: m.rank === "elite", quick, weakHit, weak, cured, poisonDmg, finish, hits: quickHit ? [...hits, quickHit] : hits });
         if (atk.kind !== "slash") SFX.play(atk.sfx);
         setTimeout(() => SFX.play(crit ? "crit" : atk.kind === "slash" ? "hit" : "magicHit"), t * 1000);
         if (Object.keys(mats).length) setTimeout(() => SFX.play("drop"), 320 + t * 1000);
         setTimeout(() => SFX.play(cut ? "combo" : "defeat"), 170 + t * 1000);
+        if (finish) setTimeout(() => SFX.play("victory"), 380 + t * 1000);
       } else {
         BATTLE.combo = 0; BATTLE.escaped++;
         const packAlive = BATTLE.pack ? BATTLE.pack.list.filter((x) => x.hp > 0).length : 0;
         const warned = m.rank === "elite"; // 予告していた大技が当たる
-        const taken = Math.max(1, Math.round((10 + Math.random() * 8 + (m.rank === "elite" ? 6 : 0) + packAlive * 3) * (warned ? 1.5 : 1) * (1 - b.dmgCutPct / 100)));
+        const taken = Math.max(1, Math.round((10 + Math.random() * 8 + (m.rank === "elite" ? 6 : 0) + packAlive * 3) * (warned ? 1.5 : 1) * (BATTLE.dmgMul || 1) * (1 - b.dmgCutPct / 100)));
         BATTLE.hp -= taken;
+        // まちがいの原因で状態異常（混同→混乱・ケアレス→毒・読み違い→暗闇）
+        const sk = STATUS_OF_ERR[errType];
+        const statusNew = sk ? sk : null;
+        if (sk) BATTLE.status = { k: sk, n: STATUS[sk].turns };
         let faint = false;
         if (BATTLE.hp <= 0) { BATTLE.faints++; BATTLE.hp = Math.ceil(BATTLE.maxHp * (0.3 + (b.revivePct || 0) / 100)); faint = true; }
         // 魔物の反撃：種族ごとの技（ひっかき・かみつき・炎の息・魔弾など）
         const atk = monAttackFor(m.sp && m.sp.img);
         const t = impactOf(atk);
         hold += Math.round(t * 1000);
-        setFx({ n, ok: false, taken, faint, mon: m, side: "mon", atk, t, packAtk: packAlive, warned });
+        setFx({ n, ok: false, taken, faint, mon: m, side: "mon", atk, t, packAtk: packAlive, warned, statusNew, poisonDmg });
         SFX.play(["claw", "bite", "gust"].includes(atk.kind) ? "claw" : atk.kind === "tackle" || atk.kind === "rock" ? "roar" : "fire");
         setTimeout(() => SFX.play("miss"), t * 1000);
       }
@@ -14505,11 +14835,12 @@ function BattleStage({ state, q, bankName, battleKey, boss = false, scene: scene
       {/* 体力が3割を切ると、画面のふちが赤く脈打つ */}
       {hpPct < 30 && <div aria-hidden="true" style={{ position: "absolute", inset: 0, pointerEvents: "none", zIndex: 5, animation: "sqcLow 1.1s ease-in-out infinite" }} />}
       {/* 手強い魔物の行動予告 */}
-      {showCur && !fx && mon.rank === "elite" && <div key={`warn${mon.key}`} className="jp" style={{ position: "absolute", right: 8, top: 30, zIndex: 4, fontSize: 11, fontWeight: 900, color: "#fff", background: "linear-gradient(90deg, rgba(160,40,40,0.92), rgba(110,20,60,0.92))", border: "1px solid #ffb4a8", borderRadius: 6, padding: "2px 9px", animation: "sqcWarn .5s ease-out both", pointerEvents: "none" }}>⚠ {monAttackFor(mon.sp && mon.sp.img).name}の構え！ 正解で防げ</div>}
+      {showCur && !fx && mon.rank === "elite" && !(BATTLE.status && BATTLE.status.k === "blind") && <div key={`warn${mon.key}`} className="jp" style={{ position: "absolute", right: 8, top: 30, zIndex: 4, fontSize: 11, fontWeight: 900, color: "#fff", background: "linear-gradient(90deg, rgba(160,40,40,0.92), rgba(110,20,60,0.92))", border: "1px solid #ffb4a8", borderRadius: 6, padding: "2px 9px", animation: "sqcWarn .5s ease-out both", pointerEvents: "none" }}>⚠ {monAttackFor(mon.sp && mon.sp.img).name}の構え！ 正解で防げ</div>}
       {fx && fx.ok && fx.guarded && <div key={`gd${fx.n}`} className="jp" style={{ position: "absolute", left: "calc(40% - 30px)", top: 30, zIndex: 4, fontSize: 12, fontWeight: 900, color: "#e8f4ff", textShadow: "0 1px 3px rgba(0,0,40,0.8)", animation: "sqxBanner 1.2s ease-out both", pointerEvents: "none" }}>🛡 防いだ！</div>}
       {fx && !fx.ok && fx.warned && <div key={`wh${fx.n}`} className="jp" style={{ position: "absolute", left: "calc(40% - 40px)", top: 30, zIndex: 4, fontSize: 12, fontWeight: 900, color: "#ffd0c8", textShadow: "0 1px 3px rgba(40,0,0,0.9)", animation: `sqxBanner 1.2s ease-out ${fx.t || 0}s both`, pointerEvents: "none" }}>予告の大技が直撃！</div>}
       {fx && fx.ok && fx.big && <div key={`dim${fx.n}`} style={{ position: "absolute", inset: 0, background: "rgba(6,10,28,0.5)", animation: `sqxDim ${fx.cut ? 1.6 : 1.05}s ease-out both`, pointerEvents: "none" }} />}
       <Ambient region={mon.th && mon.th.region} n={10} seed={hashStr(String(mon.th && mon.th.region))} />
+      <SkyLayer seed={hashStr(String(mon.th && mon.th.region))} />
       <div aria-hidden="true" style={{ position: "absolute", inset: 0, pointerEvents: "none", background: "radial-gradient(ellipse at 50% 55%, transparent 55%, rgba(20,28,50,0.16) 100%)" }} />
       {/* 遠景（山並みと城）。景色の絵があるときは出さない */}
       {!scene && <svg viewBox="0 0 400 100" preserveAspectRatio="none" aria-hidden="true" style={{ position: "absolute", left: 0, right: 0, bottom: "30%", width: "100%", height: 70 }}>
@@ -14518,7 +14849,7 @@ function BattleStage({ state, q, bankName, battleKey, boss = false, scene: scene
       </svg>}
       {!scene && <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: "40%", background: P.ground }} />}
       {/* 魔物の種類 */}
-      <div className="jp" style={{ position: "absolute", left: 10, top: 8, fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 999, background: P.chip, border: `1px solid ${kind[1]}`, color: kind[1] }}>{kind[0]}</div>
+      <div className="jp" style={{ position: "absolute", left: 10, top: 8, fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 999, background: P.chip, border: `1px solid ${kind[1]}`, color: kind[1] }}>{kind[0]}{showCur ? <span style={{ marginLeft: 6, color: P.sub }}>弱点 {monWeak(mon) ? `${EL_ICON[monWeak(mon)]}${EL_NAME[monWeak(mon)]}` : "？"}</span> : null}</div>
       {/* コンボ */}
       {BATTLE.combo >= 2 && (
         <div key={`combo${BATTLE.combo}`} style={{ position: "absolute", left: "50%", top: 8, transform: "translateX(-50%)", animation: "sqbPop .28s ease-out both", fontFamily: "'Cinzel', 'Shippori Mincho B1', serif", fontWeight: 900, fontSize: 18, color: P.gold, textShadow: "0 1px 0 rgba(255,255,255,0.6), 0 0 10px rgba(214,181,106,0.6)", whiteSpace: "nowrap" }}>
@@ -14536,9 +14867,38 @@ function BattleStage({ state, q, bankName, battleKey, boss = false, scene: scene
         <div style={{ height: 6, borderRadius: 3, background: "rgba(255,255,255,0.2)", overflow: "hidden" }}>
           <div style={{ height: "100%", width: `${hpPct}%`, background: hpPct < 30 ? "linear-gradient(90deg,#a24a45,#e0948a)" : "linear-gradient(90deg,#4f8a72,#8cc4a8)", transition: "width .4s" }} />
         </div>
+        {/* 必殺ゲージ */}
+        <div title="必殺ゲージ" style={{ height: 4, marginTop: 2, borderRadius: 2, background: "rgba(255,255,255,0.15)", overflow: "hidden" }}>
+          <div style={{ height: "100%", width: `${Math.min(100, BATTLE.gauge || 0)}%`, background: BATTLE.ultArmed ? "linear-gradient(90deg,#c78bff,#ffd36b)" : "linear-gradient(90deg,#b08a3e,#f2c14e)", transition: "width .4s" }} />
+        </div>
+        {/* 状態異常 */}
+        {BATTLE.status && <div key={`stt${BATTLE.status.k}`} className="jp" title={STATUS[BATTLE.status.k].tip} style={{ position: "absolute", left: 0, top: -18, fontSize: 10, fontWeight: 800, color: "#fff", background: "rgba(90,40,110,0.9)", padding: "0 6px", borderRadius: 999, whiteSpace: "nowrap" }}>{STATUS[BATTLE.status.k].icon} {STATUS[BATTLE.status.k].name}（あと{BATTLE.status.n}）</div>}
         {fx && !fx.ok && <div key={`t${fx.n}`} className="jp" style={{ position: "absolute", left: "60%", top: -22, animation: `sqxNum .9s ease-out ${fx.t || 0}s both`, color: "#ff8a80", fontWeight: 900, fontSize: 18, textShadow: "0 1px 0 #3a1010, 0 0 4px rgba(0,0,0,0.6)" }}>-{fx.taken}</div>}
         {fx && fx.faint && <div className="jp" style={{ position: "absolute", left: 0, top: -38, fontSize: 11, fontWeight: 800, color: "#ffc2bc", whiteSpace: "nowrap", textShadow: "0 1px 3px rgba(0,0,0,0.8)" }}>ふんばった！</div>}
       </div>
+      {/* 必殺ゲージが満タン：押すと次の正解で必殺技 */}
+      {(BATTLE.gauge || 0) >= GAUGE_MAX && !fx && (
+        <button onClick={() => { BATTLE.ultArmed = !BATTLE.ultArmed; SFX.play(BATTLE.ultArmed ? "combo" : "miss"); setTick((v) => v + 1); }} className="jp" style={{ position: "absolute", left: 6, bottom: 60, zIndex: 6, fontSize: 11, fontWeight: 900, color: "#2a1040", background: BATTLE.ultArmed ? "linear-gradient(90deg,#e6d6ff,#ffe9a8)" : "linear-gradient(90deg,#ffe9a8,#f2c14e)", border: "1px solid #fff3c4", borderRadius: 999, padding: "3px 10px", cursor: "pointer", boxShadow: "0 0 12px rgba(242,193,78,0.85)", animation: "sqfPulse 1.2s ease-in-out infinite" }}>{BATTLE.ultArmed ? "✨ 構え中：次の正解で必殺技（取り消す）" : "✨ 必殺技を構える"}</button>
+      )}
+      {/* 先制・弱点・状態異常のお知らせ */}
+      {fx && (fx.quick || fx.weakHit || fx.cured || fx.statusNew || fx.poisonDmg > 0) && (
+        <div key={`nt${fx.n}`} className="jp" style={{ position: "absolute", left: "calc(40% - 50px)", top: 52, zIndex: 4, display: "flex", flexDirection: "column", gap: 2, pointerEvents: "none", animation: `sqxBanner 1.8s ease-out ${fx.t || 0}s both` }}>
+          {fx.quick && <span style={{ fontSize: 12, fontWeight: 900, color: "#fff3c4", textShadow: "0 1px 3px rgba(0,0,0,0.85)" }}>⚡ 先制！ 追加の一撃</span>}
+          {fx.weakHit && <span style={{ fontSize: 12, fontWeight: 900, color: "#ffd36b", textShadow: "0 1px 3px rgba(0,0,0,0.85)" }}>{EL_ICON[fx.weak]} 弱点を突いた！ ×1.5</span>}
+          {fx.cured && <span style={{ fontSize: 11, fontWeight: 800, color: "#c8ffd8", textShadow: "0 1px 3px rgba(0,0,0,0.85)" }}>✨ {STATUS[fx.cured].name}が治った</span>}
+          {fx.statusNew && <span style={{ fontSize: 11, fontWeight: 800, color: "#f3d9ff", textShadow: "0 1px 3px rgba(0,0,0,0.85)" }}>{STATUS[fx.statusNew].icon} {STATUS[fx.statusNew].name}になった（{STATUS[fx.statusNew].tip}）</span>}
+          {fx.poisonDmg > 0 && <span style={{ fontSize: 11, fontWeight: 800, color: "#c8f0a0", textShadow: "0 1px 3px rgba(0,0,0,0.85)" }}>☠ 毒で -{fx.poisonDmg}</span>}
+        </div>
+      )}
+      {/* 撃破のフィニッシュ演出（手強い魔物・群れの全滅・必殺技） */}
+      {fx && fx.ok && fx.finish && <div key={`fs${fx.n}`} aria-hidden="true" style={{ position: "absolute", inset: 0, zIndex: 5, pointerEvents: "none", background: "radial-gradient(ellipse at 72% 60%, rgba(255,255,255,0.35), rgba(20,28,50,0.35) 70%)", animation: `sqcSlow 1.1s ease-out ${(fx.t || 0) + 0.1}s both` }} />}
+      {fx && fx.ok && fx.finish && <div key={`fz${fx.n}`} className="jp" style={{ position: "absolute", left: "70%", top: "45%", zIndex: 6, pointerEvents: "none", fontFamily: "'Shippori Mincho B1', serif", fontWeight: 900, fontSize: 30, letterSpacing: "0.12em", color: "#fff", textShadow: "0 0 14px rgba(242,193,78,0.95), 0 3px 0 #22335c", whiteSpace: "nowrap", animation: `sqcFinish 1.2s ease-out ${(fx.t || 0) + 0.15}s both` }}>{fx.finish}</div>}
+      {/* 宝箱（群れを全滅させたとき） */}
+      {BATTLE.chest && (!fx || fx.n !== BATTLE.chest.id) && (
+        <div key={`ch${BATTLE.chest.id}`} style={{ position: "absolute", left: "calc(40% + 70px)", bottom: 14, zIndex: 6, animation: "sqbEnter .35s ease-out both" }}>
+          <TreasureChest tier={BATTLE.chest} size={52} dark onOpen={() => setTimeout(() => { BATTLE.chest = null; setTick((v) => v + 1); }, 1800)} />
+        </div>
+      )}
       {/* 群れの控え（前の魔物の後ろ）。タップで狙う */}
       {pack && pack.list.map((x, i) => {
         const hit = fx && fx.packHit && fx.packHit.ids.includes(x.id);
@@ -14589,7 +14949,10 @@ function BattleStage({ state, q, bankName, battleKey, boss = false, scene: scene
       {fx && fx.cameo && !fx.cut && (
         <div key={`cm${fx.n}`} className="jp" style={{ position: "absolute", left: 8, top: 34, zIndex: 3, display: "flex", alignItems: "center", gap: 6, animation: "sqxBanner 1.2s ease-out both", pointerEvents: "none" }}>
           <AllyMedal p={fx.cameo} size={34} glow />
-          <span style={{ fontSize: 11, fontWeight: 800, color: "#fdfbf5", background: "rgba(34,51,92,0.85)", padding: "1px 8px", borderRadius: 4, border: "1px solid #d6b56a" }}>{fx.cameo.a.name}：{fx.cameo.skill.name}！</span>
+          <span style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+            <span style={{ fontSize: 11, fontWeight: 800, color: "#fdfbf5", background: "rgba(34,51,92,0.85)", padding: "1px 8px", borderRadius: 4, border: "1px solid #d6b56a" }}>{fx.cameo.a.name}：{fx.cameo.skill.name}！</span>
+            {fx.bark && <span style={{ fontSize: 10, fontWeight: 700, color: "#22335c", background: "rgba(253,251,245,0.94)", padding: "1px 8px", borderRadius: 8 }}>「{fx.bark}」</span>}
+          </span>
         </div>
       )}
       {/* 技の演出と名前 */}
@@ -14768,7 +15131,7 @@ function AnswerPanel({ onAnswer: onAnswerRaw, wrongLabel = "不正解", correctL
   const slow = sec >= (STUDY_PREFS.slowSec || 25);
   const askRule = question && (question.wrong || 0) >= 1 && !question.rule; // 2回目のまちがいで自分ルールを書く
   // 回答をバトル演出（BattleStage）にも伝えてから、いつもの記録処理へ。かかった秒数も記録する
-  const onAnswer = (correct, meta) => { const m = { ...(meta || {}), sec: sec || undefined }; if (qid) delete THINK.pick[qid]; emitBattle({ correct, conf: m.conf }); onAnswerRaw(correct, m); };
+  const onAnswer = (correct, meta) => { const m = { ...(meta || {}), sec: sec || undefined }; if (qid) delete THINK.pick[qid]; emitBattle({ correct, conf: m.conf, errType: m.errType, sec: m.sec }); onAnswerRaw(correct, m); };
   const pv = question ? previewIntervals(question, srSettings) : null; // 次回までの日数
   const submitWrong = (errType) => onAnswer(false, { errType: errType || null, confident, rule: rule.trim() || undefined });
   // キーボード：1＝✕／2＝△／3＝◎。✕のあとは 1〜4＝原因、0 か Enter＝原因を選ばずに次へ、Esc＝戻る

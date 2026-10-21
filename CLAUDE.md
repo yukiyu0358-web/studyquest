@@ -224,6 +224,19 @@ state の主なキー：`player` / `qualifications` / `tasks` / `studyPlans`（�
   - 試験までの周回の見込み `lapForecast` `LapForecast`（周回の部屋。clearHistory の日付から1周の日数、目標の周回数 displaySettings.lapGoal＝`LAP_GOALS`）
   - 論点ごとの横断周回 `rontenList` `RontenLap`（周回の部屋。lawIndex の条文のうち、2つ以上の問題集に合わせて3問以上。条文の順に sq-study-items の kind: "ronten"、finishSpecial で rpg.ronten = {lap, done:{法令:条}, at}、全部で1周300G）
   - すきま時間セット `GapTime` `gapItems` `GAP_SETS`（ホームの今日やること3つの下。3分8問・10分25問・30分70問、苦手3割＋忘れかけ forgettingItems、kind: "gap"）
+- 冒険・バトル演出の強化（2026年10月21日）：
+  - 問題の戦い（BattleStage の battleBus の処理）。AnswerPanel の emitBattle に errType・sec を足した
+    - 状態異常 `STATUS` `STATUS_OF_ERR`（混同→混乱：威力半分・ケアレス→毒：1回ごとにHP-4・読み違い→暗闇：手強い魔物の予告が見えない。◎で治る。BATTLE.status）
+    - 先制 `QUICK_SEC`＝10秒以内の◎で追加の一撃
+    - 属性の弱点 `monWeak`（魔物ごと。battlefx.jsx の heroAttackFor に weak、魔法の武器ほど弱点の属性を出しやすい。`ELEMENTS` `EL_NAME` `EL_ICON`）で1.5倍
+    - 必殺ゲージ BATTLE.gauge（◎20・△10・先制+5、`GAUGE_MAX`）→「必殺技を構える」で BATTLE.ultArmed、次の正解でスターライトノヴァ（3倍・群れ全体）
+    - 撃破のフィニッシュ演出 fx.finish（必殺！／殲滅！／撃破！、sqcFinish・sqcSlow）
+    - 仲間の掛け合い `ALLY_BARKS` `allyBark`（絆Lv3以上で親しい言葉）
+    - 宝箱 `CHEST_TIERS` `rollChest` `TreasureChest`（群れの全滅で BATTLE.chest、ボスに勝つと結果画面に。開けると emitReward の gold・mats）
+  - 現実の時間と季節 `SkyLayer` `skyNow`（朝・昼・夕・夜の色、冬の雪・3〜4月の桜・6月の雨・10〜11月の落ち葉。問題の戦いとボス戦）
+  - ボス戦：挑発 `bossTaunt`（出題の中で苦手がいちばん多い地域を名指し、その地域の正解は「言い返した！」1.5倍）。障壁 shield（HPが半分を切ると張る。15問以上の戦いは7割と3.5割。◎を2回［終盤のボスは3回］続けると砕けて2倍、それまではダメージ4分の1・仲間の加勢も通らない）。BossArena に shield・taunt
+  - 無限回廊 `EndlessCard` `EndlessRun`（クエストの欄。gapItems の問題が続き、正解で1階。BATTLE.dmgMul＝1階ごとに `ENDLESS_GROW`＝4%強く、ふんばったら終わり。rpgActions.endlessFinish → rpg.endless = {best, n, log, bestAt}）
+  - 今日のハイライト `TodayHighlight`（ステータス画面）：emitReward の hl を `hlMerge` が rpg.hl に（討伐・最高連撃・最大ダメージ・先制・弱点・群れの全滅・必殺技・はじめて倒した魔物）。日が変わると rpg.hlLog、自己ベスト rpg.hlBest、10連撃以上の更新 rpg.hlRec は成長の年表に
 - CSVの一括取り込み（2026年10月19日）：ImportPanel のファイル選択は multiple。2つ以上選ぶと `handleFiles`（ファイル名の順、1ファイル＝問題集1つ、名前はファイル名・年度は `yearFromFileName`［令和・平成・R・H＋数字、4けた＋年。「01」のような番号は年度にしない］、資格とフォルダは全部に同じもの）。同じ名前の問題集がすでにあるファイルは最初から☑を外す。CSV の読み方は `csvRowsToQuestions` `parseCsvFile`（1つのときと共通）
 - 試し表示：.claude/launch.json に demo（5174）と preview（公開版と同じビルドを 4173 で。本番の Firebase につながるのでログインはしない）
 - テーマ：`DISPLAY_DEFAULTS`（既定は white）`THEME_PAL`（classic/white の配色）`CLASSIC_CSS` `WHITE_CSS` `ClassicThemeStyle` `TitleScreen` `ClassicInfoBar` `MenuHome`（クラシック）`SignpostHome`（白金・道しるべ）`migrateDisplay`
