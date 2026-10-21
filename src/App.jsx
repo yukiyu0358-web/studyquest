@@ -2554,6 +2554,19 @@ function StudyRPG({ user }) {
         if (ok) setTimeout(() => awardXp(ok * 6), 200);
         setTimeout(() => showRpgToast(`🗓 曜日の迷宮をクリア！ 報酬2倍：${gold}G・${(matById(fid) || {}).name}×${Math.max(1, Math.ceil(ok / 2))}`, "#b08a3e"), 400);
       }
+      // 論点ごとの横断周回：その論点を済みに。全部の論点が済んだら1周
+      if (info.kind === "ronten" && info.key) {
+        const R0 = normRpg(stateRef.current.rpg).ronten || {};
+        const lapUp = info.total && Object.keys({ ...(R0.done || {}), [info.key]: d }).length >= info.total ? R0.lap || 1 : 0;
+        updateRpg((x) => {
+          const R = x.ronten || {};
+          let done = { ...(R.done || {}), [info.key]: d }, lap = R.lap || 1, at = R.at || [];
+          const up = info.total && Object.keys(done).length >= info.total;
+          if (up) { lap += 1; done = {}; at = [...at, d]; }
+          return { ...x, ronten: { lap, done, at }, ...(up ? { gold: x.gold + 300, goldEarned: x.goldEarned + 300 } : {}) };
+        });
+        setTimeout(() => { if (lapUp) { SFX.play("stamp"); showRpgToast(`📚 論点ごとの横断周回を${lapUp}周しました！ 300G`, "#b08a3e"); } }, 400);
+      }
       if (info.kind === "weekly") updateRpg((x) => { const wt = { ...(x.weeklyTest || {}), [info.wk]: { ok, n, d } }; const keys = Object.keys(wt).sort().slice(-26); return { ...x, weeklyTest: Object.fromEntries(keys.map((k) => [k, wt[k]])) }; });
       if (info.kind === "night") updateRpg((x) => ({ ...x, sleep: { date: d, ids: info.ids || [], night: { ok, n } } }));
       if (info.kind === "morning") updateRpg((x) => ({ ...x, sleep: { ...(x.sleep || {}), morning: d, mres: { ok, n } } }));
@@ -3589,12 +3602,12 @@ function StudyRPG({ user }) {
       const isFirst = (q.correct + q.wrong) === 0;
       const xpGain = correct ? (isFirst ? XP_QA_FIRST : XP_QA_REVIEW) : 0;
       if (xpGain > 0) setTimeout(() => awardXp(xpGain), 50);
-      return { ...s, player: { ...s.player, totalQaAnswered: s.player.totalQaAnswered + 1 }, questionBanks: s.questionBanks.map((b) => b.id !== bankId ? b : { ...b, questions: b.questions.map((x) => x.id !== qId ? x : { ...applyAnswerMeta(x, correct, meta), correct: x.correct + (correct ? 1 : 0), wrong: x.wrong + (correct ? 0 : 1), ...scheduleAnswer(x, correct, meta, effectiveSr(s), now) }) }) };
+      return { ...s, player: hourBump(s.player, correct), questionBanks: s.questionBanks.map((b) => b.id !== bankId ? b : { ...b, questions: b.questions.map((x) => x.id !== qId ? x : { ...applyAnswerMeta(x, correct, meta), correct: x.correct + (correct ? 1 : 0), wrong: x.wrong + (correct ? 0 : 1), ...scheduleAnswer(x, correct, meta, effectiveSr(s), now) }) }) };
     });
   };
   const recordRevengeAnswer = (bankId, qId, correct, meta) => {
     const now = new Date();
-    setState((s) => ({ ...s, player: { ...s.player, totalQaAnswered: s.player.totalQaAnswered + 1 }, questionBanks: s.questionBanks.map((b) => b.id !== bankId ? b : { ...b, questions: b.questions.map((x) => x.id !== qId ? x : { ...applyAnswerMeta(x, correct, meta), correct: x.correct + (correct ? 1 : 0), wrong: x.wrong + (correct ? 0 : 1), ...scheduleAnswer(x, correct, meta, effectiveSr(s), now) }) }) }));
+    setState((s) => ({ ...s, player: hourBump(s.player, correct), questionBanks: s.questionBanks.map((b) => b.id !== bankId ? b : { ...b, questions: b.questions.map((x) => x.id !== qId ? x : { ...applyAnswerMeta(x, correct, meta), correct: x.correct + (correct ? 1 : 0), wrong: x.wrong + (correct ? 0 : 1), ...scheduleAnswer(x, correct, meta, effectiveSr(s), now) }) }) }));
     if (correct) setTimeout(() => awardXp(XP_QA_REVENGE), 50);
   };
 
@@ -3622,7 +3635,7 @@ function StudyRPG({ user }) {
       const isFirst = c && (c.correct + c.wrong) === 0;
       const xpGain = correct ? (isFirst ? XP_QA_FIRST : XP_QA_REVIEW) : 0;
       if (xpGain > 0) setTimeout(() => awardXp(xpGain), 50);
-      return { ...s, player: { ...s.player, totalQaAnswered: s.player.totalQaAnswered + 1 }, questionBanks: s.questionBanks.map((b) => b.id !== bankId ? b : {
+      return { ...s, player: hourBump(s.player, correct), questionBanks: s.questionBanks.map((b) => b.id !== bankId ? b : {
         ...b, questions: b.questions.map((x) => x.id !== qId ? x : {
           ...x, clozes: (x.clozes || []).map((cl) => cl.id !== clozeId ? cl : { ...cl, correct: cl.correct + (correct ? 1 : 0), wrong: cl.wrong + (correct ? 0 : 1) })
         })
@@ -3630,7 +3643,7 @@ function StudyRPG({ user }) {
     });
   };
   const recordClozeRevengeAnswer = (bankId, qId, clozeId, correct) => {
-    setState((s) => ({ ...s, player: { ...s.player, totalQaAnswered: s.player.totalQaAnswered + 1 }, questionBanks: s.questionBanks.map((b) => b.id !== bankId ? b : {
+    setState((s) => ({ ...s, player: hourBump(s.player, correct), questionBanks: s.questionBanks.map((b) => b.id !== bankId ? b : {
       ...b, questions: b.questions.map((x) => x.id !== qId ? x : {
         ...x, clozes: (x.clozes || []).map((cl) => cl.id !== clozeId ? cl : { ...cl, correct: cl.correct + (correct ? 1 : 0), wrong: cl.wrong + (correct ? 0 : 1) })
       })
@@ -3683,7 +3696,7 @@ function StudyRPG({ user }) {
       const xpGain = correct ? XP_QA_REVIEW : 0;
       if (xpGain > 0) setTimeout(() => awardXp(xpGain), 50);
       return { ...s,
-        player: { ...s.player, totalQaAnswered: s.player.totalQaAnswered + 1 },
+        player: hourBump(s.player, correct),
         questionBanks: s.questionBanks.map((b) => b.id !== bankId ? b : {
           ...b, questions: b.questions.map((x) => x.id !== qId ? x : {
             ...applyAnswerMeta(x, correct, meta),
@@ -4052,6 +4065,7 @@ function StudyRPG({ user }) {
               else if (id === "events" || id === "guide" || id === "quest") out.push(dash(id));
               else if (id === "quals") out.push(<div key="quals"><HomeTab state={state} liveSeconds={liveSeconds} setMainTitle={setMainTitle} setTab={setTab} todayCount={getTodayReviewItems().length} hideBanner dashboard /></div>);
             }
+            if (state.questionBanks.length) out.unshift(<GapTime key="gap" state={state} />);
             if (rmShow(state)) out.unshift(<TodayThree key="today3" state={state} actions={rpgActions} />);
             if (rmShow(state)) out.unshift(<RoadmapBanner key="roadmap" state={state} />);
             if ((state.qualifications || []).length) out.unshift(<StarBookBar key="book" state={state} onPick={(id) => updateDisplaySettings({ activeQual: id })} onNew={() => setTab("qual")} />);
@@ -15034,6 +15048,8 @@ function LapRoom({ state, actions, rpgActions, pastReq, onPastOpened, startTimer
       {show && <PlanTasks state={state} actions={actions} />}
       {show && <WeakBook state={state} />}
       {show && <LapGrowth state={state} actions={actions} />}
+      {show && <LapForecast state={state} />}
+      {show && <RontenLap state={state} />}
       {show && <StudyAnalysis state={state} />}
       {show && rpgActions && <MockLog state={state} actions={rpgActions} />}
       {show && <LapRecordsPanel state={state} />}
@@ -15041,15 +15057,16 @@ function LapRoom({ state, actions, rpgActions, pastReq, onPastOpened, startTimer
   );
 }
 // ── 学習の分析：思い込み度・条文ごとの理解度・年度別のスコア ──
-const ANALYSIS_TABS = [["conf", "思い込み度"], ["law", "条文マップ"], ["year", "年度別"], ["kaisei", "法改正"]];
+const ANALYSIS_TABS = [["conf", "思い込み度"], ["speed", "速さ×正確"], ["law", "条文マップ"], ["year", "年度別"], ["kaisei", "法改正"]];
 function StudyAnalysis({ state }) {
   const [tab, setTab] = useState("conf");
   return (
     <Box title="学習の分析" icon={<TrendingUp size={18} />}>
-      <div className="grid grid-cols-4 gap-1 p-1 mb-3" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)", borderRadius: 999 }}>
-        {ANALYSIS_TABS.map(([id, l]) => <button key={id} onClick={() => setTab(id)} className="jp py-1 text-xs" style={{ borderRadius: 999, border: "none", fontWeight: 700, cursor: "pointer", background: tab === id ? "linear-gradient(180deg, #cfae62, #a8833a)" : "transparent", color: tab === id ? "#fffdf6" : "var(--ink-soft)" }}>{l}</button>)}
+      <div className="grid grid-cols-5 gap-1 p-1 mb-3" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)", borderRadius: 999 }}>
+        {ANALYSIS_TABS.map(([id, l]) => <button key={id} onClick={() => setTab(id)} className="jp py-1 text-[10px] md:text-xs" style={{ borderRadius: 999, border: "none", fontWeight: 700, cursor: "pointer", background: tab === id ? "linear-gradient(180deg, #cfae62, #a8833a)" : "transparent", color: tab === id ? "#fffdf6" : "var(--ink-soft)" }}>{l}</button>)}
       </div>
       {tab === "conf" && <OverconfidenceView state={state} />}
+      {tab === "speed" && <SpeedAccuracyView state={state} />}
       {tab === "law" && <LawMastery state={state} />}
       {tab === "year" && <YearScores state={state} />}
       {tab === "kaisei" && <LawChangeList state={state} />}
@@ -15240,6 +15257,204 @@ function PlanChart({ p }) {
   );
 }
 // 周回の伸び：周回ごとの正解率（問題集の clearHistory）から、伸びている問題集と伸び悩んでいる問題集を分ける
+// ── すきま時間セット（2026年10月21日。ホーム）：3分・10分・30分で終わる量を、苦手（2回以上まちがえた）3割＋忘れかけ（記憶率の低い順）で組む ──
+const GAP_SETS = [[3, 8], [10, 25], [30, 70]];
+function gapItems(state, n) {
+  const sc = studyScope(state);
+  const inScope = new Map(state.questionBanks.map((b) => [b.id, sc.inScope(b)]));
+  const weak = [];
+  state.questionBanks.forEach((b) => { if (!inScope.get(b.id)) return; (b.questions || []).forEach((q) => { if (!q.excluded && (q.wrong || 0) >= 2 && correctDayStreak(q) < WEAK_GRAD) weak.push({ bankId: b.id, bankName: b.name, year: b.year || "", qId: q.id }); }); });
+  const out = [], seen = new Set();
+  const add = (it) => { if (out.length < n && !seen.has(it.qId)) { seen.add(it.qId); out.push(it); } };
+  shuffle(weak).slice(0, Math.ceil(n * 0.3)).forEach(add);
+  forgettingItems(state, n * 3).filter((it) => inScope.get(it.bankId)).forEach(({ r, ...it }) => add(it));
+  return shuffle(out);
+}
+function GapTime({ state }) {
+  const [msg, setMsg] = useState("");
+  const go = (min, n) => {
+    const items = gapItems(state, n);
+    if (!items.length) { setMsg("まだ解いたことのある問題がありません。まずは問題集を1周してみましょう。"); return; }
+    window.dispatchEvent(new CustomEvent("sq-study-items", { detail: { items, kind: "gap", title: `⏱ すきま時間 ${min}分（${items.length}問）` } }));
+  };
+  return (
+    <div className="jp mb-3 px-3 py-2" style={{ borderRadius: 12, background: "var(--paper)", border: "1px solid var(--rule-soft)" }}>
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-[12px]" style={{ fontWeight: 800, color: "var(--ink)" }}>⏱ すきま時間</span>
+        {GAP_SETS.map(([min, n]) => <button key={min} onClick={() => go(min, n)} className="btn-sky text-[12px] px-3 py-1" style={{ borderRadius: 999 }}>{min}分<span className="text-[10px]" style={{ opacity: 0.85 }}>（{n}問）</span></button>)}
+      </div>
+      <div className="text-[10px] mt-0.5" style={{ color: "var(--ink-mute)" }}>苦手3割＋忘れかけの問題から、その時間で終わる量だけ。</div>
+      {msg && <div className="text-[11px] mt-1" style={{ color: "var(--ink-soft)" }}>{msg}</div>}
+    </div>
+  );
+}
+// ── 時間帯ごとの正答率（2026年10月21日）：回答した時刻を player.hourStats = { 時: {n, ok} } に数えておき、いちばん冴えている時間帯を見つける ──
+const HOUR_BANDS = [["早朝", 5, 9], ["午前", 9, 12], ["午後", 12, 17], ["夕方", 17, 21], ["夜", 21, 24], ["深夜", 0, 5]];
+const hourBump = (p, correct) => { const h = new Date().getHours(); const hs = p.hourStats || {}; const v = hs[h] || {}; return { ...p, totalQaAnswered: (p.totalQaAnswered || 0) + 1, hourStats: { ...hs, [h]: { n: (v.n || 0) + 1, ok: (v.ok || 0) + (correct ? 1 : 0) } } }; };
+function HourBands({ state }) {
+  const hs = (state.player || {}).hourStats || {};
+  const rows = HOUR_BANDS.map(([nm, a, b]) => { let n = 0, ok = 0; for (let h = a; h < b; h++) { const v = hs[h]; if (v) { n += v.n; ok += v.ok; } } return { nm, a, b, n, rate: n ? ok / n : null }; });
+  const enough = rows.filter((r) => r.n >= 20);
+  const best = enough.length ? enough.reduce((x, y) => (y.rate > x.rate ? y : x)) : null;
+  return (
+    <div className="jp mt-3 pt-2 space-y-1" style={{ borderTop: "1px dashed var(--rule-soft)" }}>
+      <div className="text-[12px]" style={{ fontWeight: 800, color: "var(--ink)" }}>⏰ 時間帯ごとの正答率</div>
+      {!rows.some((r) => r.n) ? <p className="text-[10px]" style={{ color: "var(--ink-mute)" }}>これから答えた時刻を記録して、時間帯ごとの正答率を出します。</p> : <>
+        {rows.filter((r) => r.n).map((r) => (
+          <div key={r.nm} className="flex items-center gap-2 text-[11px]">
+            <span style={{ width: 74, color: "var(--ink)" }}>{r.nm}<span className="text-[9px]" style={{ color: "var(--ink-mute)" }}> {r.a}〜{r.b}時</span></span>
+            <span className="flex-1" style={{ height: 6, borderRadius: 3, background: "var(--beige)", overflow: "hidden" }}><span style={{ display: "block", width: `${(r.rate || 0) * 100}%`, height: "100%", background: best && best.nm === r.nm ? "#6d8454" : "#d6b56a" }} /></span>
+            <span style={{ width: 92, textAlign: "right", color: "var(--ink-soft)" }}>{Math.round((r.rate || 0) * 100)}%・{r.n}問</span>
+          </div>
+        ))}
+        <p className="text-[10px]" style={{ color: "var(--ink-mute)" }}>{best ? `いちばん冴えているのは「${best.nm}」。` : "それぞれ20問以上たまると、いちばん冴えている時間帯を示します。"}本番の試験は午後（13時から）なので、午後の正答率も上げておきましょう。</p>
+      </>}
+    </div>
+  );
+}
+// ── 速さ×正確さの4分類（2026年10月21日。学習の分析）：最近の回答（ah）の正解率と、思い出すまでの秒数（ts）で問題を4つに分ける ──
+const SA_KINDS = [
+  { id: "master", name: "速くて正確", icon: "🏅", color: "#4f7a3a", tip: "定着しています。高速周回では飛ばされ、ときどき抜き打ちで出ます。", act: null },
+  { id: "slow", name: "遅いが正確", icon: "🐢", color: "#b08a3e", tip: "知識はあります。時間を意識して、速く思い出す練習を。", act: "速く思い出す練習" },
+  { id: "rash", name: "速いが不正確", icon: "⚡", color: "#c9564e", tip: "思い込みの危険。問題文の主語・否定・数字に印をつけて読み直す練習を。", act: "読み直しの練習" },
+  { id: "lost", name: "遅くて不正確", icon: "🌫", color: "#6c5a96", tip: "理解があやふやです。条文・解説に戻って、理解からやり直しましょう。", act: "理解からやり直す" },
+];
+function speedAccuracy(state) {
+  const slowSec = STUDY_PREFS.slowSec || 25;
+  const sc = studyScope(state);
+  const out = { master: [], slow: [], rash: [], lost: [] };
+  let none = 0;
+  state.questionBanks.forEach((b) => {
+    if (!sc.inScope(b)) return;
+    (b.questions || []).forEach((q) => {
+      if (q.excluded) return;
+      const ah = (q.ah || []).slice(-5).map((h) => String(h).slice(-1));
+      const ts = (q.ts || []).slice(-3);
+      if (ah.length < 2 || !ts.length) { if ((q.ah || []).length) none++; return; }
+      const acc = ah.filter((m) => m !== "w").length / ah.length;
+      const sec = ts.slice().sort((x, y) => x - y)[Math.floor(ts.length / 2)];
+      const fast = sec < slowSec, good = acc >= 0.8 && ah[ah.length - 1] !== "w";
+      out[fast ? (good ? "master" : "rash") : good ? "slow" : "lost"].push({ b, q, acc, sec });
+    });
+  });
+  out.slow.sort((x, y) => y.sec - x.sec);
+  out.rash.sort((x, y) => x.acc - y.acc);
+  out.lost.sort((x, y) => x.acc - y.acc || y.sec - x.sec);
+  return { ...out, none, slowSec };
+}
+function SpeedAccuracyView({ state }) {
+  const sa = speedAccuracy(state);
+  const total = SA_KINDS.reduce((t, k) => t + sa[k.id].length, 0);
+  const solve = (k) => window.dispatchEvent(new CustomEvent("sq-study-items", { detail: { items: sa[k.id].slice(0, 20).map(({ b, q }) => ({ bankId: b.id, bankName: b.name, year: b.year || "", qId: q.id })), kind: `sa-${k.id}`, title: `${k.icon} ${k.act}` } }));
+  if (!total) return <><p className="jp text-xs" style={{ color: "var(--ink-mute)" }}>2回以上答えた問題がたまると、思い出すまでの秒数と正解率で4つに分けて表示します（秒数は「答えを見る」までの時間）。</p><HourBands state={state} /></>;
+  return (
+    <div className="jp space-y-2">
+      <p className="text-[11px]" style={{ color: "var(--ink-soft)" }}>最近5回の正解率（8割以上で「正確」）と、思い出すまでの秒数（{sa.slowSec}秒未満で「速い」）で分けました。{total}問。</p>
+      <div className="grid grid-cols-2 gap-1.5">
+        {SA_KINDS.map((k) => (
+          <div key={k.id} className="px-2 py-1.5" style={{ border: `1.5px solid ${k.color}`, borderRadius: 8, background: "var(--paper)" }}>
+            <div className="flex items-baseline gap-1"><span className="text-[12px]" style={{ fontWeight: 800, color: k.color }}>{k.icon} {k.name}</span><span className="flex-1" /><span style={{ fontFamily: "'Cinzel', serif", fontWeight: 900, fontSize: 18, color: "var(--ink)" }}>{sa[k.id].length}</span></div>
+            <div className="text-[10px]" style={{ color: "var(--ink-soft)", lineHeight: 1.5 }}>{k.tip}</div>
+            {k.act && sa[k.id].length > 0 && <button onClick={() => solve(k)} className="btn-ghost w-full py-1 mt-1 text-[10px]">{k.act}（{Math.min(20, sa[k.id].length)}問）▶</button>}
+          </div>
+        ))}
+      </div>
+      {sa.none > 0 && <p className="text-[10px]" style={{ color: "var(--ink-mute)" }}>秒数の記録がまだない問題が{sa.none}問あります（これから答えると分類されます）。</p>}
+      <HourBands state={state} />
+    </div>
+  );
+}
+// ── 残りの周回数の見込み（2026年10月21日。周回の部屋）：問題集ごとの周回のペースから、試験日までにあと何周できるかを見積もり、目標の周回数と比べる ──
+const LAP_GOALS = [3, 5, 7, 10];
+function lapForecast(state) {
+  const mq = mainQual(state);
+  const exam = mq && mq.examDate ? mq.examDate : null;
+  const today = todayStr();
+  const left = exam ? daysBetween(today, exam) : null;
+  const sc = studyScope(state);
+  const goal = (state.displaySettings || {}).lapGoal || 5;
+  const rows = state.questionBanks.filter((b) => sc.inScope(b) && (b.questions || []).length && (!mq || !b.qualId || b.qualId === mq.id)).map((b) => {
+    const hist = (b.clearHistory || []).filter((h) => h && h.date).map((h) => h.date).sort();
+    const total = Math.max(b.clears || 0, hist.length);
+    let per = null; // 1周にかかる日数
+    if (hist.length >= 2) per = Math.max(1, daysBetween(hist[0], hist[hist.length - 1]) / (hist.length - 1));
+    else if (hist.length === 1) per = Math.max(7, daysBetween(hist[0], today));
+    const more = left != null && left > 0 && per ? Math.floor(left / per) : 0;
+    const proj = total + more;
+    const need = left != null && left > 0 && goal > total ? Math.max(1, Math.floor(left / (goal - total))) : null; // 目標に届く1周の日数
+    return { b, total, per, proj, short: Math.max(0, goal - proj), need };
+  });
+  return { exam, left, goal, rows: rows.sort((x, y) => y.short - x.short || x.total - y.total), qual: mq };
+}
+function LapForecast({ state }) {
+  const [all, setAll] = useState(false);
+  const f = lapForecast(state);
+  if (!f.rows.length) return null;
+  const shortN = f.rows.filter((r) => r.short > 0).length;
+  const shown = all ? f.rows : f.rows.slice(0, 6);
+  return (
+    <Box title="試験までの周回の見込み" icon={<TrendingUp size={18} />}>
+      <div className="jp space-y-1.5">
+        {f.left == null ? <p className="text-[11px]" style={{ color: "var(--ink-mute)" }}>手帳の「資格」で試験日を入れると、試験日までにあと何周できるかを見積もります。</p> : <>
+          <div className="flex flex-wrap items-center gap-1 text-[11px]" style={{ color: "var(--ink-soft)" }}>
+            <span>{f.qual ? f.qual.name : ""}の試験まで あと{f.left}日。目標</span>
+            {LAP_GOALS.map((g) => <button key={g} onClick={() => setDisplay({ lapGoal: g })} className="px-2 py-0.5" style={chipSt(f.goal === g)}>{g}周</button>)}
+          </div>
+          <div className="text-[12px]" style={{ color: shortN ? "#c9564e" : "#4f7a3a", fontWeight: 800 }}>{shortN ? `いまのペースだと、${shortN}冊が目標の${f.goal}周に届きません` : `全部の問題集が、目標の${f.goal}周に届く見込みです`}</div>
+          {shown.map((r) => (
+            <div key={r.b.id} className="px-2 py-1" style={{ border: `1px solid ${r.short ? "#e0948a" : "var(--rule-soft)"}`, borderRadius: 6, background: "var(--paper)" }}>
+              <div className="flex items-baseline gap-2 text-[11px]"><span className="flex-1 min-w-0 truncate" style={{ color: "var(--ink)", fontWeight: 700 }}>{r.b.name}</span><span style={{ color: "var(--ink-soft)" }}>いま{r.total}周 → 見込み<b style={{ color: r.short ? "#c9564e" : "#4f7a3a" }}>{r.proj}周</b></span></div>
+              <div className="text-[10px]" style={{ color: "var(--ink-mute)" }}>{r.per ? `1周 約${Math.round(r.per)}日のペース` : "まだ1周していません"}{r.short && r.need ? `。目標に届くには、1周を${r.need}日以内で` : ""}</div>
+            </div>
+          ))}
+          {f.rows.length > 6 && <button onClick={() => setAll(!all)} className="w-full text-[11px] py-1" style={{ background: "transparent", border: "1px dashed var(--rule-soft)", color: "var(--ink-soft)", cursor: "pointer" }}>{all ? "▲ たたむ" : `▼ すべて（${f.rows.length}冊）`}</button>}
+          <p className="text-[10px]" style={{ color: "var(--ink-mute)" }}>ペースは周回の記録（完全制覇の日）から。1周しかしていない問題集は、その日から今日までを1周の日数とみなします。高速周回を使うと1周が速くなります。</p>
+        </>}
+      </div>
+    </Box>
+  );
+}
+// ── 論点ごとの横断周回（2026年10月21日。周回の部屋）：同じ条文の問題を、問題集をまたいで続けて解く。条文の順に1つずつ進め、全部の論点で1周 ──
+// 記録は rpg.ronten = { lap, done:{ "法令:条": 日付 }, at:[1周した日] }
+function rontenList(state) {
+  const sc = studyScope(state);
+  const lawOrder = new Map(LAWS.map((l, i) => [l.key, i]));
+  const out = [];
+  lawIndex(state).forEach((list, k) => {
+    const xs = list.filter(({ b, q }) => !q.excluded && sc.inScope(b));
+    if (xs.length < 3 || new Set(xs.map((x) => x.b.id)).size < 2) return;
+    const [law, art] = k.split(":");
+    const lw = LAWS.find((l) => l.key === law);
+    out.push({ k, law, art, name: `${lw ? lw.name : law} 第${String(art).includes("_") ? String(art).replace("_", "条の") : `${art}条`}`, xs, weak: xs.filter(({ q }) => isQuestionWeak(q)).length });
+  });
+  const num = (a) => String(a).split("_").map(Number);
+  return out.sort((x, y) => (lawOrder.get(x.law) ?? 99) - (lawOrder.get(y.law) ?? 99) || num(x.art)[0] - num(y.art)[0] || (num(x.art)[1] || 0) - (num(y.art)[1] || 0));
+}
+function RontenLap({ state }) {
+  const [open, setOpen] = useState(false);
+  const list = rontenList(state);
+  if (!list.length) return null;
+  const R = normRpg(state.rpg).ronten || {};
+  const done = R.done || {};
+  const left = list.filter((x) => !done[x.k]);
+  const nxt = left[0];
+  const go = (x) => window.dispatchEvent(new CustomEvent("sq-study-items", { detail: { items: shuffle(x.xs).map(({ b, q }) => ({ bankId: b.id, bankName: b.name, year: b.year || "", qId: q.id })), kind: "ronten", key: x.k, total: list.length, title: `論点：${x.name}（${x.xs.length}問）` } }));
+  const pct = Math.round(((list.length - left.length) / list.length) * 100);
+  return (
+    <Box title={`論点ごとの横断周回　第${R.lap || 1}周`} icon={<BookOpen size={18} />}>
+      <div className="jp space-y-1.5">
+        <p className="text-[11px]" style={{ color: "var(--ink-soft)", lineHeight: 1.7 }}>同じ条文を引用している問題を、問題集をまたいで続けて解きます。1つの論点をまとめて固めると、ひっかけの違いが見えてきます（2つ以上の問題集に、合わせて3問以上ある条文 {list.length}か所）。</p>
+        <div style={{ height: 8, borderRadius: 4, background: "var(--beige)", overflow: "hidden" }}><div style={{ width: `${pct}%`, height: "100%", background: "linear-gradient(90deg, #d6b56a, #b08a3e)" }} /></div>
+        <div className="text-[10px] text-right" style={{ color: "var(--ink-mute)" }}>この周 {list.length - left.length} / {list.length}か所</div>
+        {nxt && <button onClick={() => go(nxt)} className="btn-primary w-full py-2 text-[12px]">次の論点：{nxt.name}（{nxt.xs.length}問{nxt.weak ? `・苦手${nxt.weak}` : ""}）▶</button>}
+        <button onClick={() => setOpen(!open)} className="w-full text-[11px] py-1" style={{ background: "transparent", border: "1px dashed var(--rule-soft)", color: "var(--ink-soft)", cursor: "pointer" }}>{open ? "▲ たたむ" : "▼ 論点の一覧（苦手の多い所から選んでも）"}</button>
+        {open && <div className="space-y-1" style={{ maxHeight: 320, overflowY: "auto" }}>
+          {list.map((x) => <button key={x.k} onClick={() => go(x)} className="w-full text-left text-[11px] px-2 py-1 flex items-center gap-2" style={{ borderRadius: 6, border: "1px solid var(--rule-soft)", background: done[x.k] ? "rgba(109,132,84,0.1)" : "var(--paper)", color: "var(--ink)", cursor: "pointer" }}><span style={{ width: 14, color: "var(--sage)", fontWeight: 900 }}>{done[x.k] ? "✓" : ""}</span><span className="flex-1">{x.name}</span><span style={{ color: "var(--ink-mute)" }}>{x.xs.length}問{x.weak ? <b style={{ color: "#c9564e" }}>・苦手{x.weak}</b> : null}</span></button>)}
+        </div>}
+      </div>
+    </Box>
+  );
+}
 function LapGrowth({ state, actions }) {
   const rows = state.questionBanks.map((b) => {
     const acc = (Array.isArray(b.clearHistory) ? b.clearHistory : []).map((h) => h.accuracy).filter((v) => typeof v === "number");
