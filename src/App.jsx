@@ -15502,7 +15502,7 @@ function LapRoom({ view = "plan", state, actions, rpgActions, recordAnswer, past
     <div className="space-y-4">
       {show && (
         <div className="relative overflow-hidden" style={{ borderRadius: 12, border: "1px solid #b08a3e", boxShadow: "inset 0 0 0 3px #fdfbf5, inset 0 0 0 4px rgba(176,138,62,.45)", width: "100%", aspectRatio: "16 / 9" }}>
-          <img src={`${ART_URL}${radio ? "laproom-radio.webp" : "laproom.webp"}`} alt={radio ? "周回の部屋 ― 電波と回路を、学びの力に（特殊陸上無線技士 試験対策）" : "周回の部屋 ― 測って、解いて、力にする（土地家屋調査士 試験対策）"} className="w-full h-full" style={{ objectFit: "cover", objectPosition: "center 40%" }} />
+          <img src={`${ART_URL}${radio ? "laproom-radio.webp" : "laptower.webp"}`} alt={radio ? "周回の部屋 ― 電波と回路を、学びの力に（特殊陸上無線技士 試験対策）" : "周回の塔 ― 測って、解いて、力にする（土地家屋調査士 試験対策）"} className="w-full h-full" style={{ objectFit: "cover", objectPosition: "center 40%" }} />
         </div>
       )}
       {show && (
@@ -17830,7 +17830,7 @@ function CalcTab({ state, actions, startTimer, stopTimer, pastReq, onPastOpened 
   const head = (
     <div className="mb-3 jp">
       <div className="relative overflow-hidden" style={{ borderRadius: 12, border: "1px solid #b08a3e", boxShadow: "inset 0 0 0 3px #fdfbf5, inset 0 0 0 4px rgba(176,138,62,.45)", width: "100%", maxWidth: 680, margin: "0 auto", aspectRatio: "1672 / 941", background: "#34508c" }}>
-        <img src={`${ART_URL}calcroom.webp`} alt="計算の部屋（土地家屋調査士 試験対策）" className="w-full h-full" style={{ objectFit: "cover", objectPosition: "center 35%" }} />
+        <img src={`${ART_URL}calctower.webp`} alt="計算の塔（土地家屋調査士 試験対策）" className="w-full h-full" style={{ objectFit: "cover", objectPosition: "center 35%" }} />
       </div>
       <div className="text-[11px] mt-1 text-center" style={{ color: "var(--ink-soft)" }}>関数電卓（カシオ fx-JP500）のキー操作つき。記述式の流れ・座標・交点・面積・三角形・端数処理を周回。</div>
     </div>
