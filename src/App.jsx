@@ -752,7 +752,10 @@ function MentorBubble({ state, todayCount, theme = "white", avatar, face, overri
   const status = n % 4 === 3 ? mentorStatusLines(state, todayCount) : null;
   // 4回に1回（2番目）は、自分ルールを仲間が話す（ルールがあるとき）
   const rule = !status && n % 4 === 1 ? ruleQuote(state, Math.floor(n / 4)) : null;
-  const quote = status ? null : rule || STUDY_QUOTES[deck[(n - Math.floor(n / 4)) % deck.length]];
+  // マイ名言（手帳の「名言」で登録したセリフ）：4回に1回（3番目）。登録が多いときは偉人の名言の番にもまぜる
+  const mine = (state.myQuotes || []).filter((x) => x && x.t);
+  const myQ = !status && !rule && mine.length && (n % 4 === 2 || (mine.length >= 10 && n % 4 === 0 && n > 0)) ? mine[Math.floor(n / 2) % mine.length] : null;
+  const quote = status ? null : rule || (myQ ? { t: myQ.t, by: myQ.by || "マイ名言", say: myQ.say || "" } : null) || STUDY_QUOTES[deck[(n - Math.floor(n / 4)) % deck.length]];
   const font = S.font ? { fontFamily: S.font } : {};
   return (
     <div className="rpg-box px-3 py-3 md:px-4 jp">
@@ -1854,7 +1857,9 @@ function App() {
 
 // ============ Main StudyRPG ============
 const MAX_TIMER_MS = 6 * 60 * 60 * 1000; // 6時間（異常タイマー検知の閾値）
-const NOTE_TABS = ["task", "timer", "memo", "rules", "qual"]; // 下のタブ「手帳」にまとめた画面
+const NOTE_TABS = ["task", "timer", "memo", "rules", "quotes", "qual"]; // 下のタブ「手帳」にまとめた画面
+// 下のタブ「周回」にまとめた画面（2026年10月22日）：問題集・計画と記録・記述式・計算・弱点と分析。laps は中の画面 lapView で分ける
+const LAP_TABS = [["qbank", null, "問題集"], ["laps", "plan", "計画・記録"], ["laps", "kijutsu", "記述式"], ["calc", null, "計算"], ["laps", "weak", "弱点・分析"]];
 function StudyRPG({ user }) {
   const [state, setState] = useState(INIT);
   const [loaded, setLoaded] = useState(false);
@@ -1862,6 +1867,8 @@ function StudyRPG({ user }) {
   const [quickPreset, setQuickPreset] = useState(null); // 忘れかけの3問（ホーム → 今日タブ）
   const [openBankReq, setOpenBankReq] = useState(null); // 今日のタスクの「解く」→ 問題タブでその問題集の開始画面を開く
   const lastNoteTab = useRef("task"); // 「手帳」タブで最後に開いていた画面（資格・タスク・時間・メモ）
+  const [lapView, setLapView] = useState("plan"); // 「周回」タブの中の画面（plan・kijutsu・weak）
+  const lastLap = useRef(["laps", "plan"]); // 「周回」タブで最後に開いていた画面
   useEffect(() => { if (NOTE_TABS.includes(tab)) lastNoteTab.current = tab; }, [tab]);
   Object.assign(STUDY_PREFS, STUDY_DEFAULTS, (state.displaySettings && state.displaySettings.study) || {});
   // 問題を id で書きかえる（自分ルール・メモへの追記）。patch は値か、問題を受け取って値を返す関数
@@ -1914,7 +1921,7 @@ function StudyRPG({ user }) {
   // 記述式の道場 ⇄ 計算の部屋：sq-open-past の合図で、その年度を開く（{to: "calc"|"laps", key}）
   const [pastReq, setPastReq] = useState(null);
   useEffect(() => {
-    const on = (e) => { const d = e.detail || {}; if (d.to) { setPastReq({ ...d, t: Date.now() }); setTab(d.to); } };
+    const on = (e) => { const d = e.detail || {}; if (d.to) { setPastReq({ ...d, t: Date.now() }); if (d.to === "laps") setLapView(d.key || d.tataki ? "kijutsu" : "plan"); setTab(d.to); } };
     window.addEventListener("sq-open-past", on);
     return () => window.removeEventListener("sq-open-past", on);
   }, []);
@@ -3588,7 +3595,7 @@ function StudyRPG({ user }) {
     setState((s) => ({ ...s, studyPlans: after }));
     finishPlanIfDone(before, after, 6000); // 周回スタンプの演出（約5秒）が終わってから
   };
-  const planActions = { addPlan, removePlan, togglePlanItem, openBank: (bankId, mode) => { setOpenBankReq(mode ? { id: bankId, mode } : bankId); setTab("qbank"); }, goRoom: () => setTab("laps") };
+  const planActions = { addPlan, removePlan, togglePlanItem, openBank: (bankId, mode) => { setOpenBankReq(mode ? { id: bankId, mode } : bankId); setTab("qbank"); }, goRoom: () => { setLapView("plan"); setTab("laps"); } };
 
   const incrementBankClears = (id) => {
     markPlanBank(id);
@@ -4080,18 +4087,17 @@ function StudyRPG({ user }) {
               else if (id === "events" || id === "guide" || id === "quest") out.push(dash(id));
               else if (id === "quals") out.push(<div key="quals"><HomeTab state={state} liveSeconds={liveSeconds} setMainTitle={setMainTitle} setTab={setTab} todayCount={getTodayReviewItems().length} hideBanner dashboard /></div>);
             }
-            if (state.questionBanks.length) out.unshift(<GapTime key="gap" state={state} />);
-            if (rmShow(state)) out.unshift(<TodayThree key="today3" state={state} actions={rpgActions} />);
+            if (state.questionBanks.length) out.unshift(<TodayLink key="todaylink" state={state} dueN={getTodayReviewItems().length} onGo={() => setTab("today")} />);
             if (rmShow(state)) out.unshift(<RoadmapBanner key="roadmap" state={state} />);
             if ((state.qualifications || []).length) out.unshift(<StarBookBar key="book" state={state} onPick={(id) => updateDisplaySettings({ activeQual: id })} onNew={() => setTab("qual")} />);
             return out;
           })()}
-          {tab === "today" && <TodayTab state={state} recordSRAnswer={recordSRAnswer} updateSrSettings={updateSrSettings} startTimer={startTimer} stopTimer={stopTimer} toggleQuestionMark={toggleQuestionMark} rpgActionsForPairs={rpgActions} preset={quickPreset} onPresetUsed={() => setQuickPreset(null)} planActions={planActions} />}
+          {tab === "today" && <TodayTab header={<>{rmShow(state) && <TodayThree state={state} actions={rpgActions} />}{state.questionBanks.length > 0 && <GapTime state={state} />}</>} state={state} recordSRAnswer={recordSRAnswer} updateSrSettings={updateSrSettings} startTimer={startTimer} stopTimer={stopTimer} toggleQuestionMark={toggleQuestionMark} rpgActionsForPairs={rpgActions} preset={quickPreset} onPresetUsed={() => setQuickPreset(null)} planActions={planActions} />}
           {tab === "status" && <StatusTab state={state} setMainTitle={setMainTitle} uid={user.uid} onTalk={rpgActions.openTalk} />}
           {tab === "adventure" && <AdventureTab state={state} actions={rpgActions} recordAnswer={recordAnswer} startTimer={startTimer} stopTimer={stopTimer} todayCount={getTodayReviewItems().length} />}
           {NOTE_TABS.includes(tab) && (
-            <div className="grid grid-cols-5 gap-1 p-1 mb-3" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)", borderRadius: 999 }}>
-              {[["task", "タスク"], ["timer", "時間"], ["memo", "メモ"], ["rules", "ルール帳"], ["qual", "資格"]].map(([id, label]) => (
+            <div className="grid grid-cols-6 gap-1 p-1 mb-3" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)", borderRadius: 999 }}>
+              {[["task", "タスク"], ["timer", "時間"], ["memo", "メモ"], ["rules", "ルール帳"], ["quotes", "名言"], ["qual", "資格"]].map(([id, label]) => (
                 <button key={id} onClick={() => { lastNoteTab.current = id; setTab(id); }} className="jp py-1.5 text-xs" style={{ borderRadius: 999, border: "none", fontWeight: 700, cursor: "pointer", background: tab === id ? "linear-gradient(180deg, #cfae62, #a8833a)" : "transparent", color: tab === id ? "#fffdf6" : "var(--ink-soft)" }}>{label}</button>
               ))}
             </div>
@@ -4100,31 +4106,38 @@ function StudyRPG({ user }) {
           {tab === "task" && <TaskTab state={state} addTask={addTask} completeTask={completeTask} deleteTask={deleteTask} addPreset={addPreset} deletePreset={deletePreset} updatePreset={updatePreset} />}
           {tab === "timer" && <TimerTab state={state} liveSeconds={liveSeconds} startTimer={startTimer} stopTimer={stopTimer} cancelTimer={cancelTimer} addManualLog={addManualLog} deleteLog={deleteLog} focusActions={focusActions} />}
           {tab === "memo" && <MemoTab state={state} addStudyNote={addStudyNote} updateStudyNote={updateStudyNote} deleteStudyNote={deleteStudyNote} addFolder={addFolder} deleteFolder={deleteFolder} renameFolder={renameFolder} reorderFolders={reorderFolders} />}
+          {(tab === "qbank" || tab === "laps" || tab === "calc") && (
+            <div className="grid grid-cols-5 gap-1 p-1 mb-3" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)", borderRadius: 999 }}>
+              {LAP_TABS.map(([t, v, label]) => { const on = tab === t && (!v || lapView === v); return (
+                <button key={label} onClick={() => { lastLap.current = [t, v]; if (v) setLapView(v); setTab(t); }} className="jp py-1.5 text-[10px] md:text-xs" style={{ borderRadius: 999, border: "none", fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap", background: on ? "linear-gradient(180deg, #cfae62, #a8833a)" : "transparent", color: on ? "#fffdf6" : "var(--ink-soft)" }}>{label}</button>
+              ); })}
+            </div>
+          )}
           {tab === "calc" && <CalcTab state={state} actions={rpgActions} startTimer={startTimer} stopTimer={stopTimer} pastReq={pastReq && pastReq.to === "calc" ? pastReq : null} onPastOpened={() => setPastReq(null)} />}
-          {tab === "laps" && <LapRoom state={state} actions={planActions} rpgActions={rpgActions} pastReq={pastReq && pastReq.to === "laps" ? pastReq : null} onPastOpened={() => setPastReq(null)} startTimer={startTimer} stopTimer={stopTimer} />}
+          {tab === "laps" && <LapRoom view={lapView} state={state} actions={planActions} rpgActions={rpgActions} pastReq={pastReq && pastReq.to === "laps" ? pastReq : null} onPastOpened={() => setPastReq(null)} startTimer={startTimer} stopTimer={stopTimer} />}
           {tab === "rules" && <RuleBook state={state} />}
+          {tab === "quotes" && <MyQuotes state={state} onChange={(list) => setState((s) => ({ ...s, myQuotes: list }))} />}
           {tab === "sanko" && <SankoTab state={state} actions={rpgActions} onCreateBank={addQuestionBank} />}
           {tab === "qbank" && <QBankTab openBankReq={openBankReq} onOpenedBank={() => setOpenBankReq(null)} onPlanWeakDone={(id) => markPlanBank(id, true)} state={state} addBank={addQuestionBank} deleteBank={deleteBank} recordAnswer={recordAnswer} recordRevengeAnswer={recordRevengeAnswer} awardXp={awardXp} startTimer={startTimer} stopTimer={stopTimer} incrementBankClears={incrementBankClears} updateBestStreak={updateBestStreak} moveBank={moveBank} addCloze={addCloze} deleteCloze={deleteCloze} recordClozeAnswer={recordClozeAnswer} recordClozeRevengeAnswer={recordClozeRevengeAnswer} toggleQuestionMark={toggleQuestionMark} toggleClozeMark={toggleClozeMark} recordClearSnapshot={recordClearSnapshot} createClozeBank={createClozeBank} updateQuestionFormats={updateQuestionFormats} addQuestionToBank={addQuestionToBank} editQuestion={editQuestion} deleteQuestion={deleteQuestion} moveQuestions={moveQuestions} editBankMeta={editBankMeta} addFolder={addFolder} deleteFolder={deleteFolder} renameFolder={renameFolder} reorderFolders={reorderFolders} addStudyNote={addStudyNote} updateStudyNote={updateStudyNote} deleteStudyNote={deleteStudyNote} moveBankToFolder={moveBankToFolder} saveSessionResume={saveSessionResume} clearSessionResume={clearSessionResume} editBankClears={editBankClears} updateQuestionMemo={updateQuestionMemo} toggleQuestionExclude={toggleQuestionExclude} />}
         </div>
       </div>
 
       <nav className="fixed bottom-0 left-0 right-0 z-40" style={{ background: classic ? "linear-gradient(180deg, rgba(39,63,120,0.97), rgba(23,37,72,0.98))" : isWhite ? "linear-gradient(180deg, rgba(253,251,245,0.97), rgba(246,240,226,0.98))" : "var(--paper)", borderTop: isWhite ? "1px solid #b08a3e" : "2px solid var(--rule)", boxShadow: classic ? "inset 0 2px 0 #0a1226, inset 0 3px 0 rgba(160,185,215,0.5)" : isWhite ? "inset 0 3px 0 #fdfbf5, inset 0 4px 0 rgba(176,138,62,0.45), 0 -4px 14px rgba(40,50,80,0.08)" : "none", paddingBottom: "env(safe-area-inset-bottom)" }}>
-        <div className="max-w-3xl mx-auto grid grid-cols-9">
+        <div className="max-w-3xl mx-auto grid grid-cols-7">
           {[
             { id: "home",   label: "ホーム",     icon: <Home size={18} /> },
-            { id: "today",  label: "今日",        icon: <Calendar size={18} /> },
-            { id: "qbank",  label: "問題",        icon: <FileQuestion size={18} /> },
-            { id: "laps",   label: "周回の部屋",  icon: <Shuffle size={18} /> }, // 学習計画・今日のタスク・周回の記録
-            { id: "calc",   label: "計算",        icon: <Pencil size={18} /> }, // 計算強化（関数電卓 fx-JP500）
+            { id: "today",  label: "今日",        icon: <Calendar size={18} /> }, // 今日やること・復習・叩き込み・特別な出題
+            { id: "lapgroup", label: "周回",      icon: <Shuffle size={18} /> }, // 問題集・計画と記録・記述式・計算・弱点と分析
             { id: "sanko",  label: "参考書",      icon: <BookOpen size={18} /> }, // 参考書道場（暗記に特化した参考書）
             { id: "adventure", label: "冒険",     icon: <Castle size={18} /> },
-            { id: "status", label: "ステータス",  icon: <StatusIcon size={18} /> },
-            { id: "notebook", label: "手帳",      icon: <Bookmark size={18} /> }, // 資格・タスク・時間・メモをまとめたタブ
+            { id: "status", label: "記録",        icon: <StatusIcon size={18} /> }, // ステータス・成長の年表・控え
+            { id: "notebook", label: "手帳",      icon: <Bookmark size={18} /> }, // 資格・タスク・時間・メモ・ルール帳・名言
           ].map((t) => {
-            const badge = t.id === "today" ? getTodayReviewItems().length : t.id === "laps" ? scopedPlans(state).reduce((a, p) => a + planToday(p).pending.length, 0) : 0;
-            const on = t.id === "notebook" ? NOTE_TABS.includes(tab) : tab === t.id;
+            const badge = t.id === "today" ? getTodayReviewItems().length : t.id === "lapgroup" ? scopedPlans(state).reduce((a, p) => a + planToday(p).pending.length, 0) : 0;
+            const on = t.id === "notebook" ? NOTE_TABS.includes(tab) : t.id === "lapgroup" ? ["qbank", "laps", "calc"].includes(tab) : tab === t.id;
+            const go = () => { if (t.id === "notebook") setTab(lastNoteTab.current); else if (t.id === "lapgroup") { const [lt, lv] = lastLap.current; if (lv) setLapView(lv); setTab(lt); } else setTab(t.id); };
             return (
-              <button key={t.id} onClick={() => setTab(t.id === "notebook" ? lastNoteTab.current : t.id)} className="jp flex flex-col items-center gap-0.5 py-2 transition relative"
+              <button key={t.id} onClick={go} className="jp flex flex-col items-center gap-0.5 py-2 transition relative"
                 style={on ? (classic ? { ...CL.rowOn, color: "#ffffff" } : isWhite ? { ...THEME_PAL.white.rowOn, color: "#22335c" } : { background: "var(--sky-deep)", color: "var(--paper)" }) : { background: "transparent", color: "var(--ink)" }}>
                 {t.icon}
                 <span className="text-[8px] md:text-[11px]" style={{ whiteSpace: "nowrap", letterSpacing: t.label.length > 4 ? "-0.06em" : undefined }}>{t.label}</span>
@@ -15455,7 +15468,7 @@ function PlanMaker({ state, onSave, onCancel }) {
   );
 }
 // ── 周回の部屋（下のタブ「周回」）：学習計画・今日のタスク・これまでの周回の記録 ──
-function LapRoom({ state, actions, rpgActions, pastReq, onPastOpened, startTimer, stopTimer }) {
+function LapRoom({ view = "plan", state, actions, rpgActions, pastReq, onPastOpened, startTimer, stopTimer }) {
   const [dojoFocus, setDojoFocus] = useState(false); // 記述式の道場で解いているあいだは、ほかの欄を隠す
   const active = scopedPlans(state); // 勉強の範囲の世界の計画
   const left = active.reduce((a, p) => a + planToday(p).pending.length, 0);
@@ -15463,6 +15476,24 @@ function LapRoom({ state, actions, rpgActions, pastReq, onPastOpened, startTimer
   const show = !dojoFocus;
   const radio = isRadioQual(mainQual(state)); // 星詠みの書で無線の資格を選んでいるときは、無線の見出しの絵
   const homeWorld = curWorld(state).id === "home"; // 申請書の叩き込みは王都の世界（調査士）のとき
+  // 記述式：道場と申請書の叩き込み
+  if (view === "kijutsu") return (
+    <div className="space-y-4">
+      {rpgActions && <KijutsuDojo state={state} actions={rpgActions} pastReq={pastReq} onPastOpened={onPastOpened || (() => {})} startTimer={startTimer} stopTimer={stopTimer} onFocus={setDojoFocus} />}
+      {show && homeWorld && <TatakiDeck state={state} actions={rpgActions} pastReq={pastReq} onPastOpened={onPastOpened} />}
+      {show && !homeWorld && <p className="jp text-xs text-center" style={{ color: "var(--ink-mute)" }}>申請書の叩き込みは、王都の世界（土地家屋調査士）のときに出ます。</p>}
+    </div>
+  );
+  // 弱点・分析：弱点集・論点ごとの横断周回・学習の分析
+  if (view === "weak") return (
+    <div className="space-y-4">
+      <StudyScopeBar state={state} />
+      <WeakBook state={state} />
+      <RontenLap state={state} />
+      <StudyAnalysis state={state} />
+    </div>
+  );
+  // 計画・記録
   return (
     <div className="space-y-4">
       {show && (
@@ -15477,16 +15508,11 @@ function LapRoom({ state, actions, rpgActions, pastReq, onPastOpened, startTimer
           ))}
         </div>
       )}
-      {rpgActions && <KijutsuDojo state={state} actions={rpgActions} pastReq={pastReq} onPastOpened={onPastOpened || (() => {})} startTimer={startTimer} stopTimer={stopTimer} onFocus={setDojoFocus} />}
       {show && homeWorld && <RoadmapBanner state={state} />}
-      {show && homeWorld && <TatakiDeck state={state} actions={rpgActions} pastReq={pastReq} onPastOpened={onPastOpened} />}
       {show && <StudyScopeBar state={state} />}
       {show && <PlanTasks state={state} actions={actions} />}
-      {show && <WeakBook state={state} />}
       {show && <LapGrowth state={state} actions={actions} />}
       {show && <LapForecast state={state} />}
-      {show && <RontenLap state={state} />}
-      {show && <StudyAnalysis state={state} />}
       {show && rpgActions && <MockLog state={state} actions={rpgActions} />}
       {show && <LapRecordsPanel state={state} />}
     </div>
@@ -16328,7 +16354,7 @@ function ConfusionPairs({ state, actions }) {
   );
 }
 
-function TodayTab({ state, recordSRAnswer, updateSrSettings, startTimer, stopTimer, toggleQuestionMark, rpgActionsForPairs, preset, onPresetUsed, planActions }) {
+function TodayTab({ header = null, state, recordSRAnswer, updateSrSettings, startTimer, stopTimer, toggleQuestionMark, rpgActionsForPairs, preset, onPresetUsed, planActions }) {
   const today = todayStr();
   const due = [];
   const fresh = [];
@@ -16448,6 +16474,7 @@ function TodayTab({ state, recordSRAnswer, updateSrSettings, startTimer, stopTim
     return (
       <div className="space-y-3">
         <StudyScopeBar state={state} note={sc.on && otherDue ? `ほかの世界にも、復習期限が来た問題が${otherDue}問あります。` : null} />
+        {header}
         {planActions && <PlanSummary state={state} onOpen={planActions.goRoom} />}
         <Box title="今日の復習" icon={<Calendar size={18} />}>
           {fin && (
@@ -19171,6 +19198,66 @@ function TodayThree({ state, actions }) {
         ); })}
       </div>
     </div>
+  );
+}
+// ホームの「今日の学習へ」：今日やること3つの進み具合と復習の数を見せて、今日タブへ（2026年10月22日）
+function TodayLink({ state, dueN, onGo }) {
+  const r = normRpg(state.rpg);
+  const items = rmShow(state) && r.today3 && r.today3.d === todayStr() ? r.today3.items : null;
+  let done = 0;
+  if (items) { const st = t3Status(state); done = items.filter((it) => t3Done(state, it, st)).length; }
+  const all = items && done === items.length && !dueN;
+  return (
+    <button onClick={onGo} className="jp w-full mb-3 flex items-center gap-3 px-4 py-3 text-left" style={{ borderRadius: 12, background: all ? "rgba(109,132,84,0.12)" : "linear-gradient(90deg, #f6ead0, #fdfbf5)", border: `1.5px solid ${all ? "#6d8454" : "var(--sky-deep)"}`, cursor: "pointer" }}>
+      <span style={{ fontSize: 26 }} aria-hidden="true">☀</span>
+      <span className="flex-1 min-w-0">
+        <span className="block text-[15px]" style={{ fontWeight: 800, color: "var(--ink)", fontFamily: "'Shippori Mincho B1', serif" }}>{all ? "今日の学習は全部できました" : "今日の学習をはじめる"}</span>
+        <span className="block text-[11px]" style={{ color: "var(--ink-soft)" }}>{[items ? `今日やること ${done}/${items.length}` : rmShow(state) ? "今日やること3つ" : null, dueN ? `復習 ${dueN}問` : null, "すきま時間"].filter(Boolean).join("・")}は「今日」タブで</span>
+      </span>
+      <span style={{ color: "var(--sky-deep)", fontWeight: 900 }}>▶</span>
+    </button>
+  );
+}
+// マイ名言（手帳の「名言」）：好きなアニメ・漫画・本などのセリフを自分で登録し、ホームの吹き出しで偉人の名言とまぜて出す。
+// state.myQuotes = [{id, t（セリフ）, by（作品名・人物）, say（ひとこと）}]。本人の学習記録にだけ保存（公開のコードには入れない）
+function MyQuotes({ state, onChange }) {
+  const list = state.myQuotes || [];
+  const [f, setF] = useState({ t: "", by: "", say: "" });
+  const [edit, setEdit] = useState(null);
+  const save = () => {
+    if (!f.t.trim()) return;
+    const q = { t: f.t.trim(), by: f.by.trim(), say: f.say.trim() };
+    onChange(edit ? list.map((x) => (x.id === edit ? { ...x, ...q } : x)) : [...list, { id: uid(), ...q }]);
+    setF({ t: "", by: "", say: "" }); setEdit(null);
+  };
+  const inp = { background: "var(--paper)", border: "1px solid var(--rule-soft)", borderRadius: 6, color: "var(--ink)" };
+  return (
+    <Box title={`マイ名言（${list.length}）`} icon={<Bookmark size={18} />}>
+      <div className="jp space-y-2">
+        <p className="text-[11px]" style={{ color: "var(--ink-soft)", lineHeight: 1.7 }}>好きなアニメ・漫画・本・映画などの心に残るセリフを登録すると、ホームの吹き出しで偉人の名言とまぜて出てきます。登録した言葉は、あなたの学習記録にだけ保存されます。</p>
+        <textarea value={f.t} onChange={(e) => setF({ ...f, t: e.target.value })} placeholder="セリフ（例：あきらめない気持ちが、いちばんの武器だ）" rows={2} className="w-full px-2 py-1.5 text-sm" style={inp} />
+        <div className="grid grid-cols-2 gap-1.5">
+          <input value={f.by} onChange={(e) => setF({ ...f, by: e.target.value })} placeholder="作品名・キャラクター名" className="px-2 py-1.5 text-sm" style={inp} />
+          <input value={f.say} onChange={(e) => setF({ ...f, say: e.target.value })} placeholder="ひとこと（なぜ好きか・どう生かすか）" className="px-2 py-1.5 text-sm" style={inp} />
+        </div>
+        <div className="flex gap-2">
+          <button onClick={save} disabled={!f.t.trim()} className="btn-primary flex-1 py-1.5 text-xs">{edit ? "書きかえを保存" : "＋ 登録する"}</button>
+          {edit && <button onClick={() => { setEdit(null); setF({ t: "", by: "", say: "" }); }} className="btn-ghost px-3 py-1.5 text-xs">やめる</button>}
+        </div>
+        {list.length === 0 && <p className="text-xs text-center py-2" style={{ color: "var(--ink-mute)" }}>まだ登録していません。</p>}
+        {list.slice().reverse().map((x) => (
+          <div key={x.id} className="px-2 py-1.5" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)", borderRadius: 8 }}>
+            <div className="text-[13px]" style={{ color: "var(--ink)", fontWeight: 700, fontFamily: "'Shippori Mincho B1', serif" }}>「{x.t}」</div>
+            {x.by && <div className="text-[11px] text-right" style={{ color: "var(--gold)", fontWeight: 700 }}>― {x.by}</div>}
+            {x.say && <div className="text-[11px]" style={{ color: "var(--ink-soft)" }}>{x.say}</div>}
+            <div className="flex justify-end gap-3 mt-1 text-[10px]">
+              <button onClick={() => { setEdit(x.id); setF({ t: x.t, by: x.by || "", say: x.say || "" }); window.scrollTo({ top: 0, behavior: "smooth" }); }} style={{ background: "none", border: "none", color: "var(--sky-deep)", cursor: "pointer", textDecoration: "underline" }}>書きかえる</button>
+              <button onClick={() => { if (confirm("この名言を消しますか？")) onChange(list.filter((y) => y.id !== x.id)); }} style={{ background: "none", border: "none", color: "var(--brick)", cursor: "pointer", textDecoration: "underline" }}>消す</button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </Box>
   );
 }
 // 本番リハーサルの時間帯ごとの成績（午前・午後・夜。記録の h＝始めた時間）
