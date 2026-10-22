@@ -1868,14 +1868,16 @@ const LAP_TABS = [["qbank", null, "問題集"], ["laps", "plan", "計画・記�
 // 学びの地図（2026年10月22日）：タイトル画面で試験を選んだあとの画面。塔をタップすると、その画面へ（下のタブは 地図・今日・手帳 だけ）
 // x・y・w・h は絵（public/art/townmap.webp、16:9）の上の場所（%）。tab は行き先、cx・cy は塔の画面の見出しで寄せる位置
 const LEARN_TOWNS = [
-  { id: "home", name: "はじまりの街", icon: "🏘", tab: "home", x: 37, y: 18, w: 26, h: 33, cx: 50, cy: 33, sub: "目標・ロードマップ・相棒と名言・ストーリーのつづき" },
+  { id: "home", name: "はじまりの街", icon: "🏘", tab: "home", x: 37, y: 18, w: 26, h: 33, cx: 50, cy: 33, sub: "ホーム（目標・ロードマップ・相棒と名言）・今日の学習・手帳（記録・タスク・時間・メモ・資格）" },
   { id: "laps", name: "周回の塔", icon: "🔁", tab: "laps", x: 9, y: 0, w: 22, h: 36, cx: 21, cy: 14, sub: "問題集・学習計画と周回の記録・記述式と叩き込み・弱点集" },
   { id: "calc", name: "計算の塔", icon: "📐", tab: "calc", x: 66, y: 0, w: 25, h: 36, cx: 77, cy: 13, sub: "本試験の計算・電卓の型・計算ドリルと作図" },
   { id: "train", name: "修練の塔", icon: "🛡", tab: "train", x: 2, y: 36, w: 26, h: 46, cx: 13, cy: 56, sub: "本番リハーサル・申請書の穴埋め・組合せ問題・時間配分・条文" },
   { id: "sanko", name: "図書の塔", icon: "📖", tab: "sanko", x: 74, y: 40, w: 24, h: 44, cx: 86, cy: 62, sub: "参考書（暗記の章・隠して覚える・クイズ）" },
   { id: "adventure", name: "冒険の塔", icon: "🏰", tab: "adventure", x: 32, y: 54, w: 30, h: 45, cx: 49, cy: 74, sub: "ストーリー・試練の塔・仲間・クエスト・魔王城" },
 ];
-const TOWN_OF_TAB = { home: "home", qbank: "laps", laps: "laps", calc: "calc", train: "train", sanko: "sanko", adventure: "adventure" };
+const TOWN_OF_TAB = { home: "home", today: "home", qbank: "laps", laps: "laps", calc: "calc", train: "train", sanko: "sanko", adventure: "adventure", ...Object.fromEntries(NOTE_TABS.map((t) => [t, "home"])) };
+// はじまりの街の中の切り替え：ホーム・今日・手帳（2026年10月22日、下のタブから街の中へ移した）
+const TOWN_TABS = [["home", "🏠 ホーム"], ["today", "📅 今日"], ["notebook", "🔖 手帳"]];
 function StudyRPG({ user }) {
   const [state, setState] = useState(INIT);
   const [loaded, setLoaded] = useState(false);
@@ -4100,6 +4102,15 @@ function StudyRPG({ user }) {
         <div className="mb-4">
           {tab === "map" && <TownMap state={state} onGo={(t) => { if (t === "laps") { const [lt, lv] = lastLap.current; if (lv) setLapView(lv); setTab(lt); } else setTab(t); window.scrollTo(0, 0); }} todayN={getTodayReviewItems().length} />}
           {TOWN_OF_TAB[tab] && <TowerHead town={LEARN_TOWNS.find((x) => x.id === TOWN_OF_TAB[tab])} onMap={() => { setTab("map"); window.scrollTo(0, 0); }} />}
+          {TOWN_OF_TAB[tab] === "home" && (
+            <div className="grid grid-cols-3 gap-1 p-1 mb-3" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)", borderRadius: 999 }}>
+              {TOWN_TABS.map(([id, label]) => { const on = id === "notebook" ? NOTE_TABS.includes(tab) : tab === id; const n = id === "today" ? getTodayReviewItems().length : 0; return (
+                <button key={id} onClick={() => { setTab(id === "notebook" ? lastNoteTab.current : id); window.scrollTo(0, 0); }} className="jp py-1.5 text-xs relative" style={{ borderRadius: 999, border: "none", fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap", background: on ? "linear-gradient(180deg, #cfae62, #a8833a)" : "transparent", color: on ? "#fffdf6" : "var(--ink-soft)" }}>
+                  {label}{n > 0 && <span className="ml-1 px-1.5 text-[10px]" style={{ background: "var(--brick)", color: "#fff", borderRadius: 999 }}>{n}</span>}
+                </button>
+              ); })}
+            </div>
+          )}
           {tab === "train" && <TrainingRoom state={state} actions={rpgActions} recordAnswer={recordAnswer} startTimer={startTimer} stopTimer={stopTimer} />}
           {tab === "home" && (() => {
             // ホームの並べ替え・非表示（設定の「ホームの表示」）。今日の道しるべと今日のクエストが隣り合うときは、PCでは横に並べる
@@ -4152,15 +4163,14 @@ function StudyRPG({ user }) {
       </div>
 
       <nav className="fixed bottom-0 left-0 right-0 z-40" style={{ background: classic ? "linear-gradient(180deg, rgba(39,63,120,0.97), rgba(23,37,72,0.98))" : isWhite ? "linear-gradient(180deg, rgba(253,251,245,0.97), rgba(246,240,226,0.98))" : "var(--paper)", borderTop: isWhite ? "1px solid #b08a3e" : "2px solid var(--rule)", boxShadow: classic ? "inset 0 2px 0 #0a1226, inset 0 3px 0 rgba(160,185,215,0.5)" : isWhite ? "inset 0 3px 0 #fdfbf5, inset 0 4px 0 rgba(176,138,62,0.45), 0 -4px 14px rgba(40,50,80,0.08)" : "none", paddingBottom: "env(safe-area-inset-bottom)" }}>
-        <div className="max-w-3xl mx-auto grid grid-cols-3">
+        <div className="max-w-3xl mx-auto grid grid-cols-2">
           {[
             { id: "map",    label: "地図",        icon: <MapIcon size={18} /> }, // 学びの地図（はじまりの街・周回・計算・修練・図書・冒険の塔へ）
-            { id: "today",  label: "今日",        icon: <Calendar size={18} /> }, // 今日やること・復習・叩き込み・特別な出題
-            { id: "notebook", label: "手帳",      icon: <Bookmark size={18} /> }, // 記録（ステータス・成長の年表・控え）・資格・タスク・時間・メモ・ルール帳・名言
+            { id: "town",   label: "はじまりの街", icon: <Home size={18} /> }, // ホーム・今日・手帳
           ].map((t) => {
-            const badge = t.id === "today" ? getTodayReviewItems().length : 0;
-            const on = t.id === "notebook" ? NOTE_TABS.includes(tab) : t.id === "map" ? tab === "map" || !!TOWN_OF_TAB[tab] : tab === t.id;
-            const go = () => { if (t.id === "notebook") setTab(lastNoteTab.current); else setTab(t.id); window.scrollTo(0, 0); };
+            const badge = t.id === "town" ? getTodayReviewItems().length : 0;
+            const on = t.id === "town" ? TOWN_OF_TAB[tab] === "home" : tab === "map" || (!!TOWN_OF_TAB[tab] && TOWN_OF_TAB[tab] !== "home");
+            const go = () => { setTab(t.id === "town" ? "home" : "map"); window.scrollTo(0, 0); };
             return (
               <button key={t.id} onClick={go} className="jp flex flex-col items-center gap-0.5 py-2 transition relative"
                 style={on ? (classic ? { ...CL.rowOn, color: "#ffffff" } : isWhite ? { ...THEME_PAL.white.rowOn, color: "#22335c" } : { background: "var(--sky-deep)", color: "var(--paper)" }) : { background: "transparent", color: "var(--ink)" }}>
