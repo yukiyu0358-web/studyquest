@@ -242,6 +242,7 @@ state の主なキー：`player` / `qualifications` / `tasks` / `studyPlans`（�
   - 新しい仲間（`ALLIES` の group: "story"、ストーリークエストでクリアした話の数 `storyClears` が storyNeed で加入。出会いの会話は storyQuestFinish）：リリア（癒しの神官・回復。設定画なし、絵はミニキャラ。名前と役は仮）5話・エズラ（調査士）15話・フィン（狩人）30話・ミレイ（錬金術師）50話・クロード（機工師）75話。立ち絵 public/art/ally-{ezra,fin,mirei,claude}.jpg は設定画から切り出し。技は ALLY_SKILLS。仲間の欄に「冒険の仲間」
   - カイトの設定画（カイト・アークブレイド 剣士）はまだ使っていない（いまの立ち絵のまま）
   - ストーリークエストはふんばり無し（BATTLE.noRevive）：HPが0で BATTLE.down → クエスト失敗（記録は残さない、復習記録は残る）。魔物の攻撃はストーリーの進みで強くなる `questDmgMul`（クリアした話1つで `QUEST_GROW`＝8%、40話で4.2倍）。戦いの上に「1問のミスで約○ダメージ・あと約○回で力尽きる」。無限回廊も同じ noRevive
+- 令和9年度の目標（上位1%、2026年10月22日）：資料は src/data/examstats.js（`R7_PM`＝令和7年度 筆記試験 総合得点別員数表の午後の部［法務省の発表資料・利用者のPDF。その点以上の人数 cum、合計2,196人］と、基準点 択一37.5・記述32.5・合格点76.0・平均［予備校の記事］。`ELITE_GOAL`＝択一47.5［20問中19問］・記述45.0・合計92.5［R7なら12位・上位0.55%。上位1%のラインは92.0］。`rankOf` `lineOf`）。ホームのいちばん上（星詠みの書の下）に `EliteGoalCard`（調査士の資格があるとき。いまの実力は `latestExamScore`＝本番リハーサルの択一＋記述か模試の点の新しいもの、R7なら何位か・目標までの差）。令和8年度の表が出たら examstats.js に足して差し替える
 - CSVの一括取り込み（2026年10月19日）：ImportPanel のファイル選択は multiple。2つ以上選ぶと `handleFiles`（ファイル名の順、1ファイル＝問題集1つ、名前はファイル名・年度は `yearFromFileName`［令和・平成・R・H＋数字、4けた＋年。「01」のような番号は年度にしない］、資格とフォルダは全部に同じもの）。同じ名前の問題集がすでにあるファイルは最初から☑を外す。CSV の読み方は `csvRowsToQuestions` `parseCsvFile`（1つのときと共通）
 - 試し表示：.claude/launch.json に demo（5174）と preview（公開版と同じビルドを 4173 で。本番の Firebase につながるのでログインはしない）
 - テーマ：`DISPLAY_DEFAULTS`（既定は white）`THEME_PAL`（classic/white の配色）`CLASSIC_CSS` `WHITE_CSS` `ClassicThemeStyle` `TitleScreen` `ClassicInfoBar` `MenuHome`（クラシック）`SignpostHome`（白金・道しるべ）`migrateDisplay`

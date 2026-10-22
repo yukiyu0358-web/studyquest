@@ -16,6 +16,7 @@ import { STUDY_QUOTES } from "./data/quotes"; // 名言
 import { SANKO_SUBJECTS } from "./data/sankosho"; // 参考書道場（暗記の参考書）
 import { NIRIKUTOKU_SUBJECTS } from "./data/sankosho-radio"; // 参考書道場：二陸特
 import { HOME_WORLD, WORLD_PRESETS, genericChapters } from "./data/worlds"; // 冒険の世界（資格ごと）
+import { R7_PM, ELITE_GOAL, rankOf, lineOf } from "./data/examstats"; // 令和7年度の得点表と、令和9年度の目標（上位1%）
 import { RADIO_CALC_TYPES, makeRadioCalc } from "./game/radiocalc"; // 無線工学の計算ドリル（二陸特）
 import { BLOCK_DIAGRAMS } from "./data/blocks"; // ブロック図の並べ替え（二陸特）
 import { buildDeck, choicesOf, docOptions, deckNext, DECK_FIELDS, DECK_IV, DECK_MASTER } from "./game/kjdeck"; // 申請書の叩き込み（調査士の記述式）
@@ -4089,6 +4090,7 @@ function StudyRPG({ user }) {
             }
             if (state.questionBanks.length) out.unshift(<TodayLink key="todaylink" state={state} dueN={getTodayReviewItems().length} onGo={() => setTab("today")} />);
             if (rmShow(state)) out.unshift(<RoadmapBanner key="roadmap" state={state} />);
+            if (rmShow(state)) out.unshift(<EliteGoalCard key="elite" state={state} />);
             if ((state.qualifications || []).length) out.unshift(<StarBookBar key="book" state={state} onPick={(id) => updateDisplaySettings({ activeQual: id })} onNew={() => setTab("qual")} />);
             return out;
           })()}
@@ -19196,6 +19198,70 @@ function TodayThree({ state, actions }) {
             {!ok && <span className="text-[11px]" style={{ color: "var(--sky-deep)", fontWeight: 800 }}>やる ▶</span>}
           </button>
         ); })}
+      </div>
+    </div>
+  );
+}
+// ── 令和9年度の目標（上位1%。2026年10月22日）：ホームのいちばん上。目標の点と、令和7年度の得点表（src/data/examstats.js）での位置、
+//    いまの実力（本番リハーサル［択一＋記述］・模試の点の新しいもの）と目標までの差 ──
+function latestExamScore(state) {
+  const r = normRpg(state.rpg);
+  const list = [];
+  ((r.rehearsal || {}).log || []).forEach((e) => { if (e.full && e.mc != null && e.desc != null) list.push({ d: e.d, mc: Number(e.mc), desc: Number(e.desc), src: "本番リハーサル" }); });
+  (r.mocks || []).forEach((m) => { const ta = parseFloat(m.ta), ki = parseFloat(m.ki); if (Number.isFinite(ta) && Number.isFinite(ki)) list.push({ d: m.d, mc: ta, desc: ki, src: m.name || "模試" }); });
+  list.sort((a, b) => (a.d < b.d ? 1 : a.d > b.d ? -1 : 0));
+  return list[0] || null;
+}
+function EliteGoalCard({ state }) {
+  const G = ELITE_GOAL, S = R7_PM;
+  const goalRank = rankOf(S, G.total);
+  const top1 = lineOf(S, 0.01);
+  const now = latestExamScore(state);
+  const nowRank = now ? rankOf(S, now.mc + now.desc) : null;
+  const fmt = (v) => (Math.round(v * 10) / 10).toFixed(1);
+  const pctTxt2 = (p) => `${p < 0.1 ? (p * 100).toFixed(2) : (p * 100).toFixed(1)}%`;
+  const bar = (label, v, goal, base, max = 50) => (
+    <div>
+      <div className="flex items-baseline text-[11px]"><span style={{ width: 34, color: "var(--ink)", fontWeight: 800 }}>{label}</span><span className="flex-1" style={{ color: "var(--ink-soft)" }}>{fmt(v)} / {max}</span><span style={{ color: v >= goal ? "#4f7a3a" : "var(--brick)", fontWeight: 800 }}>{v >= goal ? "目標達成！" : `目標まで あと ${fmt(goal - v)}`}</span></div>
+      <div style={{ position: "relative", height: 9, borderRadius: 5, background: "var(--beige)", overflow: "visible", marginTop: 2 }}>
+        <div style={{ width: `${Math.min(100, (v / max) * 100)}%`, height: "100%", borderRadius: 5, background: v >= goal ? "linear-gradient(90deg,#6d8454,#a8c48a)" : v >= base ? "linear-gradient(90deg,#b08a3e,#f2c14e)" : "linear-gradient(90deg,#a24a45,#e0948a)" }} />
+        <span title={`基準点 ${base}`} style={{ position: "absolute", left: `${(base / max) * 100}%`, top: -3, width: 2, height: 15, background: "#8a96b0" }} />
+        <span title={`目標 ${goal}`} style={{ position: "absolute", left: `${(goal / max) * 100}%`, top: -4, width: 3, height: 17, background: "#c9564e", borderRadius: 1 }} />
+      </div>
+    </div>
+  );
+  return (
+    <div className="jp mb-3" style={{ borderRadius: 14, padding: "12px 14px", background: "linear-gradient(135deg, #22335c 0%, #34508c 60%, #4f6fa8 100%)", border: "1.5px solid #d6b56a", boxShadow: "inset 0 0 0 3px rgba(253,251,245,0.08), 0 6px 18px rgba(34,51,92,0.25)", color: "#fdfbf5" }}>
+      <div className="flex items-baseline gap-2 flex-wrap">
+        <span style={{ fontFamily: "'Shippori Mincho B1', serif", fontWeight: 900, fontSize: 17, letterSpacing: "0.04em" }}>🎯 {G.year}の目標　<span style={{ color: "#f2c14e" }}>{G.label}</span></span>
+        <span className="text-[10px]" style={{ color: "#c9d4e2" }}>{S.year}の得点表（午後の部 {S.total.toLocaleString()}人）から逆算</span>
+      </div>
+      <div className="grid grid-cols-3 gap-2 mt-2">
+        {[["択一", G.mc, 50, "20問中19問"], ["記述", G.desc, 50, "土地・建物 2問"], ["合計", G.total, 100, goalRank ? `R7なら${goalRank.n}位（上位${pctTxt2(goalRank.pct)}）` : ""]].map(([k, v, max, sub]) => (
+          <div key={k} className="text-center py-1.5" style={{ background: "rgba(253,251,245,0.1)", border: "1px solid rgba(214,181,106,0.6)", borderRadius: 10 }}>
+            <div className="text-[10px]" style={{ color: "#f1dfae", fontWeight: 700 }}>{k}</div>
+            <div style={{ fontFamily: "'Cinzel', serif", fontWeight: 900, fontSize: k === "合計" ? 26 : 22, lineHeight: 1.1, color: k === "合計" ? "#f2c14e" : "#fdfbf5" }}>{fmt(v)}<span style={{ fontSize: 11, color: "#c9d4e2" }}> /{max}</span></div>
+            <div className="text-[9px]" style={{ color: "#c9d4e2" }}>{sub}</div>
+          </div>
+        ))}
+      </div>
+      <div className="text-[10px] mt-1.5" style={{ color: "#c9d4e2", lineHeight: 1.6 }}>{S.year}：上位1%のライン {fmt(top1)}点 ・ 合格点 {fmt(S.pass)}（基準点 択一{fmt(S.mcBase)}・記述{fmt(S.descBase)}）・ 平均 択一{fmt(S.mcAvg)}・記述{fmt(S.descAvg)}</div>
+      <div className="mt-2 px-2.5 py-2" style={{ background: "var(--paper)", borderRadius: 10, color: "var(--ink)" }}>
+        {now ? (<>
+          <div className="flex items-baseline gap-2 mb-1 flex-wrap">
+            <span className="text-[12px]" style={{ fontWeight: 800 }}>いまの実力</span>
+            <span className="text-[10px]" style={{ color: "var(--ink-mute)" }}>{now.src}（{now.d.slice(5).replace("-", "/")}）</span>
+            <span className="flex-1" />
+            <span className="text-[12px]" style={{ fontWeight: 800 }}>合計 {fmt(now.mc + now.desc)}</span>
+            {nowRank && <span className="text-[11px]" style={{ color: nowRank.pct <= 0.01 ? "#4f7a3a" : "var(--sky-deep)", fontWeight: 800 }}>R7なら{nowRank.n}位（上位{pctTxt2(nowRank.pct)}）</span>}
+          </div>
+          <div className="space-y-1.5">{bar("択一", now.mc, G.mc, S.mcBase)}{bar("記述", now.desc, G.desc, S.descBase)}</div>
+          <div className="text-[9px] mt-1" style={{ color: "var(--ink-mute)" }}>灰色の線＝R7の基準点、赤い線＝目標。本番リハーサルか模試の点を記録するたびに更新されます。</div>
+        </>) : (
+          <div className="text-[11px]" style={{ color: "var(--ink-soft)", lineHeight: 1.7 }}>本番リハーサル（冒険 → 鍛錬）か、模試・答練の点（周回 → 計画・記録）を記録すると、いまの実力と「R7なら何位か」がここに出ます。
+            <button onClick={() => window.dispatchEvent(new CustomEvent("sq-open-past", { detail: { to: "laps" } }))} className="btn-sky text-[11px] px-2 py-0.5 ml-1">模試の点を記録する</button>
+          </div>
+        )}
       </div>
     </div>
   );
