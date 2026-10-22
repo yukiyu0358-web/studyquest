@@ -13,6 +13,7 @@ export const LINE_ICONS = {
   "📖": <><path d="M2 5h6a4 4 0 0 1 4 4v11a3 3 0 0 0-3-3H2z" /><path d="M22 5h-6a4 4 0 0 0-4 4v11a3 3 0 0 1 3-3h7z" /></>,
   "📅": <><rect x="3" y="5" width="18" height="16" rx="2" /><path d="M16 3v4M8 3v4M3 10h18" /></>,
   "🏠": <><path d="M3 11l9-8 9 8" /><path d="M5 9.5V21h5v-6h4v6h5V9.5" /></>,
+  "🗺": <><path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2z" /><path d="M9 4v14M15 6v14" /></>,
   "❓": <><circle cx="12" cy="12" r="9" /><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6v.6M12 17.2v.1" /></>,
   "👁": <><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z" /><circle cx="12" cy="12" r="3" /></>,
   "🔀": <><path d="M16 3h5v5M4 20L21 3M21 16v5h-5M15 15l6 6M4 4l5 5" /></>,
@@ -52,6 +53,7 @@ export const Pause = (p) => <Ico ch="⏸" {...p} />;
 export const BookOpen = (p) => <Ico ch="📖" {...p} />;
 export const Calendar = (p) => <Ico ch="📅" {...p} />;
 export const Home = (p) => <Ico ch="🏠" {...p} />;
+export const MapIcon = (p) => <Ico ch="🗺" {...p} />;
 export const FileQuestion = (p) => <Ico ch="❓" {...p} />;
 export const Eye = (p) => <Ico ch="👁" {...p} />;
 export const Shuffle = (p) => <Ico ch="🔀" {...p} />;

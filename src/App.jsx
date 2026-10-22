@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { fsrs as createFsrs, createEmptyCard, Rating, State } from "ts-fsrs";
 import Papa from "papaparse";
 import { fbAuth, fbDb, fbFieldValue, getPushToken, FCM_VAPID_KEY } from "./firebase";
-import { LINE_ICONS, Ico, Sword, Plus, Check, Trash2, Sparkles, ScrollIcon, Upload, Play, Pause, BookOpen, Calendar, Home, FileQuestion, Eye, Shuffle, XIcon, Award, Clock, TrendingUp, Crown, Pencil, Bookmark, StarIcon, FolderIcon, Up, Down, Skull, Sword2, StatusIcon, LogoutIcon, Search, Castle, GA, swordArt, crossedSwords, oniArt, GAME_ART, GAME_ART_BY_ID, GAME_RING, GameIcon, paintedUrl, MON_ART_URL } from "./game/icons"; // アイコン
+import { LINE_ICONS, Ico, Sword, Plus, Check, Trash2, Sparkles, ScrollIcon, Upload, Play, Pause, BookOpen, Calendar, Home, MapIcon, FileQuestion, Eye, Shuffle, XIcon, Award, Clock, TrendingUp, Crown, Pencil, Bookmark, StarIcon, FolderIcon, Up, Down, Skull, Sword2, StatusIcon, LogoutIcon, Search, Castle, GA, swordArt, crossedSwords, oniArt, GAME_ART, GAME_ART_BY_ID, GAME_RING, GameIcon, paintedUrl, MON_ART_URL } from "./game/icons"; // アイコン
 import { SFX } from "./game/sfx"; // 効果音
 import { CALC_TYPES, makeCalcProblem, checkCalc, calcAnsText, SAKUZU_TYPES, makeSakuzuProblem } from "./game/calc"; // 計算ドリル・作図ドリルの問題づくり
 import { BATTLE_FX_CSS, heroAttackFor, monAttackFor, impactOf, AttackFx, SkillBanner, Ambient, ELEMENTS, EL_NAME, EL_ICON } from "./game/battlefx"; // 戦いの技と演出
@@ -444,7 +444,7 @@ function roadmapProgress(state, t, ph) {
     const all = CALC2_ALL.length * FIXED_PER_TYPE;
     return { done: r1(cnt(fx.lapsAt) + (now ? Object.keys(fx.done || {}).length / all : 0)), unit: "周", note: `${all}問で1周` };
   }
-  if (t.kind === "rehearsal") return { done: cnt(((r.rehearsal || {}).log || []).map((x) => x.d)), unit: "回", note: "周回 → 鍛錬の「本番リハーサル」" };
+  if (t.kind === "rehearsal") return { done: cnt(((r.rehearsal || {}).log || []).map((x) => x.d)), unit: "回", note: "修練の塔の「本番リハーサル」" };
   if (t.kind === "mocks") return { done: cnt((r.mocks || []).map((x) => x.d)), unit: "回", note: "周回の部屋の「模試・答練の記録」に書いた回数" };
   const man = t.custom ? t.manual || 0 : ed.manual || 0;
   return { done: man, unit: t.unit || "周", note: "自分で数える（＋1・−1）" };
@@ -1864,11 +1864,22 @@ function App() {
 const MAX_TIMER_MS = 6 * 60 * 60 * 1000; // 6時間（異常タイマー検知の閾値）
 const NOTE_TABS = ["status", "task", "timer", "memo", "rules", "quotes", "qual"]; // 下のタブ「手帳」にまとめた画面（記録＝ステータスもここに）
 // 下のタブ「周回」にまとめた画面（2026年10月22日）：問題集・計画と記録・記述式・計算・弱点と分析。laps は中の画面 lapView で分ける
-const LAP_TABS = [["qbank", null, "問題集"], ["laps", "plan", "計画・記録"], ["laps", "kijutsu", "記述式"], ["calc", null, "計算"], ["laps", "train", "鍛錬"], ["laps", "weak", "弱点・分析"]];
+const LAP_TABS = [["qbank", null, "問題集"], ["laps", "plan", "計画・記録"], ["laps", "kijutsu", "記述式"], ["laps", "weak", "弱点・分析"]];
+// 学びの地図（2026年10月22日）：タイトル画面で試験を選んだあとの画面。塔をタップすると、その画面へ（下のタブは 地図・今日・手帳 だけ）
+// x・y・w・h は絵（public/art/townmap.webp、16:9）の上の場所（%）。tab は行き先、cx・cy は塔の画面の見出しで寄せる位置
+const LEARN_TOWNS = [
+  { id: "home", name: "はじまりの街", icon: "🏘", tab: "home", x: 37, y: 18, w: 26, h: 33, cx: 50, cy: 33, sub: "目標・ロードマップ・相棒と名言・ストーリーのつづき" },
+  { id: "laps", name: "周回の塔", icon: "🔁", tab: "laps", x: 9, y: 0, w: 22, h: 36, cx: 21, cy: 14, sub: "問題集・学習計画と周回の記録・記述式と叩き込み・弱点集" },
+  { id: "calc", name: "計算の塔", icon: "📐", tab: "calc", x: 66, y: 0, w: 25, h: 36, cx: 77, cy: 13, sub: "本試験の計算・電卓の型・計算ドリルと作図" },
+  { id: "train", name: "修練の塔", icon: "🛡", tab: "train", x: 2, y: 36, w: 26, h: 46, cx: 13, cy: 56, sub: "本番リハーサル・申請書の穴埋め・組合せ問題・時間配分・条文" },
+  { id: "sanko", name: "図書の塔", icon: "📖", tab: "sanko", x: 74, y: 40, w: 24, h: 44, cx: 86, cy: 62, sub: "参考書（暗記の章・隠して覚える・クイズ）" },
+  { id: "adventure", name: "冒険の塔", icon: "🏰", tab: "adventure", x: 32, y: 54, w: 30, h: 45, cx: 49, cy: 74, sub: "ストーリー・試練の塔・仲間・クエスト・魔王城" },
+];
+const TOWN_OF_TAB = { home: "home", qbank: "laps", laps: "laps", calc: "calc", train: "train", sanko: "sanko", adventure: "adventure" };
 function StudyRPG({ user }) {
   const [state, setState] = useState(INIT);
   const [loaded, setLoaded] = useState(false);
-  const [tab, setTab] = useState("home");
+  const [tab, setTab] = useState("map"); // はじめは学びの地図
   const [quickPreset, setQuickPreset] = useState(null); // 忘れかけの3問（ホーム → 今日タブ）
   const [openBankReq, setOpenBankReq] = useState(null); // 今日のタスクの「解く」→ 問題タブでその問題集の開始画面を開く
   const lastNoteTab = useRef("status"); // 「手帳」タブで最後に開いていた画面（資格・タスク・時間・メモ）
@@ -1926,7 +1937,7 @@ function StudyRPG({ user }) {
   // 記述式の道場 ⇄ 計算の部屋：sq-open-past の合図で、その年度を開く（{to: "calc"|"laps", key}）
   const [pastReq, setPastReq] = useState(null);
   useEffect(() => {
-    const on = (e) => { const d = e.detail || {}; if (d.to) { setPastReq({ ...d, t: Date.now() }); if (d.to === "laps") setLapView(d.view || (d.key || d.tataki ? "kijutsu" : "plan")); setTab(d.to); } };
+    const on = (e) => { const d = e.detail || {}; if (d.to) { setPastReq({ ...d, t: Date.now() }); if (d.to === "laps" && d.view === "train") { setTab("train"); return; } if (d.to === "laps") setLapView(d.view || (d.key || d.tataki ? "kijutsu" : "plan")); setTab(d.to); } };
     window.addEventListener("sq-open-past", on);
     return () => window.removeEventListener("sq-open-past", on);
   }, []);
@@ -3996,9 +4007,9 @@ function StudyRPG({ user }) {
           theme={themeNow}
           saveInfo={`${(RPG_SCENES[getCharacterTier(player.level)] || RPG_SCENES.tier1).name}　Lv${player.level}　${displayTitle}　連続${calculateStatus(state).currentStreak}日`}
           books={starBooks(state)}
-          onPickBook={(id) => { updateDisplaySettings({ activeQual: id }); setTitleOpen(false); setTab("home"); }}
+          onPickBook={(id) => { updateDisplaySettings({ activeQual: id }); setTitleOpen(false); setTab("map"); }}
           onNewBook={() => { setTitleOpen(false); setTab("qual"); }}
-          onContinue={() => setTitleOpen(false)}
+          onContinue={() => { setTitleOpen(false); setTab("map"); }}
           onSettings={() => { setTitleOpen(false); setShowDisplaySettings(true); }}
           onLogout={logout}
         />
@@ -4087,6 +4098,9 @@ function StudyRPG({ user }) {
         </div>}
 
         <div className="mb-4">
+          {tab === "map" && <TownMap state={state} onGo={(t) => { if (t === "laps") { const [lt, lv] = lastLap.current; if (lv) setLapView(lv); setTab(lt); } else setTab(t); window.scrollTo(0, 0); }} todayN={getTodayReviewItems().length} />}
+          {TOWN_OF_TAB[tab] && <TowerHead town={LEARN_TOWNS.find((x) => x.id === TOWN_OF_TAB[tab])} onMap={() => { setTab("map"); window.scrollTo(0, 0); }} />}
+          {tab === "train" && <TrainingRoom state={state} actions={rpgActions} recordAnswer={recordAnswer} startTimer={startTimer} stopTimer={stopTimer} />}
           {tab === "home" && (() => {
             // ホームの並べ替え・非表示（設定の「ホームの表示」）。今日の道しるべと今日のクエストが隣り合うときは、PCでは横に並べる
             const HL = homeLayoutOf(state);
@@ -4121,8 +4135,8 @@ function StudyRPG({ user }) {
           {tab === "task" && <TaskTab state={state} addTask={addTask} completeTask={completeTask} deleteTask={deleteTask} addPreset={addPreset} deletePreset={deletePreset} updatePreset={updatePreset} />}
           {tab === "timer" && <TimerTab state={state} liveSeconds={liveSeconds} startTimer={startTimer} stopTimer={stopTimer} cancelTimer={cancelTimer} addManualLog={addManualLog} deleteLog={deleteLog} focusActions={focusActions} />}
           {tab === "memo" && <MemoTab state={state} addStudyNote={addStudyNote} updateStudyNote={updateStudyNote} deleteStudyNote={deleteStudyNote} addFolder={addFolder} deleteFolder={deleteFolder} renameFolder={renameFolder} reorderFolders={reorderFolders} />}
-          {(tab === "qbank" || tab === "laps" || tab === "calc") && (
-            <div className="grid grid-cols-6 gap-1 p-1 mb-3" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)", borderRadius: 999 }}>
+          {(tab === "qbank" || tab === "laps") && (
+            <div className="grid grid-cols-4 gap-1 p-1 mb-3" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)", borderRadius: 999 }}>
               {LAP_TABS.map(([t, v, label]) => { const on = tab === t && (!v || lapView === v); return (
                 <button key={label} onClick={() => { lastLap.current = [t, v]; if (v) setLapView(v); setTab(t); }} className="jp py-1.5 text-[10px] md:text-xs" style={{ borderRadius: 999, border: "none", fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap", background: on ? "linear-gradient(180deg, #cfae62, #a8833a)" : "transparent", color: on ? "#fffdf6" : "var(--ink-soft)" }}>{label}</button>
               ); })}
@@ -4138,23 +4152,20 @@ function StudyRPG({ user }) {
       </div>
 
       <nav className="fixed bottom-0 left-0 right-0 z-40" style={{ background: classic ? "linear-gradient(180deg, rgba(39,63,120,0.97), rgba(23,37,72,0.98))" : isWhite ? "linear-gradient(180deg, rgba(253,251,245,0.97), rgba(246,240,226,0.98))" : "var(--paper)", borderTop: isWhite ? "1px solid #b08a3e" : "2px solid var(--rule)", boxShadow: classic ? "inset 0 2px 0 #0a1226, inset 0 3px 0 rgba(160,185,215,0.5)" : isWhite ? "inset 0 3px 0 #fdfbf5, inset 0 4px 0 rgba(176,138,62,0.45), 0 -4px 14px rgba(40,50,80,0.08)" : "none", paddingBottom: "env(safe-area-inset-bottom)" }}>
-        <div className="max-w-3xl mx-auto grid grid-cols-6">
+        <div className="max-w-3xl mx-auto grid grid-cols-3">
           {[
-            { id: "home",   label: "ホーム",     icon: <Home size={18} /> },
+            { id: "map",    label: "地図",        icon: <MapIcon size={18} /> }, // 学びの地図（はじまりの街・周回・計算・修練・図書・冒険の塔へ）
             { id: "today",  label: "今日",        icon: <Calendar size={18} /> }, // 今日やること・復習・叩き込み・特別な出題
-            { id: "lapgroup", label: "周回",      icon: <Shuffle size={18} /> }, // 問題集・計画と記録・記述式・計算・弱点と分析
-            { id: "sanko",  label: "参考書",      icon: <BookOpen size={18} /> }, // 参考書道場（暗記に特化した参考書）
-            { id: "adventure", label: "冒険",     icon: <Castle size={18} /> },
             { id: "notebook", label: "手帳",      icon: <Bookmark size={18} /> }, // 記録（ステータス・成長の年表・控え）・資格・タスク・時間・メモ・ルール帳・名言
           ].map((t) => {
-            const badge = t.id === "today" ? getTodayReviewItems().length : t.id === "lapgroup" ? scopedPlans(state).reduce((a, p) => a + planToday(p).pending.length, 0) : 0;
-            const on = t.id === "notebook" ? NOTE_TABS.includes(tab) : t.id === "lapgroup" ? ["qbank", "laps", "calc"].includes(tab) : tab === t.id;
-            const go = () => { if (t.id === "notebook") setTab(lastNoteTab.current); else if (t.id === "lapgroup") { const [lt, lv] = lastLap.current; if (lv) setLapView(lv); setTab(lt); } else setTab(t.id); };
+            const badge = t.id === "today" ? getTodayReviewItems().length : 0;
+            const on = t.id === "notebook" ? NOTE_TABS.includes(tab) : t.id === "map" ? tab === "map" || !!TOWN_OF_TAB[tab] : tab === t.id;
+            const go = () => { if (t.id === "notebook") setTab(lastNoteTab.current); else setTab(t.id); window.scrollTo(0, 0); };
             return (
               <button key={t.id} onClick={go} className="jp flex flex-col items-center gap-0.5 py-2 transition relative"
                 style={on ? (classic ? { ...CL.rowOn, color: "#ffffff" } : isWhite ? { ...THEME_PAL.white.rowOn, color: "#22335c" } : { background: "var(--sky-deep)", color: "var(--paper)" }) : { background: "transparent", color: "var(--ink)" }}>
                 {t.icon}
-                <span className="text-[8px] md:text-[11px]" style={{ whiteSpace: "nowrap", letterSpacing: t.label.length > 4 ? "-0.06em" : undefined }}>{t.label}</span>
+                <span className="text-[10px] md:text-[11px]" style={{ whiteSpace: "nowrap", letterSpacing: t.label.length > 4 ? "-0.06em" : undefined }}>{t.label}</span>
                 {badge > 0 && (
                   <span className="absolute top-1 right-2 pixel text-[9px] px-1 min-w-[16px] text-center" style={{ background: "var(--brick)", color: "var(--paper)", borderRadius: "2px", lineHeight: "14px" }}>{badge}</span>
                 )}
@@ -17507,12 +17518,12 @@ function NumberDeck({ state, actions }) {
 
 // ── 2. 間違いの種類別の処方箋：この1週間のまちがいの傾向から、次にやることを案内 ──
 const RX = {
-  knowledge: { name: "知識不足", go: "周回 → 鍛錬「条文の穴埋め」「条文の音読モード」", tip: "覚えていなかった問題が多めです。条文に戻って、言葉ごと覚え直しましょう。" },
+  knowledge: { name: "知識不足", go: "修練の塔「条文の穴埋め」「条文の音読モード」", tip: "覚えていなかった問題が多めです。条文に戻って、言葉ごと覚え直しましょう。" },
   confusion: { name: "混同", go: "今日タブ「混同ペアの対比カード」", tip: "似た知識の取り違えが多めです。2つを並べて、違いの一点を見つけましょう。" },
   misread: { name: "読み違い", go: "画面上部の「⚙ 設定」で「ひっかけ言葉の印」をオン", tip: "問題文の読み違いが多めです。否定語・主語・数字に印を付けて読みましょう。" },
-  careless: { name: "ケアレス", go: "周回 → 鍛錬「時間配分トレーニング」", tip: "わかっていたのに落とすミスが多めです。答える前の見直し手順を決めましょう。" },
-  slow: { name: "時間がかかる", go: "周回 → 鍛錬「時間配分トレーニング」", tip: "思い出すまでの時間が長めです。数字や結論を即答できるまで、短い周期で回しましょう。" },
-  sure: { name: "思い込み", go: "周回 → 弱点・分析 → 学習の分析「思い込み度」", tip: "「確実」で答えてまちがえる問題があります。根拠の条文まで確かめましょう。" },
+  careless: { name: "ケアレス", go: "修練の塔「時間配分トレーニング」", tip: "わかっていたのに落とすミスが多めです。答える前の見直し手順を決めましょう。" },
+  slow: { name: "時間がかかる", go: "修練の塔「時間配分トレーニング」", tip: "思い出すまでの時間が長めです。数字や結論を即答できるまで、短い周期で回しましょう。" },
+  sure: { name: "思い込み", go: "周回の塔 → 弱点・分析 → 学習の分析「思い込み度」", tip: "「確実」で答えてまちがえる問題があります。根拠の条文まで確かめましょう。" },
 };
 function Prescription({ state }) {
   const from = ymdCode(addDays(todayStr(), -6));
@@ -18786,7 +18797,7 @@ function WeakLink({ state }) {
     <button onClick={() => window.dispatchEvent(new CustomEvent("sq-open-past", { detail: { to: "laps", view: "weak" } }))} className="jp w-full flex items-center gap-2 px-3 py-2 text-left" style={{ borderRadius: 10, border: "1px solid #c9a6a2", background: "var(--paper)", cursor: "pointer", color: "var(--ink)" }}>
       <span style={{ fontSize: 20 }} aria-hidden="true">💀</span>
       <span className="flex-1"><span className="block text-[13px]" style={{ fontWeight: 800 }}>弱点集（賞金首 {list.length}）</span><span className="block text-[10px]" style={{ color: "var(--ink-soft)" }}>2回以上まちがえた問題。ちがう日に3回続けて正解で卒業・賞金{ready ? `（いま受け取れる ${ready}）` : ""}</span></span>
-      <span style={{ color: "var(--sky-deep)", fontWeight: 800 }}>周回へ ▶</span>
+      <span style={{ color: "var(--sky-deep)", fontWeight: 800 }}>周回の塔へ ▶</span>
     </button>
   );
 }
@@ -18891,7 +18902,7 @@ function WeakBook({ state, actions }) {
           {sec("計算（正解率7割未満・前回まちがえた計算）")}
           {wb.calc.length > 0 && <button onClick={() => go({ to: "calc", types: wb.calc.slice(0, 5).map((x) => x.t) })} className="w-full text-left text-[11px] px-2 py-1.5 flex items-center gap-2" style={{ ...row, cursor: "pointer" }}><span className="flex-1">{wb.calc.slice(0, 5).map((x) => `${x.name} ${Math.round(x.rate * 100)}%`).join("・")}</span><span style={{ color: "var(--sky-deep)", fontWeight: 800, whiteSpace: "nowrap" }}>5問 ▶</span></button>}
           {wb.past.map((x) => <button key={x.k + x.era} onClick={() => go({ to: "calc", kind: x.k, id: x.era })} className="w-full text-left text-[11px] px-2 py-1.5 flex items-center gap-2" style={{ ...row, border: "1px solid #e0948a", cursor: "pointer" }}><span className="flex-1">本試験の計算：{eraLabel(x.era)}の{x.k === "L" ? "土地" : "建物"}（{x.ok}/{x.n}回正解）</span><span style={{ color: "var(--sky-deep)", fontWeight: 800 }}>解く ▶</span></button>)}
-          {wb.radio.length > 0 && <div className="text-[11px] px-2 py-1.5" style={row}>無線工学：{wb.radio.map((x) => `${x.name} ${Math.round(x.rate * 100)}%`).join("・")}<div className="text-[10px]" style={{ color: "var(--ink-mute)" }}>周回 → 計算の「無線工学の計算ドリル」→「苦手な種類から10問」で</div></div>}
+          {wb.radio.length > 0 && <div className="text-[11px] px-2 py-1.5" style={row}>無線工学：{wb.radio.map((x) => `${x.name} ${Math.round(x.rate * 100)}%`).join("・")}<div className="text-[10px]" style={{ color: "var(--ink-mute)" }}>計算の塔の「無線工学の計算ドリル」→「苦手な種類から10問」で</div></div>}
         </>}
         {wb.fields.length > 0 && <>
           {sec("記述式の欄（自己採点の平均が6割未満）")}
@@ -19220,7 +19231,7 @@ function t3Pick(st) {
   if (st.kj.length) out.push({ id: `kj:${st.kj[0].id}`, kind: "kijutsu", key: st.kj[0].id, label: `記述式の道場：${kjLabel(st.kj[0].id)}をもう一度`, sub: `前回 ${st.kj[0].r.last}点` });
   if (st.tk.due + st.tk.newLeft > 0) out.push({ id: "tataki", kind: "tataki", label: `申請書の叩き込み（復習${st.tk.due}枚・新しい${st.tk.newLeft}枚）`, sub: "目的・原因・添付書類を毎日まわす" });
   if (st.due > 0) out.push({ id: "review", kind: "review", label: `今日の復習（期限が来た${st.due}問）`, sub: "択一の記憶を保つ" });
-  if (st.weekend && !st.fullThisMonth) out.push({ id: `rh:${todayStr().slice(0, 7)}`, kind: "rehearsal", label: "今月の本番リハーサル日（150分）", sub: "できれば本番と同じ13時から。周回 → 鍛錬" });
+  if (st.weekend && !st.fullThisMonth) out.push({ id: `rh:${todayStr().slice(0, 7)}`, kind: "rehearsal", label: "今月の本番リハーサル日（150分）", sub: "できれば本番と同じ13時から。修練の塔" });
   if (st.behind) out.push({ id: `rm:${st.behind.t.id}`, kind: "roadmap", base: st.behind.p.done, label: `ロードマップ：${st.behind.t.label}`, sub: `この時期の目標 ${st.behind.t.target}${st.behind.p.unit}に対して ${st.behind.p.done}${st.behind.p.unit}（遅れぎみ）` });
   if (st.cd.past.length) out.push({ id: `pc:${st.cd.past[0].k}${st.cd.past[0].era}`, kind: "pastcalc", k: st.cd.past[0].k, era: st.cd.past[0].era, label: `本試験の計算：${eraLabel(st.cd.past[0].era)}の${st.cd.past[0].k === "L" ? "土地" : "建物"}`, sub: st.cd.past[0].r.last ? "間をあけてもう一度" : "前回まちがえた計算" });
   return out.slice(0, 3);
@@ -19327,11 +19338,58 @@ function EliteGoalCard({ state }) {
           <div className="space-y-1.5">{bar("択一", now.mc, G.mc, S.mcBase)}{bar("記述", now.desc, G.desc, S.descBase)}</div>
           <div className="text-[9px] mt-1" style={{ color: "var(--ink-mute)" }}>灰色の線＝R7の基準点、赤い線＝目標。本番リハーサルか模試の点を記録するたびに更新されます。</div>
         </>) : (
-          <div className="text-[11px]" style={{ color: "var(--ink-soft)", lineHeight: 1.7 }}>本番リハーサル（周回 → 鍛錬）か、模試・答練の点（周回 → 計画・記録）を記録すると、いまの実力と「R7なら何位か」がここに出ます。
+          <div className="text-[11px]" style={{ color: "var(--ink-soft)", lineHeight: 1.7 }}>本番リハーサル（修練の塔）か、模試・答練の点（周回の塔 → 計画・記録）を記録すると、いまの実力と「R7なら何位か」がここに出ます。
             <button onClick={() => window.dispatchEvent(new CustomEvent("sq-open-past", { detail: { to: "laps" } }))} className="btn-sky text-[11px] px-2 py-0.5 ml-1">模試の点を記録する</button>
           </div>
         )}
       </div>
+    </div>
+  );
+}
+// 学びの地図：絵の上の塔をタップすると、その画面へ。下に行き先の一覧（スマホでも押しやすいように）
+function TownMap({ state, onGo, todayN }) {
+  const [hot, setHot] = useState(null);
+  const plans = scopedPlans(state).reduce((a, p) => a + planToday(p).pending.length, 0);
+  const qual = mainQual(state);
+  const badge = { laps: plans ? `今日のタスク ${plans}` : null, home: null };
+  return (
+    <div className="jp space-y-3">
+      <div className="text-center">
+        <div style={{ fontFamily: "'Shippori Mincho B1', serif", fontWeight: 900, fontSize: 20, color: "var(--ink)", letterSpacing: "0.08em" }}>学びの地図</div>
+        <div className="text-[11px]" style={{ color: "var(--ink-soft)" }}>{qual ? `${qual.name}　` : ""}行きたい場所をタップしてください</div>
+      </div>
+      <div className="relative overflow-hidden select-none" style={{ borderRadius: 14, border: "1.5px solid #b08a3e", boxShadow: "inset 0 0 0 3px rgba(253,251,245,0.6), 0 8px 22px rgba(34,51,92,0.2)", aspectRatio: "16 / 9", background: "#bcd8f0" }}>
+        <img src={`${ART_URL}townmap.webp`} alt="学びの地図（はじまりの街・周回の塔・計算の塔・修練の塔・図書の塔・冒険の塔）" className="w-full h-full" style={{ objectFit: "cover", display: "block" }} draggable={false} />
+        {LEARN_TOWNS.map((t) => (
+          <button key={t.id} onClick={() => onGo(t.tab)} onMouseEnter={() => setHot(t.id)} onMouseLeave={() => setHot(null)} aria-label={`${t.name}へ`} title={`${t.name}：${t.sub}`}
+            style={{ position: "absolute", left: `${t.x}%`, top: `${t.y}%`, width: `${t.w}%`, height: `${t.h}%`, borderRadius: 18, border: hot === t.id ? "2px solid rgba(242,193,78,0.95)" : "2px solid transparent", background: hot === t.id ? "radial-gradient(ellipse, rgba(255,240,190,0.28), transparent 70%)" : "transparent", boxShadow: hot === t.id ? "0 0 18px rgba(242,193,78,0.7)" : "none", cursor: "pointer", transition: "all .15s" }}>
+            {badge[t.id] && <span style={{ position: "absolute", right: 4, top: 4, fontSize: 10, fontWeight: 800, color: "#fff", background: "var(--brick)", borderRadius: 999, padding: "1px 7px", whiteSpace: "nowrap" }}>{badge[t.id]}</span>}
+          </button>
+        ))}
+      </div>
+      <TodayLink state={state} dueN={todayN} onGo={() => onGo("today")} />
+      <div className="grid gap-2 md:grid-cols-2">
+        {LEARN_TOWNS.map((t) => (
+          <button key={t.id} onClick={() => onGo(t.tab)} className="flex items-center gap-3 px-3 py-2 text-left" style={{ borderRadius: 12, border: "1px solid #b08a3e", background: "var(--paper)", cursor: "pointer", color: "var(--ink)" }}>
+            <span aria-hidden="true" style={{ width: 56, height: 40, flexShrink: 0, borderRadius: 8, border: "1px solid #d6b56a", backgroundImage: `url(${ART_URL}townmap.webp)`, backgroundSize: "420% auto", backgroundPosition: `${t.cx}% ${t.cy}%` }} />
+            <span className="flex-1 min-w-0">
+              <span className="block text-[14px]" style={{ fontWeight: 800, fontFamily: "'Shippori Mincho B1', serif" }}>{t.icon} {t.name}{badge[t.id] ? <span className="text-[10px] ml-2 px-1.5" style={{ background: "var(--brick)", color: "#fff", borderRadius: 999, fontFamily: "inherit" }}>{badge[t.id]}</span> : null}</span>
+              <span className="block text-[10px]" style={{ color: "var(--ink-soft)" }}>{t.sub}</span>
+            </span>
+            <span style={{ color: "var(--sky-deep)", fontWeight: 900 }}>▶</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+// 塔の画面の見出し：地図のその場所を寄せて見せ、「← 地図へ」でもどる
+function TowerHead({ town, onMap }) {
+  if (!town) return null;
+  return (
+    <div className="jp relative overflow-hidden mb-3 flex items-center" style={{ height: 58, borderRadius: 12, border: "1px solid #b08a3e", backgroundImage: `linear-gradient(90deg, rgba(253,251,245,0.95) 0%, rgba(253,251,245,0.75) 45%, rgba(253,251,245,0.1) 100%), url(${ART_URL}townmap.webp)`, backgroundSize: "cover, 300% auto", backgroundPosition: `center, ${town.cx}% ${town.cy}%` }}>
+      <button onClick={onMap} className="ml-2 px-2.5 py-1 text-[11px]" style={{ borderRadius: 999, border: "1px solid var(--sky-deep)", background: "var(--paper)", color: "var(--sky-deep)", fontWeight: 800, cursor: "pointer", whiteSpace: "nowrap" }}>← 地図へ</button>
+      <span className="ml-3" style={{ fontFamily: "'Shippori Mincho B1', serif", fontWeight: 900, fontSize: 18, color: "#22335c", letterSpacing: "0.08em" }}>{town.icon} {town.name}</span>
     </div>
   );
 }
@@ -19347,7 +19405,7 @@ function TodayLink({ state, dueN, onGo }) {
       <span style={{ fontSize: 26 }} aria-hidden="true">☀</span>
       <span className="flex-1 min-w-0">
         <span className="block text-[15px]" style={{ fontWeight: 800, color: "var(--ink)", fontFamily: "'Shippori Mincho B1', serif" }}>{all ? "今日の学習は全部できました" : "今日の学習をはじめる"}</span>
-        <span className="block text-[11px]" style={{ color: "var(--ink-soft)" }}>{[items ? `今日やること ${done}/${items.length}` : rmShow(state) ? "今日やること3つ" : null, dueN ? `復習 ${dueN}問` : null, "すきま時間"].filter(Boolean).join("・")}は「今日」タブで</span>
+        <span className="block text-[11px]" style={{ color: "var(--ink-soft)" }}>{[items ? `今日やること ${done}/${items.length}` : rmShow(state) ? "今日やること3つ" : null, dueN ? `復習 ${dueN}問` : null, "すきま時間"].filter(Boolean).join("・")}は下の「今日」で</span>
       </span>
       <span style={{ color: "var(--sky-deep)", fontWeight: 900 }}>▶</span>
     </button>
