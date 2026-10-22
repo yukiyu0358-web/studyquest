@@ -421,7 +421,7 @@ function rmExam(state) {
   const q = (state.qualifications || []).find((x) => !x.acquired && RM.qualRe.test(x.name || "") && x.examDate && x.examDate.startsWith("2027"));
   return q ? q.examDate : RM.exam;
 }
-const rmShow = (state) => (state.qualifications || []).some((q) => !q.acquired && RM.qualRe.test(q.name || ""));
+const rmShow = (state) => homeSide(state) && (state.qualifications || []).some((q) => !q.acquired && RM.qualRe.test(q.name || ""));
 function rmPhaseNow(today) {
   return RM.phases.find((p) => inRangeD(today, p.from, p.to)) || (today < RM.phases[0].from ? RM.phases[0] : RM.phases[RM.phases.length - 1]);
 }
@@ -2553,7 +2553,7 @@ function StudyRPG({ user }) {
       }
     },
     // 冒険の世界（星詠みの書）を切り替える
-    setActiveQual: (id) => updateDisplaySettings({ activeQual: id }),
+    setActiveQual: (id) => updateDisplaySettings({ activeQual: id, studyScope: id === "all" ? "all" : null }),
     // 魔王城を1階攻略する（条件を満たしたときだけ）
     castleClimb: () => {
       const cur = stateRef.current;
@@ -3560,6 +3560,10 @@ function StudyRPG({ user }) {
   const deleteStudyNote = (noteId) => setState((s) => ({
     ...s, studyNotes: (s.studyNotes || []).filter((n) => n.id !== noteId)
   }));
+  // 問題集の資格を付け替える（ids の問題集をまとめて。学習の記録はそのまま）
+  const setBanksQual = (ids, qualId) => setState((s) => ({
+    ...s, questionBanks: s.questionBanks.map((b) => (ids.includes(b.id) ? { ...b, qualId: qualId || null } : b))
+  }));
   const moveBankToFolder = (bankId, folderId) => setState((s) => ({
     ...s, questionBanks: s.questionBanks.map((b) => b.id !== bankId ? b : { ...b, folderId: folderId || null })
   }));
@@ -4083,7 +4087,7 @@ function StudyRPG({ user }) {
           theme={themeNow}
           saveInfo={`${(RPG_SCENES[getCharacterTier(player.level)] || RPG_SCENES.tier1).name}　Lv${player.level}　${displayTitle}　連続${calculateStatus(state).currentStreak}日`}
           books={starBooks(state)}
-          onPickBook={(id) => { updateDisplaySettings({ activeQual: id }); setTitleOpen(false); setTab("map"); }}
+          onPickBook={(id) => { updateDisplaySettings({ activeQual: id, studyScope: id === "all" ? "all" : null }); setTitleOpen(false); setTab("map"); }}
           onNewBook={() => { setTitleOpen(false); setTab("qual"); }}
           onContinue={() => { setTitleOpen(false); setTab("map"); }}
           onSettings={() => { setTitleOpen(false); setShowDisplaySettings(true); }}
@@ -4128,7 +4132,7 @@ function StudyRPG({ user }) {
               )}
             </span>
             <button onClick={() => setShowDisplaySettings(!showDisplaySettings)} title="文字・テーマ・学習の工夫・ホームの表示などの設定" className={`sq-tool${showDisplaySettings ? " on" : ""} px-1.5 py-0.5 text-[10px] whitespace-nowrap`} style={{ background: showDisplaySettings ? "var(--sky-deep)" : "var(--paper)", border: "1px solid var(--sky-deep)", color: showDisplaySettings ? "var(--paper)" : "var(--sky-deep)", cursor: "pointer" }}>⚙ 設定</button>
-            <button onClick={() => setShowRoadmap(true)} title="2027年 合格ロードマップ" className="sq-tool px-1.5 py-0.5 text-[10px] whitespace-nowrap" style={{ background: "linear-gradient(180deg, #cfae62, #a8833a)", border: "none", color: "#fffdf6", cursor: "pointer", fontWeight: 700 }}>📅 計画</button>
+            {rmShow(state) && <button onClick={() => setShowRoadmap(true)} title="2027年 合格ロードマップ" className="sq-tool px-1.5 py-0.5 text-[10px] whitespace-nowrap" style={{ background: "linear-gradient(180deg, #cfae62, #a8833a)", border: "none", color: "#fffdf6", cursor: "pointer", fontWeight: 700 }}>📅 計画</button>}
             <button onClick={() => setShowLawSearch(!showLawSearch)} title="条文・キーワード検索" className={`sq-tool${showLawSearch ? " on" : ""} px-1.5 py-0.5 text-[10px] whitespace-nowrap`} style={{ background: showLawSearch ? "var(--gold)" : "var(--paper)", border: "1px solid var(--gold)", color: showLawSearch ? "var(--paper)" : "var(--gold)", cursor: "pointer" }}><Ico ch="📜" size={12} /> 条文</button>
           </div>
           <div className="flex items-center gap-2">
@@ -4204,7 +4208,7 @@ function StudyRPG({ user }) {
             if (rmShow(state)) out.unshift(<RoadmapBanner key="roadmap" state={state} />);
             if (rmShow(state)) out.unshift(<EliteGoalCard key="elite" state={state} />);
             out.unshift(<TownPanel key="town" state={state} actions={rpgActions} />);
-            if ((state.qualifications || []).length) out.unshift(<StarBookBar key="book" state={state} onPick={(id) => updateDisplaySettings({ activeQual: id })} onNew={() => setTab("qual")} />);
+            if ((state.qualifications || []).length) out.unshift(<StarBookBar key="book" state={state} onPick={(id) => updateDisplaySettings({ activeQual: id, studyScope: id === "all" ? "all" : null })} onNew={() => setTab("qual")} />);
             return out;
           })()}
           {tab === "today" && <TodayTab header={<>{rmShow(state) && <TodayThree state={state} actions={rpgActions} />}{state.questionBanks.length > 0 && <GapTime state={state} />}</>} state={state} recordSRAnswer={recordSRAnswer} updateSrSettings={updateSrSettings} startTimer={startTimer} stopTimer={stopTimer} toggleQuestionMark={toggleQuestionMark} rpgActionsForPairs={rpgActions} preset={quickPreset} onPresetUsed={() => setQuickPreset(null)} planActions={planActions} />}
@@ -4222,8 +4226,8 @@ function StudyRPG({ user }) {
           {tab === "timer" && <TimerTab state={state} liveSeconds={liveSeconds} startTimer={startTimer} stopTimer={stopTimer} cancelTimer={cancelTimer} addManualLog={addManualLog} deleteLog={deleteLog} focusActions={focusActions} />}
           {tab === "memo" && <MemoTab state={state} addStudyNote={addStudyNote} updateStudyNote={updateStudyNote} deleteStudyNote={deleteStudyNote} addFolder={addFolder} deleteFolder={deleteFolder} renameFolder={renameFolder} reorderFolders={reorderFolders} />}
           {(tab === "qbank" || tab === "laps") && (
-            <div className="grid grid-cols-4 gap-1 p-1 mb-3" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)", borderRadius: 999 }}>
-              {LAP_TABS.map(([t, v, label]) => { const on = tab === t && (!v || lapView === v); return (
+            <div className={`grid ${homeSide(state) ? "grid-cols-4" : "grid-cols-3"} gap-1 p-1 mb-3`} style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)", borderRadius: 999 }}>
+              {LAP_TABS.filter(([, v]) => v !== "kijutsu" || homeSide(state)).map(([t, v, label]) => { const on = tab === t && (!v || lapView === v); return (
                 <button key={label} onClick={() => { lastLap.current = [t, v]; if (v) setLapView(v); setTab(t); }} className="jp py-1.5 text-[10px] md:text-xs" style={{ borderRadius: 999, border: "none", fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap", background: on ? "linear-gradient(180deg, #cfae62, #a8833a)" : "transparent", color: on ? "#fffdf6" : "var(--ink-soft)" }}>{label}</button>
               ); })}
             </div>
@@ -4233,7 +4237,7 @@ function StudyRPG({ user }) {
           {tab === "rules" && <RuleBook state={state} />}
           {tab === "quotes" && <MyQuotes state={state} onChange={(list) => setState((s) => ({ ...s, myQuotes: list }))} />}
           {tab === "sanko" && <SankoTab state={state} actions={rpgActions} onCreateBank={addQuestionBank} />}
-          {tab === "qbank" && <QBankTab openBankReq={openBankReq} onOpenedBank={() => setOpenBankReq(null)} onPlanWeakDone={(id) => markPlanBank(id, true)} state={state} addBank={addQuestionBank} deleteBank={deleteBank} recordAnswer={recordAnswer} recordRevengeAnswer={recordRevengeAnswer} awardXp={awardXp} startTimer={startTimer} stopTimer={stopTimer} incrementBankClears={incrementBankClears} updateBestStreak={updateBestStreak} moveBank={moveBank} addCloze={addCloze} deleteCloze={deleteCloze} recordClozeAnswer={recordClozeAnswer} recordClozeRevengeAnswer={recordClozeRevengeAnswer} toggleQuestionMark={toggleQuestionMark} toggleClozeMark={toggleClozeMark} recordClearSnapshot={recordClearSnapshot} createClozeBank={createClozeBank} updateQuestionFormats={updateQuestionFormats} addQuestionToBank={addQuestionToBank} editQuestion={editQuestion} deleteQuestion={deleteQuestion} moveQuestions={moveQuestions} editBankMeta={editBankMeta} addFolder={addFolder} deleteFolder={deleteFolder} renameFolder={renameFolder} reorderFolders={reorderFolders} addStudyNote={addStudyNote} updateStudyNote={updateStudyNote} deleteStudyNote={deleteStudyNote} moveBankToFolder={moveBankToFolder} saveSessionResume={saveSessionResume} clearSessionResume={clearSessionResume} editBankClears={editBankClears} updateQuestionMemo={updateQuestionMemo} toggleQuestionExclude={toggleQuestionExclude} />}
+          {tab === "qbank" && <QBankTab openBankReq={openBankReq} onOpenedBank={() => setOpenBankReq(null)} onPlanWeakDone={(id) => markPlanBank(id, true)} state={state} addBank={addQuestionBank} deleteBank={deleteBank} recordAnswer={recordAnswer} recordRevengeAnswer={recordRevengeAnswer} awardXp={awardXp} startTimer={startTimer} stopTimer={stopTimer} incrementBankClears={incrementBankClears} updateBestStreak={updateBestStreak} moveBank={moveBank} addCloze={addCloze} deleteCloze={deleteCloze} recordClozeAnswer={recordClozeAnswer} recordClozeRevengeAnswer={recordClozeRevengeAnswer} toggleQuestionMark={toggleQuestionMark} toggleClozeMark={toggleClozeMark} recordClearSnapshot={recordClearSnapshot} createClozeBank={createClozeBank} updateQuestionFormats={updateQuestionFormats} addQuestionToBank={addQuestionToBank} editQuestion={editQuestion} deleteQuestion={deleteQuestion} moveQuestions={moveQuestions} editBankMeta={editBankMeta} addFolder={addFolder} deleteFolder={deleteFolder} renameFolder={renameFolder} reorderFolders={reorderFolders} addStudyNote={addStudyNote} updateStudyNote={updateStudyNote} deleteStudyNote={deleteStudyNote} moveBankToFolder={moveBankToFolder} setBanksQual={setBanksQual} saveSessionResume={saveSessionResume} clearSessionResume={clearSessionResume} editBankClears={editBankClears} updateQuestionMemo={updateQuestionMemo} toggleQuestionExclude={toggleQuestionExclude} />}
         </div>
       </div>
 
@@ -5951,6 +5955,29 @@ function QBankTab(props) {
           <button onClick={() => setMovingBankId(null)} className="jp text-xs flex items-center gap-1" style={{ color: "var(--ink-soft)" }}><XIcon size={14} /> キャンセル</button>
           <div className="jp text-xs" style={{ color: "var(--sky-deep)" }}>移動先フォルダを選択</div>
         </div>
+        {props.setBanksQual && (state.qualifications || []).length > 0 && (() => {
+          const same = movingBank ? state.questionBanks.filter((b) => (b.folderId || null) === (movingBank.folderId || null)) : [];
+          const folderName = movingBank && movingBank.folderId ? ((folders.find((f) => f.id === movingBank.folderId) || {}).name || "このフォルダ") : "未分類";
+          return (
+            <Box title={`「${movingBank?.name}」の資格`} icon={<Award size={18} />}>
+              <div className="jp space-y-1.5">
+                <p className="text-[11px]" style={{ color: "var(--ink-soft)", lineHeight: 1.6 }}>資格ごとに、今日の復習・問題集・学習計画が分かれます。付け替えても、解いた記録はそのままです。</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {[{ id: "", name: "紐付けない（調査士の側）" }, ...state.qualifications].map((q) => {
+                    const on = (movingBank?.qualId || "") === q.id;
+                    return <button key={q.id || "none"} onClick={() => props.setBanksQual([movingBankId], q.id)} className="text-[12px] px-2.5 py-1" style={{ borderRadius: 999, border: `1px solid ${on ? "var(--gold)" : "var(--rule-soft)"}`, background: on ? "var(--cream)" : "var(--paper)", color: "var(--ink)", fontWeight: on ? 800 : 500, cursor: "pointer" }}>{on ? "✓ " : ""}{q.name}</button>;
+                  })}
+                </div>
+                <QualDestNote state={state} qualId={movingBank?.qualId || ""} names={[movingBank?.name]} />
+                {same.length > 1 && (
+                  <button onClick={() => { if (confirm(`「${folderName}」の問題集${same.length}冊を、すべて「${((state.qualifications || []).find((q) => q.id === movingBank.qualId) || {}).name || "紐付けない"}」にそろえますか？`)) props.setBanksQual(same.map((b) => b.id), movingBank.qualId || ""); }} className="btn-ghost w-full text-[11px] py-1.5">
+                    📚 同じフォルダ（{folderName}）の{same.length}冊も、この資格にそろえる
+                  </button>
+                )}
+              </div>
+            </Box>
+          );
+        })()}
         <Box title={`「${movingBank?.name}」の移動先`} icon={<FolderIcon size={18} />}>
           <div className="space-y-1">
             <button onClick={() => { moveBankToFolder(movingBankId, null); setMovingBankId(null); }} className="w-full flex items-center gap-2 p-2 jp text-sm text-left" style={{ background: !movingBank?.folderId ? "var(--sky-pale)" : "var(--paper)", border: `1px solid ${!movingBank?.folderId ? "var(--sky-deep)" : "var(--rule-soft)"}` }}>
@@ -6031,7 +6058,7 @@ function QBankTab(props) {
             )}
           </div>
           <div className="flex flex-col gap-1">
-            <button onClick={() => setMovingBankId(b.id)} className="jp text-[10px] px-1.5 py-0.5" style={{ color: "var(--sky-deep)", border: "1px solid var(--sky-deep)" }} title="フォルダを移動">📁</button>
+            <button onClick={() => setMovingBankId(b.id)} className="jp text-[10px] px-1.5 py-0.5" style={{ color: "var(--sky-deep)", border: "1px solid var(--sky-deep)" }} title="フォルダの移動・資格の付け替え">📁</button>
             <button onClick={() => { if (confirm(`「${b.name}」を削除しますか？`)) deleteBank(b.id); }} className="p-1" style={{ color: "var(--brick)" }}><Trash2 size={14} /></button>
           </div>
         </div>
@@ -7522,11 +7549,23 @@ function csvRowsToQuestions(data) {
 const yearFromFileName = (fname) => { const m = fname.match(/(令和|平成|R|H)\s*\d{1,2}\s*年?度?|\d{4}\s*年度?/); return m ? m[0].trim() : ""; };
 const parseCsvFile = (file) => new Promise((resolve) => Papa.parse(file, { complete: (res) => resolve(csvRowsToQuestions(res.data)), error: () => resolve(null) }));
 
+// 取り込み・付け替えのとき、どの資格（世界）に入るかの表示。名前が無線らしいのに王都の世界なら注意
+function QualDestNote({ state, qualId, names = [] }) {
+  const q = (state.qualifications || []).find((x) => x.id === qualId);
+  const w = worldOfQual(q);
+  const radioLike = names.some((n) => /無線|陸特|電波|二陸|海特|航特/.test(n || ""));
+  const warn = radioLike && w.id === "home";
+  return (
+    <div className="jp text-[11px] mb-2 px-2 py-1.5" style={{ borderRadius: 6, background: warn ? "rgba(201,86,78,0.1)" : "var(--cream)", border: `1px solid ${warn ? "#c9564e" : "var(--rule-soft)"}`, color: warn ? "#a24a45" : "var(--ink-soft)", lineHeight: 1.6 }}>
+      {warn ? "⚠ 名前が無線の問題集のようですが、土地家屋調査士の側（王都の世界）に入ります。上で無線の資格を選んでください。" : q ? <>→ <b style={{ color: "var(--ink)" }}>{q.name}</b>（{w.icon} {w.name}）に入ります。ほかの資格の問題とはまざりません。</> : <>→ 資格に紐付けない問題集は、土地家屋調査士の側（王都の世界）に入ります。</>}
+    </div>
+  );
+}
 function ImportPanel({ state, onCancel, onImport }) {
   const [name, setName] = useState("");
   const [bulk, setBulk] = useState(null); // 複数のファイルをまとめて：[{key, name, year, questions, on, dup}]
   const [year, setYear] = useState("");
-  const [qualId, setQualId] = useState("");
+  const [qualId, setQualId] = useState(() => (chosenQual(state) ? mainQual(state).id : "")); // はじめは星詠みの書で選んでいる資格
   const [parsed, setParsed] = useState(null);
   const [err, setErr] = useState("");
   const [src, setSrc] = useState("csv"); // csv | paste（写真の文字を貼り付け）
@@ -7623,6 +7662,7 @@ function ImportPanel({ state, onCancel, onImport }) {
                 <option value="">— 資格に紐付けない —</option>
                 {state.qualifications.map((q) => <option key={q.id} value={q.id}>{q.name}{q.acquired ? "（取得済）" : ""}</option>)}
               </select>
+              <QualDestNote state={state} qualId={qualId} names={bulk.filter((b) => b.on).map((b) => b.name)} />
             </>
           )}
         </div>
@@ -7641,6 +7681,7 @@ function ImportPanel({ state, onCancel, onImport }) {
                 <option value="">— 資格に紐付けない —</option>
                 {state.qualifications.map((q) => <option key={q.id} value={q.id}>{q.name}{q.acquired ? "（取得済）" : ""}</option>)}
               </select>
+              <QualDestNote state={state} qualId={qualId} names={[name]} />
             </>
           )}
           {src === "paste" ? (
@@ -9013,7 +9054,8 @@ function LapRecordsPanel({ state }) {
   const [expanded, setExpanded] = useState(null);
   const [showAll, setShowAll] = useState(false);
   const fmt = (d) => { const p = String(d || "").split("-"); return p.length === 3 ? `${p[0]}/${Number(p[1])}/${Number(p[2])}` : (d || "-"); };
-  const rows = state.questionBanks
+  const sc = studyScope(state); // 勉強の範囲の世界の問題集だけ
+  const rows = state.questionBanks.filter((b) => sc.inScope(b))
     .map((b) => {
       const hist = Array.isArray(b.clearHistory) ? b.clearHistory : [];
       const total = Math.max(b.clears || 0, hist.length);           // 周回数（手動で編集した分も含む）
@@ -9916,12 +9958,17 @@ function worldOfQual(q) {
   return worldCache.get(key);
 }
 const curWorld = (state) => worldOfQual(mainQual(state));
+// 資格ごとに分けるか：星詠みの書で「すべての資格」を選んだときだけまぜる（未選択のときは、自動で決まる目標の資格＝調査士の側で分ける）
+const chosenQual = (state) => (state.displaySettings || {}).activeQual !== "all" && !!mainQual(state);
+// 王都の世界（土地家屋調査士）の側の表示を出すか：資格を選んでいなければ出す、選んでいればその資格が王都の世界のときだけ
+const homeSide = (state) => !chosenQual(state) || curWorld(state).id === "home";
 // ── 勉強の範囲（2026年10月20日）：displaySettings.studyScope が "world" なら、いまの世界（星詠みの書の資格の世界）の問題集だけを
 //    今日の復習・問題タブ・学習計画に出す。"all"（未設定）は全部。全部をまぜるときの世界の配分は displaySettings.studyMix = { 世界id: 重み }（null は期限の古い順）
 const bankWorldId = (state, b) => worldOfQual((state.qualifications || []).find((q) => q.id === b.qualId)).id;
 function studyScope(state) {
   const world = curWorld(state);
-  const on = (state.displaySettings || {}).studyScope === "world";
+  const sv = (state.displaySettings || {}).studyScope;
+  const on = sv === "world" || (sv !== "all" && chosenQual(state));
   return { on, world, inScope: (b) => !on || !b || bankWorldId(state, b) === world.id };
 }
 // 問題集のある世界（王都の世界を先に）
@@ -9988,8 +10035,11 @@ const castleFloorOf = (r, wid) => (wid === "home" ? (r.castle && r.castle.floor)
 const dungeonBestOf = (r, wid) => (wid === "home" ? (r.dungeon && r.dungeon.best) : ((r.dungeon && r.dungeon.bestW) || {})[wid]) || {};
 // いちばん近い試験日の資格（取得済みは除く）。問題集が1つも紐づいていなければ全問題で計算する
 // 目標の資格：星詠みの書（タイトル画面）で選んだ資格。「すべての資格」か未選択なら、試験日がいちばん近い資格
+// （王都の世界＝土地家屋調査士の側の資格を優先。二陸特など自分の世界を持つ資格は、星詠みの書で選んだときだけ目標になる）
 function autoMainQual(state) {
-  const qs = (state.qualifications || []).filter((q) => !q.acquired);
+  const all = (state.qualifications || []).filter((q) => !q.acquired);
+  const home = all.filter((q) => worldOfQual(q).id === "home");
+  const qs = home.length ? home : all;
   return qs.filter((q) => q.examDate).sort((a, b) => (a.examDate < b.examDate ? -1 : 1))[0] || qs[0] || null;
 }
 function mainQual(state) {
@@ -12684,8 +12734,8 @@ function HomeDashboard({ state, actions, todayCount, liveSeconds, onGo, onQuick,
         </button>,
     rival: <RivalCard state={state} pp={pp} qual={qual} compact />,
     tataki: curWorld(state).id === "home" && (() => { const t = tatakiToday(state); if (!t.due && !t.newLeft) return null; return <Row no="◆" icon={<ScrollIcon size={18} />} label="申請書の叩き込み" title={`復習 ${t.due}枚・新しい ${t.newLeft}枚`} sub={`第${t.lap}周。目的・原因・添付書類を毎日まわす`} action="叩き込む" onClick={() => window.dispatchEvent(new CustomEvent("sq-open-past", { detail: { to: "laps", tataki: true } }))} />; })(),
-    kijutsu: (() => { const due = kjDue((normRpg(state.rpg).kijutsu || {}).res, today); if (!due.length) return null; return <Row no="◆" icon={<ScrollIcon size={18} />} label="記述式の復習（道場）" title={`${kjLabel(due[0].id)}${due.length > 1 ? ` ほか${due.length - 1}年` : ""}`} sub={`前回 ${due[0].r.last}点。もう一度答案を書く日です`} action="解く" onClick={() => window.dispatchEvent(new CustomEvent("sq-open-past", { detail: { to: "laps", key: due[0].id } }))} />; })(),
-    hayami: (() => { const d = daysToExam(state); if (d === null || d < 0 || d > 14) return null; return <Row no="◆" icon={<Bookmark size={18} />} label="当日の確認カード" title={d === 0 ? "今日が試験日です" : `試験まで あと${d}日`} sub="式・キー・登記の目的・原因・添付書類の早見表と、当日の手順" action="見る" onClick={() => window.dispatchEvent(new CustomEvent("sq-open-past", { detail: { to: "laps", key: "hayami" } }))} />; })(),
+    kijutsu: homeSide(state) && (() => { const due = kjDue((normRpg(state.rpg).kijutsu || {}).res, today); if (!due.length) return null; return <Row no="◆" icon={<ScrollIcon size={18} />} label="記述式の復習（道場）" title={`${kjLabel(due[0].id)}${due.length > 1 ? ` ほか${due.length - 1}年` : ""}`} sub={`前回 ${due[0].r.last}点。もう一度答案を書く日です`} action="解く" onClick={() => window.dispatchEvent(new CustomEvent("sq-open-past", { detail: { to: "laps", key: due[0].id } }))} />; })(),
+    hayami: homeSide(state) && (() => { const d = daysToExam(state); if (d === null || d < 0 || d > 14) return null; return <Row no="◆" icon={<Bookmark size={18} />} label="当日の確認カード" title={d === 0 ? "今日が試験日です" : `試験まで あと${d}日`} sub="式・キー・登記の目的・原因・添付書類の早見表と、当日の手順" action="見る" onClick={() => window.dispatchEvent(new CustomEvent("sq-open-past", { detail: { to: "laps", key: "hayami" } }))} />; })(),
     next: (() => { const t = nextTitles(state, 1)[0]; if (!t) return null; return <Row no="◆" icon={<Crown size={18} />} label="次に取れそうな称号" title={`「${t.title}」まで ${titleLeft(t)}`} sub={t.how} gauge={Math.min(1, t.ratio)} mark={false} action="見る" onClick={() => onGo("status")} />; })(),
     stats: (<div className="grid grid-cols-3 gap-2 mt-1">
           {chip("今日の学習", fmtMin(todayMin))}
@@ -15612,7 +15662,8 @@ function LapRoom({ view = "plan", state, actions, rpgActions, recordAnswer, past
   const [dojoFocus, setDojoFocus] = useState(false); // 記述式の道場で解いているあいだは、ほかの欄を隠す
   const active = scopedPlans(state); // 勉強の範囲の世界の計画
   const left = active.reduce((a, p) => a + planToday(p).pending.length, 0);
-  const stamps = state.questionBanks.reduce((a, b) => a + (b.clears || 0), 0);
+  const scope = studyScope(state);
+  const stamps = state.questionBanks.reduce((a, b) => a + (scope.inScope(b) ? b.clears || 0 : 0), 0);
   const show = !dojoFocus;
   const radio = isRadioQual(mainQual(state)); // 星詠みの書で無線の資格を選んでいるときは、無線の見出しの絵
   const homeWorld = curWorld(state).id === "home"; // 申請書の叩き込みは王都の世界（調査士）のとき
@@ -15658,7 +15709,7 @@ function LapRoom({ view = "plan", state, actions, rpgActions, recordAnswer, past
       {show && <PlanTasks state={state} actions={actions} />}
       {show && <LapGrowth state={state} actions={actions} />}
       {show && <LapForecast state={state} />}
-      {show && rpgActions && <MockLog state={state} actions={rpgActions} />}
+      {show && rpgActions && homeSide(state) && <MockLog state={state} actions={rpgActions} />}
       {show && <LapRecordsPanel state={state} />}
     </div>
   );
@@ -16098,7 +16149,8 @@ function RontenLap({ state }) {
   );
 }
 function LapGrowth({ state, actions }) {
-  const rows = state.questionBanks.map((b) => {
+  const sc = studyScope(state); // 勉強の範囲の世界の問題集だけ
+  const rows = state.questionBanks.filter((b) => sc.inScope(b)).map((b) => {
     const acc = (Array.isArray(b.clearHistory) ? b.clearHistory : []).map((h) => h.accuracy).filter((v) => typeof v === "number");
     if (acc.length < 2) return null;
     const last = acc[acc.length - 1], prev = acc[acc.length - 2];
@@ -16713,7 +16765,7 @@ function TodayTab({ header = null, state, recordSRAnswer, updateSrSettings, star
           )}
         </Box>
         {curWorld(state).id === "home" && <TatakiDueCard state={state} />}
-        <KijutsuDueCard state={state} />
+        {homeSide(state) && <KijutsuDueCard state={state} />}
         <SpecialQuizCards state={state} onStart={startSpecial} />
         <WeakLink state={state} />
         <ConfusionPairs state={state} actions={rpgActionsForPairs} />
@@ -18147,6 +18199,14 @@ function CalcTab({ state, actions, startTimer, stopTimer, pastReq, onPastOpened 
   }
 
   // ── 開始前 ──
+  if (!homeSide(state)) { // 資格の世界（二陸特など）：その世界の計算だけ
+    const radioOn = (curWorld(state).drills || []).includes("radiocalc");
+    return (
+      <div className="space-y-3">
+        {radioOn ? <RadioCalcDrill state={state} actions={actions} /> : <Box title="計算の塔" icon={<Pencil size={18} />}><p className="jp text-[12px]" style={{ color: "var(--ink-soft)" }}>この資格の計算ドリルはまだありません。土地家屋調査士の計算は、星詠みの書で調査士を選ぶと出ます。</p></Box>}
+      </div>
+    );
+  }
   const stats = c2.stats || {}, best = c2.best || {}, miss = c2.miss || {};
   const doneN = fixedIds.filter((x) => fixedDone[x.id]).length;
   const wrongN = fixedIds.filter((x) => fixedRes[x.id] && !fixedRes[x.id].last).length;
@@ -18977,6 +19037,10 @@ function weakBook(state, deck) {
   // 記述式：自己採点の平均が6割未満の欄
   const kf = (r.kijutsu || {}).fields || {};
   const fields = KJ_FIELDS.filter((k) => kf[k] && kf[k].n >= 2 && kf[k].pts / kf[k].n < 0.6).map((k) => ({ k, rate: kf[k].pts / kf[k].n, n: kf[k].n })).sort((a, b) => a.rate - b.rate);
+  if (chosenQual(state)) { // 資格を選んでいるときは、その資格の鍛錬の分だけ
+    if (curWorld(state).id === "home") radio.length = 0;
+    else { cards.length = 0; calc.length = 0; past.length = 0; fields.length = 0; }
+  }
   const total = qN + cards.length + calc.length + past.length + radio.length + fields.length;
   return { qs, qN, cards, calc, past, radio, fields, total };
 }
@@ -20318,7 +20382,7 @@ function SankoChapter({ subj, ch, state, actions, onExit, onQuiz, onCreateBank }
 }
 function SankoTab({ state, actions, onCreateBank }) {
   const radio = isRadioQual(mainQual(state));
-  const groups = radio ? [...SANKO_GROUPS].reverse() : SANKO_GROUPS;
+  const groups = chosenQual(state) ? SANKO_GROUPS.filter((g) => (g.id === "radio") === radio) : radio ? [...SANKO_GROUPS].reverse() : SANKO_GROUPS;
   const [subj, setSubj] = useState(groups[0].subjects[0].id);
   const [view, setView] = useState(null); // {ch} | {quiz: chapters}
   const S = SANKO_ALL.find((s) => s.id === subj);

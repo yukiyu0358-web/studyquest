@@ -43,6 +43,12 @@ export const DEMO_BANKS = [
   { id: "bank-bld", name: "建物に関する登記", year: "", folderId: "f1", qualId: "q-chousashi", order: 1, clears: 0, clearHistory: [], questions: makeQuestions("bd", 4, 24).map((q, i) => (i < 9 ? { ...q, ah: [], sr_nextReview: undefined, sr_interval: undefined, correct: 0, wrong: 0 } : q)) },
   { id: "bank-r5", name: "総則・物権", year: "", folderId: "f2", qualId: "q-chousashi", order: 2, clears: 1, clearHistory: [{ date: ymd(day(-20)), accuracy: 58 }], questions: makeQuestions("r5", 3) },
   { id: "bank-sokuryo", name: "測量士 午前 R6", year: "R6", qualId: "q-sokuryo", order: 0, clears: 0, clearHistory: [], questions: makeQuestions("sk", 1).slice(0, 6) },
+  // 二陸特（資格ごとに分かれるかの確認用。4択は「答：(n)」）
+  { id: "bank-radio", name: "二陸特 法規 電波法の目的", year: "", folderId: "f3", qualId: "q-nirikutoku", order: 0, clears: 0, clearHistory: [], questions: [
+    ["電波法の目的として正しいものはどれか。(1) 電波の公平かつ能率的な利用を確保することによって、公共の福祉を増進すること (2) 電波の有効利用を図り、無線通信の秘密を守ること (3) 無線局の開設を自由にすること (4) 電波の質を高めること", "答：(1)　電波法1条。"],
+    ["空中線電力の単位として正しいものはどれか。(1) ボルト (2) ワット (3) ヘルツ (4) オーム", "答：(2)"],
+    ["周波数100MHzの電波の波長はどれか。(1) 0.3m (2) 1m (3) 3m (4) 30m", "答：(3)　300÷100＝3m。"],
+  ].map(([q, a], i) => ({ id: `rd-${i}`, q, a, correct: i, wrong: i % 2, marked: false, excluded: false, memo: "", clozes: [], ah: [], sr_nextReview: ymd(day(0)), sr_interval: 1, sr_streak: 0 })) },
 ];
 
 export const DEMO_STATE = {
@@ -50,12 +56,13 @@ export const DEMO_STATE = {
   qualifications: [
     { id: "q-chousashi", name: "土地家屋調査士", examDate: "2027-10-17", targetHours: 1000, color: "#4f8eb3", acquired: false },
     { id: "q-sokuryo", name: "測量士", examDate: "", targetHours: 0, color: "#6d8454", acquired: false },
+    { id: "q-nirikutoku", name: "第二級陸上特殊無線技士", examDate: ymd(day(45)), targetHours: 60, color: "#7a5bb0", acquired: false, world: "own" },
   ],
   tasks: [{ id: "t1", name: "書式の練習 1問", difficulty: "normal", qualId: "q-chousashi" }],
   taskPresets: [], taskClears: {},
   studyLog: [-6, -5, -4, -2, -1, 0].map((o, i) => ({ id: `l${i}`, date: ymd(day(o)), qualId: "q-chousashi", minutes: 40 + i * 12, source: "timer" })),
   questionBanks: [],
-  folders: [{ id: "f1", name: "不動産登記法" }, { id: "f2", name: "民法" }],
+  folders: [{ id: "f1", name: "不動産登記法" }, { id: "f2", name: "民法" }, { id: "f3", name: "二陸特" }],
   studyNotes: [{ id: "n1", folderId: "f1", title: "申請期限のまとめ", content: "表題登記・変更登記：1月以内\n滅失の登記：1月以内", createdAt: ymd(day(-3)), updatedAt: ymd(day(-1)) }],
   sessionResume: null,
   timer: { qualId: null, startMs: null, autoMode: null },
