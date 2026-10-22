@@ -19523,7 +19523,8 @@ function TownImage({ stage, height = 220 }) {
       <span className="jp" style={{ position: "absolute", right: 6, bottom: 4, fontSize: 9, color: "#fdfbf5", background: "rgba(20,28,50,0.55)", padding: "1px 6px", borderRadius: 999 }}>この姿の絵は準備中（仮の絵）</span>
     </div>
   );
-  return <img src={townArt(stage)} alt={`はじまりの${TOWN_STAGES[stage].name}`} onError={() => setBad(true)} style={{ display: "block", width: "100%", height, objectFit: "cover" }} />;
+  // 段階の絵（16:9）は横長のまま、上下を少しだけ切って見せる（下の文字の帯と重ならないよう、少し下寄せ）
+  return <img src={townArt(stage)} alt={`はじまりの${TOWN_STAGES[stage].name}`} onError={() => setBad(true)} style={{ display: "block", width: "100%", aspectRatio: "16 / 8", maxHeight: 380, objectFit: "cover", objectPosition: "center 55%" }} />;
 }
 function TownPanel({ state, actions }) {
   const [open, setOpen] = useState(false);
