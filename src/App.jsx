@@ -1876,6 +1876,8 @@ const LEARN_TOWNS = [
   { id: "sanko", name: "図書の塔", icon: "📖", tab: "sanko", x: 74, y: 40, w: 24, h: 44, cx: 86, cy: 62, sub: "参考書（暗記の章・隠して覚える・クイズ）" },
   { id: "adventure", name: "冒険の塔", icon: "🏰", tab: "adventure", x: 32, y: 54, w: 30, h: 45, cx: 49, cy: 74, sub: "ストーリー・試練の塔・仲間・クエスト・魔王城" },
 ];
+// 塔の外観の絵（2026年10月22日、イラストフォルダの *_tower_exterior.png → public/art/towers/。学びの地図の下の一覧）
+const TOWER_ART = { laps: "laps.webp", calc: "calc.webp", sanko: "sanko.webp", adventure: "adventure.webp", train: "train.webp" };
 const TOWN_OF_TAB = { home: "home", today: "home", qbank: "laps", laps: "laps", calc: "calc", train: "train", sanko: "sanko", adventure: "adventure", ...Object.fromEntries(NOTE_TABS.map((t) => [t, "home"])) };
 // はじまりの街の中の切り替え：ホーム・今日・手帳（2026年10月22日、下のタブから街の中へ移した）
 const TOWN_TABS = [["home", "🏠 ホーム"], ["today", "📅 今日"], ["notebook", "🔖 手帳"]];
@@ -19616,13 +19618,16 @@ function TownMap({ state, onGo, todayN }) {
       <TodayLink state={state} dueN={todayN} onGo={() => onGo("today")} />
       <div className="grid gap-2 md:grid-cols-2">
         {LEARN_TOWNS.map((t) => (
-          <button key={t.id} onClick={() => onGo(t.tab)} className="flex items-center gap-3 px-3 py-2 text-left" style={{ borderRadius: 12, border: "1px solid #b08a3e", background: "var(--paper)", cursor: "pointer", color: "var(--ink)" }}>
-            <span aria-hidden="true" style={{ width: 56, height: 40, flexShrink: 0, borderRadius: 8, border: "1px solid #d6b56a", backgroundImage: `url(${ART_URL}townmap.webp)`, backgroundSize: "420% auto", backgroundPosition: `${t.cx}% ${t.cy}%` }} />
+          <button key={t.id} onClick={() => onGo(t.tab)} className="flex flex-col text-left overflow-hidden" style={{ borderRadius: 12, border: "1px solid #b08a3e", background: "var(--paper)", cursor: "pointer", color: "var(--ink)", padding: 0 }}>
+            {/* 塔の外観の絵（public/art/towers/。はじまりの街は地図のその場所を寄せて） */}
+            <span aria-hidden="true" style={{ display: "block", width: "100%", aspectRatio: "16 / 7", backgroundImage: TOWER_ART[t.id] ? `url(${ART_URL}towers/${TOWER_ART[t.id]})` : `url(${ART_URL}townmap.webp)`, backgroundSize: TOWER_ART[t.id] ? "cover" : "300% auto", backgroundPosition: TOWER_ART[t.id] ? "center 0%" : `${t.cx}% ${t.cy}%`, borderBottom: "1px solid #d6b56a" }} />
+            <span className="flex items-center gap-2 px-3 py-2 w-full">
             <span className="flex-1 min-w-0">
               <span className="block text-[14px]" style={{ fontWeight: 800, fontFamily: "'Shippori Mincho B1', serif" }}>{t.icon} {t.name}{badge[t.id] ? <span className="text-[10px] ml-2 px-1.5" style={{ background: "var(--brick)", color: "#fff", borderRadius: 999, fontFamily: "inherit" }}>{badge[t.id]}</span> : null}</span>
               <span className="block text-[10px]" style={{ color: "var(--ink-soft)" }}>{t.sub}</span>
             </span>
             <span style={{ color: "var(--sky-deep)", fontWeight: 900 }}>▶</span>
+            </span>
           </button>
         ))}
       </div>
