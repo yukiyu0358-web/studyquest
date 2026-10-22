@@ -111,6 +111,30 @@ const HOME_CHARS = [
 // 主人公（白髪の少女）の表情：通常・笑顔・驚き・真剣。吹き出しと会話で、場面に合わせて使い分ける
 const HERO_FACES = Object.fromEntries(["normal", "smile", "surprise", "serious"].map((k) => [k, `${ART_URL}hero-face-${k}.jpg`]));
 const exprOfLine = (t) => (/えっ|まさか|！？|\?！/.test(t) ? "surprise" : /……|取り返|気をつけ|注意|大切|集中|気を抜/.test(t) ? "serious" : /！|うれし|おめでと|すごい|ふふ|ますね|ですね|よかった|おつかれ|この調子/.test(t) ? "smile" : "normal");
+// 上の帯（現在地の横）のアイコンに選べるキャラ（displaySettings.barChar）。ホームのキャラ＋冒険の仲間
+const barChars = () => [
+  ...HOME_CHARS.map((c) => ({ id: c.id, name: c.name, url: c.avatar, face: c.face })),
+  ...ALLIES.filter((a) => a.group === "story").map((a) => ({ id: `ally:${a.id}`, name: a.name, url: `${ART_URL}${a.img}`, face: a.face })),
+];
+const barCharOf = (state) => { const id = (state.displaySettings || {}).barChar; return id ? barChars().find((c) => c.id === id) || null : null; };
+function CharFace({ c, size = 40, on = false }) {
+  return <span style={{ display: "inline-block", width: size, height: size, borderRadius: "50%", flexShrink: 0, border: `${on ? 2 : 1}px solid #b08a3e`, boxShadow: "0 0 0 2px #fdfbf5, 0 0 0 3px rgba(176,138,62,0.45)", backgroundColor: "#e9e4d6", backgroundImage: `url(${c.url})`, backgroundSize: "300% auto", backgroundPosition: `${c.face[0]}% ${c.face[1]}%` }} />;
+}
+function BarCharPicker({ cur, onPick }) {
+  return (
+    <div className="grid grid-cols-4 sm:grid-cols-7 gap-1.5">
+      {barChars().map((c) => {
+        const on = (cur || "hero") === c.id;
+        return (
+          <button key={c.id} onClick={() => onPick(c.id)} className="jp flex flex-col items-center gap-1 py-1.5" style={{ background: on ? "var(--cream)" : "var(--paper)", border: `1px solid ${on ? "var(--gold)" : "var(--rule-soft)"}`, borderRadius: 8, cursor: "pointer" }}>
+            <CharFace c={c} size={36} on={on} />
+            <span className="text-[10px]" style={{ color: "var(--ink)", fontWeight: on ? 800 : 500 }}>{c.name}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
 const homeCharOf = (state) => HOME_CHARS.find((c) => c.id === ((state.displaySettings && state.displaySettings.homeChar) || "hero")) || HOME_CHARS[0];
 const readPref = (key, fallback) => { try { return localStorage.getItem(key) || fallback; } catch (e) { return fallback; } };
 const writePref = (key, value) => { try { localStorage.setItem(key, value); } catch (e) { /* 保存できなくても動作は続ける */ } };
@@ -652,23 +676,33 @@ function StarBookBar({ state, onPick, onNew }) {
   );
 }
 // ── 上部の情報ウィンドウ（現在地・レベル・所持金・タイマー） ──
-function ClassicInfoBar({ state, liveSeconds, onStatus, theme = "classic" }) {
+function ClassicInfoBar({ state, liveSeconds, onStatus, onChar, theme = "classic" }) {
   const P = THEME_PAL[theme] || THEME_PAL.classic;
   const [faceOk, setFaceOk] = useState(true);
+  const [pick, setPick] = useState(false); // アイコンをタップ → キャラを選ぶ小窓
+  const bc = barCharOf(state);
   const player = state.player;
   const xpNeeded = getXpForNextLevel(player.level);
   const scene = (RPG_SCENES[getCharacterTier(player.level)] || RPG_SCENES.tier1).name;
   const st = calculateStatus(state);
   const gold = normRpg(state.rpg).gold;
   return (
-    <div className="rpg-box mb-3 px-3 py-2 flex flex-wrap items-center gap-x-5 gap-y-1 jp" style={{ color: P.text }}>
-      <button onClick={onStatus} title="ステータス画面へ" className="flex-shrink-0" style={{ background: "transparent", border: "none", padding: 0, cursor: "pointer" }}>
-        {theme === "white" && faceOk ? (
+    <div className="rpg-box mb-3 px-3 py-2 flex flex-wrap items-center gap-x-5 gap-y-1 jp" style={{ color: P.text, position: "relative", zIndex: pick ? 40 : undefined }}>
+      <button onClick={() => (onChar ? setPick(!pick) : onStatus())} title="キャラを変える・ステータス" className="flex-shrink-0" style={{ background: "transparent", border: "none", padding: 0, cursor: "pointer" }}>
+        {bc ? <CharFace c={bc} /> : theme === "white" && faceOk ? (
           <img src={WHITE_HERO_URL} alt="" onError={() => setFaceOk(false)} style={{ width: 40, height: 40, borderRadius: "50%", objectFit: "cover", objectPosition: "center 12%", border: "1px solid #b08a3e", boxShadow: "0 0 0 2px #fdfbf5, 0 0 0 3px rgba(176,138,62,0.45)" }} />
         ) : (
           <CharacterDisplay level={player.level} job="" icon="" size={38} showAura={false} />
         )}
       </button>
+      {pick && <div onClick={() => setPick(false)} style={{ position: "fixed", inset: 0, zIndex: 1 }} />}
+      {pick && (
+        <div className="p-2" style={{ position: "absolute", left: 8, top: "calc(100% + 4px)", zIndex: 2, width: "min(calc(100vw - 40px), 520px)", background: "var(--paper)", border: "1px solid #b08a3e", borderRadius: 10, boxShadow: "0 10px 26px rgba(34,51,92,0.25)" }}>
+          <div className="text-[11px] mb-1.5" style={{ color: "var(--ink-soft)", fontWeight: 700 }}>アイコンのキャラを選ぶ</div>
+          <BarCharPicker cur={(state.displaySettings || {}).barChar} onPick={(id) => { onChar(id); setPick(false); }} />
+          <button onClick={() => { setPick(false); onStatus(); }} className="btn-ghost w-full text-[12px] py-1.5 mt-2">📜 ステータスを見る</button>
+        </div>
+      )}
       <div className="flex items-baseline gap-2"><span className="text-[11px]" style={P.label}>現在地</span><span className="text-sm" style={{ ...P.heading, fontWeight: 800 }}>{scene}</span></div>
       <div className="flex items-center gap-2">
         <span className="text-[11px]" style={P.label}>Lv</span><span className="text-lg" style={{ ...P.gold, ...P.heading, fontWeight: 800 }}>{player.level}</span>
@@ -1229,6 +1263,8 @@ function DisplaySettingsPanel({ settings, onChange, onClose, uid: userId, onRese
             );
           })}
         </div>
+        <div className="jp text-xs mb-1" style={{ color: "var(--ink-soft)" }}>上の帯のアイコン（現在地の横。アイコンをタップしても変えられます）</div>
+        <div className="mb-3"><BarCharPicker cur={ds.barChar} onPick={(id) => onChange({ barChar: id })} /></div>
         <div className="jp text-xs mb-1" style={{ color: "var(--ink-soft)" }}>バトル</div>
         <button onClick={() => onChange({ battle: ds.battle === false })} className="jp w-full text-left text-xs px-2 py-1.5 mb-1" style={{ background: "var(--paper)", color: "var(--ink)", border: "1px solid var(--rule-soft)" }}>
           {ds.battle === false ? "☐" : "☑"} 問題を解くときにバトルの演出を出す
@@ -4108,7 +4144,7 @@ function StudyRPG({ user }) {
         {showLawSearch && <LawSearchPanel banks={state.questionBanks} onClose={() => setShowLawSearch(false)} />}
         {showRoadmap && <RoadmapModal state={state} updateRoadmap={updateRoadmap} onClose={() => setShowRoadmap(false)} />}
 
-        {fancy && <ClassicInfoBar theme={themeNow} state={state} liveSeconds={liveSeconds} onStatus={() => setTab("status")} />}
+        {fancy && <ClassicInfoBar theme={themeNow} state={state} liveSeconds={liveSeconds} onStatus={() => setTab("status")} onChar={(id) => updateDisplaySettings({ barChar: id })} />}
         {/* Status bar */}
         {!fancy && <div className="rpg-box mb-4 p-1">
           <div className="rpg-inner-border">
@@ -19598,6 +19634,17 @@ function TownPanel({ state, actions }) {
 // 学びの地図：絵の上の塔をタップすると、その画面へ。下に行き先の一覧（スマホでも押しやすいように）
 function TownMap({ state, onGo, todayN }) {
   const [hot, setHot] = useState(null);
+  // 画面の大きさに合わせて地図を大きく：PCは画面の高さいっぱいまで、スマホは大きくして横に動かせる
+  const [vp, setVp] = useState(() => ({ w: window.innerWidth, h: window.innerHeight }));
+  useEffect(() => { const f = () => setVp({ w: window.innerWidth, h: window.innerHeight }); window.addEventListener("resize", f); return () => window.removeEventListener("resize", f); }, []);
+  const phone = vp.w < 640;
+  const outerW = Math.max(280, Math.min(vp.w - 24, 1600));
+  const mapW = Math.round(phone ? Math.max(outerW, Math.min(vp.h * 0.5 * 16 / 9, outerW * 2.2)) : Math.min(outerW, Math.max(640, (vp.h - 150) * 16 / 9)));
+  const scrollRef = useRef(null);
+  useEffect(() => { // スマホははじまりの街が真ん中に来るように
+    const el = scrollRef.current; const home = LEARN_TOWNS[0];
+    if (el && mapW > outerW) el.scrollLeft = Math.max(0, mapW * (home.x + home.w / 2) / 100 - outerW / 2);
+  }, [mapW, outerW]);
   const plans = scopedPlans(state).reduce((a, p) => a + planToday(p).pending.length, 0);
   const qual = mainQual(state);
   const badge = { laps: plans ? `今日のタスク ${plans}` : null, home: null };
@@ -19607,7 +19654,8 @@ function TownMap({ state, onGo, todayN }) {
         <div style={{ fontFamily: "'Shippori Mincho B1', serif", fontWeight: 900, fontSize: 20, color: "var(--ink)", letterSpacing: "0.08em" }}>学びの地図</div>
         <div className="text-[11px]" style={{ color: "var(--ink-soft)" }}>{qual ? `${qual.name}　` : ""}行きたい場所をタップしてください</div>
       </div>
-      <div className="relative overflow-hidden select-none" style={{ borderRadius: 14, border: "1.5px solid #b08a3e", boxShadow: "inset 0 0 0 3px rgba(253,251,245,0.6), 0 8px 22px rgba(34,51,92,0.2)", aspectRatio: "16 / 9", background: "#bcd8f0" }}>
+      <div ref={scrollRef} style={{ width: outerW, marginLeft: `calc(50% - ${outerW / 2}px)`, overflowX: mapW > outerW ? "auto" : "visible", borderRadius: 14, WebkitOverflowScrolling: "touch" }}>
+      <div className="relative overflow-hidden select-none" style={{ width: mapW, margin: "0 auto", borderRadius: 14, border: "1.5px solid #b08a3e", boxShadow: "inset 0 0 0 3px rgba(253,251,245,0.6), 0 8px 22px rgba(34,51,92,0.2)", aspectRatio: "16 / 9", background: "#bcd8f0" }}>
         <img src={`${ART_URL}townmap.webp`} alt="学びの地図（はじまりの街・周回の塔・計算の塔・修練の塔・図書の塔・冒険の塔）" className="w-full h-full" style={{ objectFit: "cover", display: "block" }} draggable={false} />
         {LEARN_TOWNS.map((t) => (
           <button key={t.id} onClick={() => onGo(t.tab)} onMouseEnter={() => setHot(t.id)} onMouseLeave={() => setHot(null)} aria-label={`${t.name}へ`} title={`${t.name}：${t.sub}`}
@@ -19616,19 +19664,16 @@ function TownMap({ state, onGo, todayN }) {
           </button>
         ))}
       </div>
+      </div>
+      {mapW > outerW && <div className="text-center text-[10px]" style={{ color: "var(--ink-mute)", marginTop: 4 }}>← 地図は横に動かせます →</div>}
       <TodayLink state={state} dueN={todayN} onGo={() => onGo("today")} />
-      <div className="grid gap-2 md:grid-cols-2">
+      <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5">
         {LEARN_TOWNS.map((t) => (
-          <button key={t.id} onClick={() => onGo(t.tab)} className="flex flex-col text-left overflow-hidden" style={{ borderRadius: 12, border: "1px solid #b08a3e", background: "var(--paper)", cursor: "pointer", color: "var(--ink)", padding: 0 }}>
+          <button key={t.id} onClick={() => onGo(t.tab)} title={`${t.name}：${t.sub}`} className="relative flex flex-col overflow-hidden" style={{ borderRadius: 10, border: "1px solid #b08a3e", background: "var(--paper)", cursor: "pointer", color: "var(--ink)", padding: 0 }}>
             {/* 塔の外観の絵（public/art/towers/。はじまりの街は地図のその場所を寄せて） */}
-            <span aria-hidden="true" style={{ display: "block", width: "100%", aspectRatio: "16 / 7", backgroundImage: TOWER_ART[t.id] ? `url(${ART_URL}towers/${TOWER_ART[t.id]})` : `url(${ART_URL}townmap.webp)`, backgroundSize: TOWER_ART[t.id] ? "cover" : "300% auto", backgroundPosition: TOWER_ART[t.id] ? "center 0%" : `${t.cx}% ${t.cy}%`, borderBottom: "1px solid #d6b56a" }} />
-            <span className="flex items-center gap-2 px-3 py-2 w-full">
-            <span className="flex-1 min-w-0">
-              <span className="block text-[14px]" style={{ fontWeight: 800, fontFamily: "'Shippori Mincho B1', serif" }}>{t.icon} {t.name}{badge[t.id] ? <span className="text-[10px] ml-2 px-1.5" style={{ background: "var(--brick)", color: "#fff", borderRadius: 999, fontFamily: "inherit" }}>{badge[t.id]}</span> : null}</span>
-              <span className="block text-[10px]" style={{ color: "var(--ink-soft)" }}>{t.sub}</span>
-            </span>
-            <span style={{ color: "var(--sky-deep)", fontWeight: 900 }}>▶</span>
-            </span>
+            <span aria-hidden="true" style={{ display: "block", width: "100%", aspectRatio: "4 / 3", backgroundImage: TOWER_ART[t.id] ? `url(${ART_URL}towers/${TOWER_ART[t.id]})` : `url(${ART_URL}townmap.webp)`, backgroundSize: TOWER_ART[t.id] ? "cover" : "400% auto", backgroundPosition: TOWER_ART[t.id] ? "center 0%" : `${t.cx}% ${t.cy}%`, borderBottom: "1px solid #d6b56a" }} />
+            <span className="block w-full text-center px-1 py-1 text-[11px]" style={{ fontWeight: 800, fontFamily: "'Shippori Mincho B1', serif", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.name}</span>
+            {badge[t.id] && <span style={{ position: "absolute", right: 3, top: 3, fontSize: 9, fontWeight: 800, color: "#fff", background: "var(--brick)", borderRadius: 999, padding: "0 5px", whiteSpace: "nowrap" }}>{badge[t.id]}</span>}
           </button>
         ))}
       </div>
