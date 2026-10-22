@@ -1191,7 +1191,7 @@ function PushSettings({ uid: userId }) {
   );
 }
 
-function DisplaySettingsPanel({ settings, onChange, onClose, uid: userId }) {
+function DisplaySettingsPanel({ settings, onChange, onClose, uid: userId, onReset }) {
   const ds = { ...DISPLAY_DEFAULTS, ...(settings || {}) };
   return (
     <div className="rpg-box mb-4 p-1">
@@ -1258,6 +1258,7 @@ function DisplaySettingsPanel({ settings, onChange, onClose, uid: userId }) {
           甲建物の附属建物を分割して乙建物の附属建物に合併する建物の分割の登記及び建物の合併の登記の申請は、一の申請情報によってすることができる。
         </div>
         <p className="jp text-[10px] mt-2" style={{ color: "var(--ink-mute)" }}>フォントと大きさは問題文と答えの表示に使われます。設定はほかの端末にも同期されます。</p>
+        {onReset && <ResetPanel uid={userId} onReset={onReset} />}
       </div>
     </div>
   );
@@ -3394,15 +3395,15 @@ function StudyRPG({ user }) {
     const r = normRpg(state.rpg);
     const ts = townStatus(state);
     // はじめは小屋から。すでに育つ条件がそろっていれば、小屋からいまの段階まで一度に発展する演出
-    if ((r.town || {}).stage !== undefined && !(r.town || {}).v) { rpgActions.townSetStage(TOWN_V1_TO_V2[r.town.stage] ?? 0); return; }
+    if ((r.town || {}).stage !== undefined && !(r.town || {}).v) { rpgActions.townSetStage(0); return; }
     const cur = (r.town || {}).stage ?? 0;
     if ((r.town || {}).stage === undefined && ts.stage === 0) { rpgActions.townSetStage(0); return; }
     if (ts.stage > cur) {
       rpgActions.townSetStage(ts.stage);
-      showEvolution({ big: "街の発展", from: `はじまりの${TOWN_STAGES[cur].name}`, to: `はじまりの${TOWN_STAGES[ts.stage].name}`, sub: `${TOWN_STAGES[ts.stage].text}（人口${ts.pop.toLocaleString()}人）`, stage: heroStage(state.player.level),
-        afterTalk: { title: `はじまりの${TOWN_STAGES[ts.stage].name}`, lines: [["hero", `見てください！ 街が「${TOWN_STAGES[ts.stage].name}」に育ちました。`], ["hero", "覚えた問題の数だけ、人が集まってくれたんです。"], ["pet", "（相棒が、新しい通りをうれしそうに走っていく）"], ["hero", "新しい建物も建てられるようになりました。街の「建物」をのぞいてみましょう。"]] } });
+      showEvolution({ big: "街の発展", from: `はじまりの${TOWN_STAGES[cur].name}`, to: `はじまりの${TOWN_STAGES[ts.stage].name}`, sub: `${TOWN_STAGES[ts.stage].text}（街の経験値 ${ts.xp.toLocaleString()}）`, stage: heroStage(state.player.level),
+        afterTalk: { title: `はじまりの${TOWN_STAGES[ts.stage].name}`, lines: [["hero", `見てください！ 街が「${TOWN_STAGES[ts.stage].name}」に育ちました。`], ["hero", "毎日の勉強の積み重ねで、人が集まってくれたんです。"], ["pet", "（相棒が、新しい通りをうれしそうに走っていく）"], ["hero", "新しい建物も建てられるようになりました。街の「建物」をのぞいてみましょう。"]] } });
     }
-  }, [loaded, state.player.level, state.questionBanks, (normRpg(state.rpg).town || {}).v]);
+  }, [loaded, (normRpg(state.rpg).town || {}).xp, (normRpg(state.rpg).town || {}).v]);
   useEffect(() => {
     if (!loaded) return;
     const r = normRpg(state.rpg);
@@ -3480,7 +3481,7 @@ function StudyRPG({ user }) {
       const log = { id: uid(), date: todayStr(), qualId: s.timer.qualId, minutes: elapsed, source: "timer" };
       const xpGain = Math.floor(elapsed * XP_TIMER_PER_MIN);
       if (xpGain > 0) setTimeout(() => awardXp(xpGain), 100);
-      return { ...s, studyLog: [...s.studyLog, log], timer: { qualId: null, startMs: null, autoMode: null } };
+      return { ...s, rpg: townGain(s.rpg, Math.floor(elapsed / 2)), studyLog: [...s.studyLog, log], timer: { qualId: null, startMs: null, autoMode: null } };
     });
   };
   // 記録せずにタイマーをキャンセル（誤操作対応）
@@ -3488,7 +3489,7 @@ function StudyRPG({ user }) {
     setState((s) => ({ ...s, timer: { qualId: null, startMs: null, autoMode: null } }));
   };
   const addManualLog = (entry) => {
-    setState((s) => ({ ...s, studyLog: [...s.studyLog, { ...entry, source: "manual", id: uid() }] }));
+    setState((s) => ({ ...s, rpg: townGain(s.rpg, Math.floor((Number(entry.minutes) || 0) / 2)), studyLog: [...s.studyLog, { ...entry, source: "manual", id: uid() }] }));
     const xpGain = Math.floor(entry.minutes * XP_TIMER_PER_MIN);
     if (xpGain > 0) awardXp(xpGain);
   };
@@ -3653,7 +3654,7 @@ function StudyRPG({ user }) {
 
   const incrementBankClears = (id) => {
     markPlanBank(id);
-    setState((s) => ({ ...s, questionBanks: s.questionBanks.map((b) => b.id === id ? { ...b, clears: (b.clears || 0) + 1 } : b) }));
+    setState((s) => ({ ...s, rpg: townGain(s.rpg, 30), questionBanks: s.questionBanks.map((b) => b.id === id ? { ...b, clears: (b.clears || 0) + 1 } : b) }));
     // 周回スタンプを押す演出（完全制覇のたび）
     const b = stateRef.current.questionBanks.find((x) => x.id === id);
     if (b) setTimeout(() => setLapStamp({ id: uid(), bankName: b.name, laps: (b.clears || 0) + 1 }), 600);
@@ -3678,12 +3679,12 @@ function StudyRPG({ user }) {
       const isFirst = (q.correct + q.wrong) === 0;
       const xpGain = correct ? (isFirst ? XP_QA_FIRST : XP_QA_REVIEW) : 0;
       if (xpGain > 0) setTimeout(() => awardXp(xpGain), 50);
-      return { ...s, player: hourBump(s.player, correct), questionBanks: s.questionBanks.map((b) => b.id !== bankId ? b : { ...b, questions: b.questions.map((x) => x.id !== qId ? x : { ...applyAnswerMeta(x, correct, meta), correct: x.correct + (correct ? 1 : 0), wrong: x.wrong + (correct ? 0 : 1), ...scheduleAnswer(x, correct, meta, effectiveSr(s), now) }) }) };
+      return { ...s, player: hourBump(s.player, correct), rpg: townGain(s.rpg, correct ? 2 : 1), questionBanks: s.questionBanks.map((b) => b.id !== bankId ? b : { ...b, questions: b.questions.map((x) => x.id !== qId ? x : { ...applyAnswerMeta(x, correct, meta), correct: x.correct + (correct ? 1 : 0), wrong: x.wrong + (correct ? 0 : 1), ...scheduleAnswer(x, correct, meta, effectiveSr(s), now) }) }) };
     });
   };
   const recordRevengeAnswer = (bankId, qId, correct, meta) => {
     const now = new Date();
-    setState((s) => ({ ...s, player: hourBump(s.player, correct), questionBanks: s.questionBanks.map((b) => b.id !== bankId ? b : { ...b, questions: b.questions.map((x) => x.id !== qId ? x : { ...applyAnswerMeta(x, correct, meta), correct: x.correct + (correct ? 1 : 0), wrong: x.wrong + (correct ? 0 : 1), ...scheduleAnswer(x, correct, meta, effectiveSr(s), now) }) }) }));
+    setState((s) => ({ ...s, player: hourBump(s.player, correct), rpg: townGain(s.rpg, correct ? 2 : 1), questionBanks: s.questionBanks.map((b) => b.id !== bankId ? b : { ...b, questions: b.questions.map((x) => x.id !== qId ? x : { ...applyAnswerMeta(x, correct, meta), correct: x.correct + (correct ? 1 : 0), wrong: x.wrong + (correct ? 0 : 1), ...scheduleAnswer(x, correct, meta, effectiveSr(s), now) }) }) }));
     if (correct) setTimeout(() => awardXp(XP_QA_REVENGE), 50);
   };
 
@@ -3711,7 +3712,7 @@ function StudyRPG({ user }) {
       const isFirst = c && (c.correct + c.wrong) === 0;
       const xpGain = correct ? (isFirst ? XP_QA_FIRST : XP_QA_REVIEW) : 0;
       if (xpGain > 0) setTimeout(() => awardXp(xpGain), 50);
-      return { ...s, player: hourBump(s.player, correct), questionBanks: s.questionBanks.map((b) => b.id !== bankId ? b : {
+      return { ...s, player: hourBump(s.player, correct), rpg: townGain(s.rpg, correct ? 2 : 1), questionBanks: s.questionBanks.map((b) => b.id !== bankId ? b : {
         ...b, questions: b.questions.map((x) => x.id !== qId ? x : {
           ...x, clozes: (x.clozes || []).map((cl) => cl.id !== clozeId ? cl : { ...cl, correct: cl.correct + (correct ? 1 : 0), wrong: cl.wrong + (correct ? 0 : 1) })
         })
@@ -3719,7 +3720,7 @@ function StudyRPG({ user }) {
     });
   };
   const recordClozeRevengeAnswer = (bankId, qId, clozeId, correct) => {
-    setState((s) => ({ ...s, player: hourBump(s.player, correct), questionBanks: s.questionBanks.map((b) => b.id !== bankId ? b : {
+    setState((s) => ({ ...s, player: hourBump(s.player, correct), rpg: townGain(s.rpg, correct ? 2 : 1), questionBanks: s.questionBanks.map((b) => b.id !== bankId ? b : {
       ...b, questions: b.questions.map((x) => x.id !== qId ? x : {
         ...x, clozes: (x.clozes || []).map((cl) => cl.id !== clozeId ? cl : { ...cl, correct: cl.correct + (correct ? 1 : 0), wrong: cl.wrong + (correct ? 0 : 1) })
       })
@@ -3772,7 +3773,7 @@ function StudyRPG({ user }) {
       const xpGain = correct ? XP_QA_REVIEW : 0;
       if (xpGain > 0) setTimeout(() => awardXp(xpGain), 50);
       return { ...s,
-        player: hourBump(s.player, correct),
+        player: hourBump(s.player, correct), rpg: townGain(s.rpg, correct ? 2 : 1),
         questionBanks: s.questionBanks.map((b) => b.id !== bankId ? b : {
           ...b, questions: b.questions.map((x) => x.id !== qId ? x : {
             ...applyAnswerMeta(x, correct, meta),
@@ -4101,7 +4102,7 @@ function StudyRPG({ user }) {
         </div>
 
         <QTextStyle settings={state.displaySettings} />
-        {showDisplaySettings && <DisplaySettingsPanel settings={state.displaySettings} onChange={updateDisplaySettings} onClose={() => setShowDisplaySettings(false)} uid={user.uid} />}
+        {showDisplaySettings && <DisplaySettingsPanel settings={state.displaySettings} onChange={updateDisplaySettings} onClose={() => setShowDisplaySettings(false)} uid={user.uid} onReset={async (parts) => { if (cloudLoadFailed.current) throw new Error("クラウドの記録を読めていません"); await makeBackup(user.uid, stateRef.current); setState((s) => resetProgress(s, parts)); setTab("map"); }} />}
         {showLawSearch && <LawSearchPanel banks={state.questionBanks} onClose={() => setShowLawSearch(false)} />}
         {showRoadmap && <RoadmapModal state={state} updateRoadmap={updateRoadmap} onClose={() => setShowRoadmap(false)} />}
 
@@ -9185,6 +9186,62 @@ function forgeCost(it, p, forgePct = 0) {
   return { gold: base * (p + 1), frag: 2 + p * 2, star: p >= 3 ? p - 2 : 0, sage: p >= 7 ? 1 : 0, rate: Math.min(100, Math.max(30, 100 - Math.max(0, p - 2) * 10) + forgePct) };
 }
 
+// はじめからやり直す（2026年10月22日）：ゲームの進みだけを消すときに、rpg から消す項目（学習の記録＝記述式・叩き込みのカード・計算の成績・参考書・模試・合格力などは残す）
+const GAME_KEYS = ["gold", "goldEarned", "inventory", "consumables", "equipped", "bossWins", "bossLosses", "bossLog", "boosts", "restDays", "crits", "classId", "pet", "materials", "skills", "forgeLog", "daily", "weekly", "dungeon", "regions", "castle", "castleByWorld", "cats", "journey", "sq", "tower", "secBoss", "arcSeen", "conquered", "bonds", "bondSeen", "gacha", "party", "kills", "hl", "hlLog", "hlBest", "hlRec", "endless", "bounty", "errand", "studyGroup", "weekdayDone", "season"];
+// parts：{ game：キャラクターと冒険, town：まちづくり, laps：周回の記録 }。学習の記憶（FSRS・回答履歴）には触れない
+function resetProgress(s, parts) {
+  let rpg = { ...(s.rpg || {}) };
+  let out = { ...s };
+  if (parts.game) {
+    GAME_KEYS.forEach((k) => { delete rpg[k]; });
+    rpg.seen = { ...((rpg.seen) || {}), pet: 0 };
+    out.player = { ...s.player, level: 1, xp: 0, achievements: [], mainTitleId: null, bestQaStreak: 0 };
+  }
+  if (parts.town) rpg.town = { stage: 0, xp: 0, v: 2 };
+  if (parts.laps) {
+    const today = todayStr();
+    out.questionBanks = s.questionBanks.map((b) => ({ ...b, clears: 0, clearHistory: [] }));
+    out.studyPlans = (s.studyPlans || []).map((p) => (p.finishedAt ? p : { ...p, done: {}, start: today }));
+    out.sessionResume = null;
+    if (rpg.kjDeck) rpg.kjDeck = { ...rpg.kjDeck, lap: { no: 1, ok: {}, at: [] } };
+    if (rpg.calc2) rpg.calc2 = { ...rpg.calc2, past: { ...(rpg.calc2.past || {}), done: {}, lap: 1, lapsAt: [] }, fixed: { ...(rpg.calc2.fixed || {}), done: {}, lap: 1, lapsAt: [] } };
+    if (rpg.ronten) rpg.ronten = { lap: 1, done: {}, at: [] };
+  }
+  out.rpg = rpg;
+  return out;
+}
+function ResetPanel({ uid: userId, onReset }) {
+  const [open, setOpen] = useState(false);
+  const [parts, setParts] = useState({ game: true, town: true, laps: true });
+  const [busy, setBusy] = useState("");
+  const items = [["game", "キャラクターと冒険", "レベル・経験値・ゴールド・装備・持ち物・スキル・仲間と絆・ストーリー・試練の塔・ボス・称号"], ["town", "まちづくり", "街を小屋から（街の経験値も0に）"], ["laps", "周回の記録", "問題集の周回数と日付・学習計画の✓（今日から数え直し）・叩き込みと計算の周回"]];
+  const go = async () => {
+    const names = items.filter(([k]) => parts[k]).map(([, n]) => n).join("・");
+    if (!names) return;
+    if (!confirm(`「${names}」をリセットして、はじめからやり直します。\n\n先に今の記録の控え（バックアップ）をクラウドに取ります。学習の記憶（復習の予定・回答の履歴）は消えません。\n\nよろしいですか？`)) return;
+    if (!confirm("本当にリセットしますか？（控えから戻すことはできます）")) return;
+    setBusy("控えを取っています…");
+    try { await onReset(parts); setBusy("リセットしました。はじまりの小屋から、新しい冒険を始めましょう！"); }
+    catch (e) { setBusy(`控えを取れなかったので、リセットを中止しました：${e.message}`); }
+  };
+  return (
+    <div className="mt-3 pt-3" style={{ borderTop: "1px dashed var(--rule-soft)" }}>
+      <button onClick={() => setOpen(!open)} className="jp text-xs w-full text-left" style={{ background: "none", border: "none", cursor: "pointer", color: "var(--brick)", fontWeight: 800 }}>{open ? "▲" : "▼"} 🔄 はじめからやり直す</button>
+      {open && (
+        <div className="jp space-y-1.5 mt-2">
+          <p className="text-[11px]" style={{ color: "var(--ink-soft)", lineHeight: 1.7 }}>選んだものを最初の状態にもどします。先に自動で控え（バックアップ）を取るので、記録の画面の「控え」から戻せます。<b>学習の記憶（復習の予定・正解と不正解の数・回答の履歴）は消えません。</b></p>
+          {items.map(([k, n, sub]) => (
+            <button key={k} onClick={() => setParts({ ...parts, [k]: !parts[k] })} className="w-full text-left px-2 py-1.5" style={{ borderRadius: 8, border: `1px solid ${parts[k] ? "var(--brick)" : "var(--rule-soft)"}`, background: parts[k] ? "rgba(201,86,78,0.06)" : "var(--paper)", cursor: "pointer", color: "var(--ink)" }}>
+              <span className="block text-[12px]" style={{ fontWeight: 800 }}>{parts[k] ? "☑" : "☐"} {n}</span><span className="block text-[10px]" style={{ color: "var(--ink-mute)" }}>{sub}</span>
+            </button>
+          ))}
+          <button onClick={go} disabled={!!busy && busy.startsWith("控えを")} className="w-full py-2 text-xs" style={{ borderRadius: 8, border: "none", background: "var(--brick)", color: "#fff", fontWeight: 800, cursor: "pointer" }}>控えを取ってからリセットする</button>
+          {busy && <p className="text-[11px]" style={{ color: "var(--ink)", fontWeight: 700 }}>{busy}</p>}
+        </div>
+      )}
+    </div>
+  );
+}
 const RPG_DEFAULTS = {
   gold: 0, goldEarned: 0, inventory: [], consumables: { potion: 1, xpBook: 0, restTicket: 0 },
   equipped: { weapon: null, armor: null, accessory: null }, bossWins: 0, bossLosses: 0, bossLog: [],
@@ -19395,20 +19452,23 @@ function EliteGoalCard({ state }) {
 // ── まちづくり（2026年10月22日）：はじまりの街が、小屋から王都へ育つ。育つ条件はレベルと「人口」（定着した問題［記憶が21日以上もつ］×1＋正解したことのある問題×0.2）。
 //    段階の絵は public/art/town/stage1〜6.webp（ないあいだは学びの地図のはじまりの街を仮に使う。指示文は docs/まちづくりの絵の指示文.md）。
 //    建物はゴールドと素材で建て、勉強に効く効果が付く（getRpgBonuses に足す）。前の日に勉強すると毎日の税収。記録は rpg.town = {stage, built:{建物id: 日付}, taxDay} ──
+// 2026年10月22日：街は「街の経験値」だけで育つ（キャラクターのレベルとは別）。問題に答える+1（正解+2）・問題集を1周+30・学習2分ごとに+1
 const TOWN_STAGES = [
-  { name: "小屋", lv: 1, pop: 0, text: "草原にぽつんと建つ、小さな小屋。ここから冒険が始まる。" },
-  { name: "開拓地", lv: 3, pop: 15, text: "草を刈り、柵を立てた。小屋のまわりに畑と道ができはじめた。" },
-  { name: "集落", lv: 6, pop: 40, text: "小さな家が集まり、たき火のまわりに人の声が聞こえる。" },
-  { name: "村", lv: 10, pop: 90, text: "畑と井戸と小さな広場。仲間が行き交う村になった。" },
-  { name: "宿場町", lv: 15, pop: 160, text: "旅人が泊まる宿と市場ができ、街道に人の流れが生まれた。" },
-  { name: "町", lv: 20, pop: 260, text: "石畳の通りに店が並び、学び舎の鐘が鳴る町。" },
-  { name: "城下町", lv: 27, pop: 400, text: "丘の上に城が建ち、城壁の内側に町が広がった。" },
-  { name: "街", lv: 35, pop: 600, text: "水路と橋で結ばれた、にぎやかな街。塔へ続く道も整った。" },
-  { name: "都", lv: 42, pop: 850, text: "尖塔が立ち並ぶ都。空には飛行船が行き交う。" },
-  { name: "王都", lv: 50, pop: 1200, text: "白い城がそびえる王都。ここまでの学びが、この都をつくった。" },
+  { name: "小屋", xp: 0, text: "草原にぽつんと建つ、小さな小屋。ここから冒険が始まる。" },
+  { name: "開拓地", xp: 300, text: "草を刈り、柵を立てた。小屋のまわりに畑と道ができはじめた。" },
+  { name: "集落", xp: 1000, text: "小さな家が集まり、たき火のまわりに人の声が聞こえる。" },
+  { name: "村", xp: 2500, text: "畑と井戸と小さな広場。仲間が行き交う村になった。" },
+  { name: "宿場町", xp: 5000, text: "旅人が泊まる宿と市場ができ、街道に人の流れが生まれた。" },
+  { name: "町", xp: 9000, text: "石畳の通りに店が並び、学び舎の鐘が鳴る町。" },
+  { name: "城下町", xp: 15000, text: "丘の上に城が建ち、城壁の内側に町が広がった。" },
+  { name: "街", xp: 24000, text: "水路と橋で結ばれた、にぎやかな街。塔へ続く道も整った。" },
+  { name: "都", xp: 36000, text: "尖塔が立ち並ぶ都。空には飛行船が行き交う。" },
+  { name: "王都", xp: 52000, text: "白い城がそびえる王都。ここまでの学びが、この都をつくった。" },
 ];
+// 街の経験値を足す（回答・周回・学習時間の記録のときに使う）
+const townGain = (rpg, n) => (n > 0 ? { ...(rpg || {}), town: { ...((rpg || {}).town || {}), xp: (((rpg || {}).town || {}).xp || 0) + n } } : rpg);
 // 6段階だったころ（2026年10月22日の公開）の段階を、10段階の同じくらいの段階へ
-const TOWN_V1_TO_V2 = [0, 2, 3, 5, 7, 9];
+const TOWN_V1_TO_V2 = [0, 2, 3, 5, 7, 9]; // （2026年10月22日に街の経験値へ変えたので、いまは使っていない）
 const townArt = (i) => `${ART_URL}town/stage${i + 1}.webp`;
 const TOWN_BUILDINGS = [
   { id: "library", name: "図書館", icon: "📚", stage: 2, gold: 300, mats: {}, fx: { xpPct: 3 }, fxText: "経験値+3%", need: (c) => [c.sankoRead >= 5, `参考書の章を5つ読む（いま${c.sankoRead}）`] },
@@ -19424,10 +19484,11 @@ function townStatus(state) {
   const r = normRpg(state.rpg);
   let settled = 0, ever = 0;
   state.questionBanks.forEach((b) => (b.questions || []).forEach((q) => { if (q.excluded) return; if (q.fs && q.fs.s >= 21) settled++; if ((q.correct || 0) > 0) ever++; }));
-  const pop = Math.round(settled + ever * 0.2);
+  const pop = Math.round(settled + ever * 0.2); // 住人（覚えた量。見た目だけ）
   const level = state.player.level;
+  const xp = ((r.town || {}).xp) || 0;
   let stage = 0;
-  TOWN_STAGES.forEach((s, i) => { if (level >= s.lv && pop >= s.pop) stage = i; });
+  TOWN_STAGES.forEach((s, i) => { if (xp >= s.xp) stage = i; });
   const c2 = r.calc2 || {};
   const cond = {
     settled, ever, pop, level,
@@ -19440,7 +19501,7 @@ function townStatus(state) {
     forgeOk: (r.forgeLog || {}).ok || 0,
   };
   const built = ((r.town || {}).built) || {};
-  return { stage, pop, settled, ever, level, cond, built, next: TOWN_STAGES[stage + 1] || null };
+  return { stage, pop, settled, ever, level, xp, cond, built, next: TOWN_STAGES[stage + 1] || null };
 }
 // 建てた建物の効果（getRpgBonuses へ）
 const townFx = (r) => TOWN_BUILDINGS.filter((b) => ((r.town || {}).built || {})[b.id]).map((b) => b.fx);
@@ -19489,16 +19550,16 @@ function TownPanel({ state, actions }) {
       </div>
       <div className="px-3 py-2 space-y-2">
         <div className="flex items-baseline gap-2 flex-wrap">
-          <span className="text-[13px]" style={{ fontWeight: 800, color: "var(--ink)" }}>人口 {ts.pop.toLocaleString()}人</span>
-          <span className="text-[10px]" style={{ color: "var(--ink-mute)" }}>（定着した問題 {ts.settled}×1＋正解したことのある問題 {ts.ever}×0.2）</span>
+          <span className="text-[13px]" style={{ fontWeight: 800, color: "var(--ink)" }}>街の経験値 {ts.xp.toLocaleString()}</span>
+          <span className="text-[10px]" style={{ color: "var(--ink-mute)" }}>住人 {ts.pop.toLocaleString()}人（覚えた問題の数）</span>
           <span className="flex-1" />
           <span className="text-[10px]" style={{ color: "var(--ink-soft)" }}>建物 {builtN}/{TOWN_BUILDINGS.length}</span>
         </div>
         {ts.next ? (
           <div className="space-y-1">
-            <div className="text-[11px]" style={{ color: "var(--ink)", fontWeight: 700 }}>次は「{ts.next.name}」へ：レベルと人口の両方がそろうと発展します</div>
-            {bar("主人公のレベル", ts.level, ts.next.lv)}
-            {bar("人口（覚えた量）", ts.pop, ts.next.pop)}
+            <div className="text-[11px]" style={{ color: "var(--ink)", fontWeight: 700 }}>次は「{ts.next.name}」へ：街の経験値がたまると発展します</div>
+            {bar("街の経験値", ts.xp, ts.next.xp)}
+            <div className="text-[10px]" style={{ color: "var(--ink-mute)" }}>問題に答える +1（正解は+2）・問題集を1周 +30・学習2分ごとに +1。{HERO_NAME}のレベル（戦いで上がる）とは別に育ちます。</div>
           </div>
         ) : <div className="text-[11px]" style={{ color: "#4f7a3a", fontWeight: 800 }}>王都まで育ちました！ ここまでの学びが、この都をつくりました。</div>}
         <div className="flex items-center gap-2 flex-wrap">
