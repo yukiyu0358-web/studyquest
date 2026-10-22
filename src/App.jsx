@@ -2426,7 +2426,7 @@ function StudyRPG({ user }) {
       SFX.play("stamp");
       showRpgToast(`🏗 ${b.name}が建ちました！ ${b.fxText}`, "#4f7a3a");
     },
-    townSetStage: (stage) => updateRpg((x) => ({ ...x, town: { ...(x.town || {}), stage } })),
+    townSetStage: (stage) => updateRpg((x) => ({ ...x, town: { ...(x.town || {}), stage, v: 2 } })),
     // 無限回廊：たどり着いた階（正解した数）。1階5G・EXP3、自己ベスト更新で+100G
     endlessFinish: (cleared) => {
       const e0 = normRpg(stateRef.current.rpg).endless || {};
@@ -3394,6 +3394,7 @@ function StudyRPG({ user }) {
     const r = normRpg(state.rpg);
     const ts = townStatus(state);
     // はじめは小屋から。すでに育つ条件がそろっていれば、小屋からいまの段階まで一度に発展する演出
+    if ((r.town || {}).stage !== undefined && !(r.town || {}).v) { rpgActions.townSetStage(TOWN_V1_TO_V2[r.town.stage] ?? 0); return; }
     const cur = (r.town || {}).stage ?? 0;
     if ((r.town || {}).stage === undefined && ts.stage === 0) { rpgActions.townSetStage(0); return; }
     if (ts.stage > cur) {
@@ -3401,7 +3402,7 @@ function StudyRPG({ user }) {
       showEvolution({ big: "街の発展", from: `はじまりの${TOWN_STAGES[cur].name}`, to: `はじまりの${TOWN_STAGES[ts.stage].name}`, sub: `${TOWN_STAGES[ts.stage].text}（人口${ts.pop.toLocaleString()}人）`, stage: heroStage(state.player.level),
         afterTalk: { title: `はじまりの${TOWN_STAGES[ts.stage].name}`, lines: [["hero", `見てください！ 街が「${TOWN_STAGES[ts.stage].name}」に育ちました。`], ["hero", "覚えた問題の数だけ、人が集まってくれたんです。"], ["pet", "（相棒が、新しい通りをうれしそうに走っていく）"], ["hero", "新しい建物も建てられるようになりました。街の「建物」をのぞいてみましょう。"]] } });
     }
-  }, [loaded, state.player.level, state.questionBanks]);
+  }, [loaded, state.player.level, state.questionBanks, (normRpg(state.rpg).town || {}).v]);
   useEffect(() => {
     if (!loaded) return;
     const r = normRpg(state.rpg);
@@ -19396,22 +19397,28 @@ function EliteGoalCard({ state }) {
 //    建物はゴールドと素材で建て、勉強に効く効果が付く（getRpgBonuses に足す）。前の日に勉強すると毎日の税収。記録は rpg.town = {stage, built:{建物id: 日付}, taxDay} ──
 const TOWN_STAGES = [
   { name: "小屋", lv: 1, pop: 0, text: "草原にぽつんと建つ、小さな小屋。ここから冒険が始まる。" },
-  { name: "集落", lv: 5, pop: 30, text: "小屋のまわりに家が増え、人が集まりはじめた。" },
-  { name: "村", lv: 12, pop: 100, text: "畑と井戸と小さな広場。仲間が行き交う村になった。" },
-  { name: "町", lv: 20, pop: 250, text: "石畳の通りに店が並び、学び舎の鐘が鳴る町。" },
-  { name: "街", lv: 30, pop: 500, text: "水路と橋で結ばれた、にぎやかな街。塔へ続く道も整った。" },
-  { name: "王都", lv: 45, pop: 1000, text: "白い城がそびえる王都。ここまでの学びが、この都をつくった。" },
+  { name: "開拓地", lv: 3, pop: 15, text: "草を刈り、柵を立てた。小屋のまわりに畑と道ができはじめた。" },
+  { name: "集落", lv: 6, pop: 40, text: "小さな家が集まり、たき火のまわりに人の声が聞こえる。" },
+  { name: "村", lv: 10, pop: 90, text: "畑と井戸と小さな広場。仲間が行き交う村になった。" },
+  { name: "宿場町", lv: 15, pop: 160, text: "旅人が泊まる宿と市場ができ、街道に人の流れが生まれた。" },
+  { name: "町", lv: 20, pop: 260, text: "石畳の通りに店が並び、学び舎の鐘が鳴る町。" },
+  { name: "城下町", lv: 27, pop: 400, text: "丘の上に城が建ち、城壁の内側に町が広がった。" },
+  { name: "街", lv: 35, pop: 600, text: "水路と橋で結ばれた、にぎやかな街。塔へ続く道も整った。" },
+  { name: "都", lv: 42, pop: 850, text: "尖塔が立ち並ぶ都。空には飛行船が行き交う。" },
+  { name: "王都", lv: 50, pop: 1200, text: "白い城がそびえる王都。ここまでの学びが、この都をつくった。" },
 ];
+// 6段階だったころ（2026年10月22日の公開）の段階を、10段階の同じくらいの段階へ
+const TOWN_V1_TO_V2 = [0, 2, 3, 5, 7, 9];
 const townArt = (i) => `${ART_URL}town/stage${i + 1}.webp`;
 const TOWN_BUILDINGS = [
-  { id: "library", name: "図書館", icon: "📚", stage: 1, gold: 300, mats: {}, fx: { xpPct: 3 }, fxText: "経験値+3%", need: (c) => [c.sankoRead >= 5, `参考書の章を5つ読む（いま${c.sankoRead}）`] },
-  { id: "survey", name: "測量所", icon: "📐", stage: 1, gold: 300, mats: { "m-zahyo": 3 }, fx: { critPct: 2 }, fxText: "会心率+2%", need: (c) => [c.calcOk >= 30, `計算の塔で30問正解（いま${c.calcOk}）`] },
-  { id: "inn", name: "宿屋", icon: "🛏", stage: 2, gold: 500, mats: {}, fx: { dmgCutPct: 3 }, fxText: "被ダメージ-3%・税収の日に回復薬1つ", need: (c) => [c.streak >= 7, `7日続けて学習する（最長${c.streak}日）`] },
-  { id: "school", name: "学舎", icon: "🏫", stage: 2, gold: 600, mats: {}, fx: { xpPct: 2 }, fxText: "経験値+2%", need: (c) => [c.allies >= 3, `仲間が3人加わる（いま${c.allies}人）`] },
-  { id: "clock", name: "時計台", icon: "🕰", stage: 3, gold: 800, mats: {}, fx: { critPct: 1, xpPct: 2 }, fxText: "会心率+1%・経験値+2%", need: (c) => [c.hours >= 50, `学習時間の合計50時間（いま${c.hours}時間）`] },
-  { id: "market", name: "市場", icon: "🏪", stage: 3, gold: 1000, mats: {}, fx: { goldPct: 5 }, fxText: "ゴールド+5%・税収1.5倍", need: (c) => [c.goldEarned >= 5000, `これまでに5,000G かせぐ（いま${c.goldEarned.toLocaleString()}G）`] },
-  { id: "smithy", name: "鍛冶屋", icon: "⚒", stage: 4, gold: 1500, mats: { "m-star": 2 }, fx: { bossDmgPct: 5 }, fxText: "ボスへのダメージ+5%", need: (c) => [c.forgeOk >= 5, `鍛冶で5回強化に成功（いま${c.forgeOk}）`] },
-  { id: "castle", name: "王城", icon: "🏰", stage: 5, gold: 3000, mats: { "m-sage": 1 }, fx: { xpPct: 5, dropPct: 10 }, fxText: "経験値+5%・素材+10%", need: (c) => [c.settled >= 500, `定着した問題500問（いま${c.settled}）`] },
+  { id: "library", name: "図書館", icon: "📚", stage: 2, gold: 300, mats: {}, fx: { xpPct: 3 }, fxText: "経験値+3%", need: (c) => [c.sankoRead >= 5, `参考書の章を5つ読む（いま${c.sankoRead}）`] },
+  { id: "survey", name: "測量所", icon: "📐", stage: 2, gold: 300, mats: { "m-zahyo": 3 }, fx: { critPct: 2 }, fxText: "会心率+2%", need: (c) => [c.calcOk >= 30, `計算の塔で30問正解（いま${c.calcOk}）`] },
+  { id: "inn", name: "宿屋", icon: "🛏", stage: 4, gold: 500, mats: {}, fx: { dmgCutPct: 3 }, fxText: "被ダメージ-3%・税収の日に回復薬1つ", need: (c) => [c.streak >= 7, `7日続けて学習する（最長${c.streak}日）`] },
+  { id: "school", name: "学舎", icon: "🏫", stage: 3, gold: 600, mats: {}, fx: { xpPct: 2 }, fxText: "経験値+2%", need: (c) => [c.allies >= 3, `仲間が3人加わる（いま${c.allies}人）`] },
+  { id: "clock", name: "時計台", icon: "🕰", stage: 5, gold: 800, mats: {}, fx: { critPct: 1, xpPct: 2 }, fxText: "会心率+1%・経験値+2%", need: (c) => [c.hours >= 50, `学習時間の合計50時間（いま${c.hours}時間）`] },
+  { id: "market", name: "市場", icon: "🏪", stage: 4, gold: 1000, mats: {}, fx: { goldPct: 5 }, fxText: "ゴールド+5%・税収1.5倍", need: (c) => [c.goldEarned >= 5000, `これまでに5,000G かせぐ（いま${c.goldEarned.toLocaleString()}G）`] },
+  { id: "smithy", name: "鍛冶屋", icon: "⚒", stage: 6, gold: 1500, mats: { "m-star": 2 }, fx: { bossDmgPct: 5 }, fxText: "ボスへのダメージ+5%", need: (c) => [c.forgeOk >= 5, `鍛冶で5回強化に成功（いま${c.forgeOk}）`] },
+  { id: "castle", name: "王城", icon: "🏰", stage: 9, gold: 3000, mats: { "m-sage": 1 }, fx: { xpPct: 5, dropPct: 10 }, fxText: "経験値+5%・素材+10%", need: (c) => [c.settled >= 500, `定着した問題500問（いま${c.settled}）`] },
 ];
 function townStatus(state) {
   const r = normRpg(state.rpg);
@@ -19449,7 +19456,7 @@ function TownImage({ stage, height = 220 }) {
   const [bad, setBad] = useState(false);
   useEffect(() => { setBad(false); }, [stage]);
   if (bad) return (
-    <div role="img" aria-label={`はじまりの${TOWN_STAGES[stage].name}（仮の絵）`} style={{ height, backgroundImage: `url(${ART_URL}townmap.webp)`, backgroundSize: `${300 - stage * 25}% auto`, backgroundPosition: "50% 30%", filter: stage < 2 ? "sepia(0.5) saturate(0.8)" : "none", position: "relative" }}>
+    <div role="img" aria-label={`はじまりの${TOWN_STAGES[stage].name}（仮の絵）`} style={{ height, backgroundImage: `url(${ART_URL}townmap.webp)`, backgroundSize: `${300 - stage * 18}% auto`, backgroundPosition: "50% 30%", filter: stage < 2 ? "sepia(0.5) saturate(0.8)" : "none", position: "relative" }}>
       <span className="jp" style={{ position: "absolute", right: 6, bottom: 4, fontSize: 9, color: "#fdfbf5", background: "rgba(20,28,50,0.55)", padding: "1px 6px", borderRadius: 999 }}>この姿の絵は準備中（仮の絵）</span>
     </div>
   );
@@ -19476,7 +19483,7 @@ function TownPanel({ state, actions }) {
       <div style={{ position: "relative" }}>
         <TownImage stage={shownStage} />
         <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, padding: "18px 12px 8px", background: "linear-gradient(0deg, rgba(20,28,50,0.8), rgba(20,28,50,0))", color: "#fdfbf5" }}>
-          <div style={{ fontFamily: "'Shippori Mincho B1', serif", fontWeight: 900, fontSize: 18, letterSpacing: "0.06em" }}>🏘 はじまりの{st.name}<span className="text-[11px] ml-2" style={{ color: "#f1dfae" }}>第{shownStage + 1}段階 / 6</span></div>
+          <div style={{ fontFamily: "'Shippori Mincho B1', serif", fontWeight: 900, fontSize: 18, letterSpacing: "0.06em" }}>🏘 はじまりの{st.name}<span className="text-[11px] ml-2" style={{ color: "#f1dfae" }}>第{shownStage + 1}段階 / {TOWN_STAGES.length}</span></div>
           <div className="text-[11px]" style={{ color: "#dfe8f6" }}>{st.text}</div>
         </div>
       </div>
