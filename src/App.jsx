@@ -1858,7 +1858,7 @@ function App() {
 
 // ============ Main StudyRPG ============
 const MAX_TIMER_MS = 6 * 60 * 60 * 1000; // 6時間（異常タイマー検知の閾値）
-const NOTE_TABS = ["task", "timer", "memo", "rules", "quotes", "qual"]; // 下のタブ「手帳」にまとめた画面
+const NOTE_TABS = ["status", "task", "timer", "memo", "rules", "quotes", "qual"]; // 下のタブ「手帳」にまとめた画面（記録＝ステータスもここに）
 // 下のタブ「周回」にまとめた画面（2026年10月22日）：問題集・計画と記録・記述式・計算・弱点と分析。laps は中の画面 lapView で分ける
 const LAP_TABS = [["qbank", null, "問題集"], ["laps", "plan", "計画・記録"], ["laps", "kijutsu", "記述式"], ["calc", null, "計算"], ["laps", "weak", "弱点・分析"]];
 function StudyRPG({ user }) {
@@ -1867,7 +1867,7 @@ function StudyRPG({ user }) {
   const [tab, setTab] = useState("home");
   const [quickPreset, setQuickPreset] = useState(null); // 忘れかけの3問（ホーム → 今日タブ）
   const [openBankReq, setOpenBankReq] = useState(null); // 今日のタスクの「解く」→ 問題タブでその問題集の開始画面を開く
-  const lastNoteTab = useRef("task"); // 「手帳」タブで最後に開いていた画面（資格・タスク・時間・メモ）
+  const lastNoteTab = useRef("status"); // 「手帳」タブで最後に開いていた画面（資格・タスク・時間・メモ）
   const [lapView, setLapView] = useState("plan"); // 「周回」タブの中の画面（plan・kijutsu・weak）
   const lastLap = useRef(["laps", "plan"]); // 「周回」タブで最後に開いていた画面
   useEffect(() => { if (NOTE_TABS.includes(tab)) lastNoteTab.current = tab; }, [tab]);
@@ -4095,15 +4095,15 @@ function StudyRPG({ user }) {
             return out;
           })()}
           {tab === "today" && <TodayTab header={<>{rmShow(state) && <TodayThree state={state} actions={rpgActions} />}{state.questionBanks.length > 0 && <GapTime state={state} />}</>} state={state} recordSRAnswer={recordSRAnswer} updateSrSettings={updateSrSettings} startTimer={startTimer} stopTimer={stopTimer} toggleQuestionMark={toggleQuestionMark} rpgActionsForPairs={rpgActions} preset={quickPreset} onPresetUsed={() => setQuickPreset(null)} planActions={planActions} />}
-          {tab === "status" && <StatusTab state={state} setMainTitle={setMainTitle} uid={user.uid} onTalk={rpgActions.openTalk} />}
           {tab === "adventure" && <AdventureTab state={state} actions={rpgActions} recordAnswer={recordAnswer} startTimer={startTimer} stopTimer={stopTimer} todayCount={getTodayReviewItems().length} />}
           {NOTE_TABS.includes(tab) && (
-            <div className="grid grid-cols-6 gap-1 p-1 mb-3" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)", borderRadius: 999 }}>
-              {[["task", "タスク"], ["timer", "時間"], ["memo", "メモ"], ["rules", "ルール帳"], ["quotes", "名言"], ["qual", "資格"]].map(([id, label]) => (
-                <button key={id} onClick={() => { lastNoteTab.current = id; setTab(id); }} className="jp py-1.5 text-xs" style={{ borderRadius: 999, border: "none", fontWeight: 700, cursor: "pointer", background: tab === id ? "linear-gradient(180deg, #cfae62, #a8833a)" : "transparent", color: tab === id ? "#fffdf6" : "var(--ink-soft)" }}>{label}</button>
+            <div className="grid grid-cols-7 gap-1 p-1 mb-3" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)", borderRadius: 999 }}>
+              {[["status", "記録"], ["task", "タスク"], ["timer", "時間"], ["memo", "メモ"], ["rules", "ルール帳"], ["quotes", "名言"], ["qual", "資格"]].map(([id, label]) => (
+                <button key={id} onClick={() => { lastNoteTab.current = id; setTab(id); }} className="jp py-1.5 text-[10px] md:text-xs" style={{ whiteSpace: "nowrap", borderRadius: 999, border: "none", fontWeight: 700, cursor: "pointer", background: tab === id ? "linear-gradient(180deg, #cfae62, #a8833a)" : "transparent", color: tab === id ? "#fffdf6" : "var(--ink-soft)" }}>{label}</button>
               ))}
             </div>
           )}
+          {tab === "status" && <StatusTab state={state} setMainTitle={setMainTitle} uid={user.uid} onTalk={rpgActions.openTalk} />}
           {tab === "qual" && <QualTab state={state} addQual={addQual} updateQual={updateQual} deleteQual={deleteQual} acquireQual={acquireQual} />}
           {tab === "task" && <TaskTab state={state} addTask={addTask} completeTask={completeTask} deleteTask={deleteTask} addPreset={addPreset} deletePreset={deletePreset} updatePreset={updatePreset} />}
           {tab === "timer" && <TimerTab state={state} liveSeconds={liveSeconds} startTimer={startTimer} stopTimer={stopTimer} cancelTimer={cancelTimer} addManualLog={addManualLog} deleteLog={deleteLog} focusActions={focusActions} />}
@@ -4125,15 +4125,14 @@ function StudyRPG({ user }) {
       </div>
 
       <nav className="fixed bottom-0 left-0 right-0 z-40" style={{ background: classic ? "linear-gradient(180deg, rgba(39,63,120,0.97), rgba(23,37,72,0.98))" : isWhite ? "linear-gradient(180deg, rgba(253,251,245,0.97), rgba(246,240,226,0.98))" : "var(--paper)", borderTop: isWhite ? "1px solid #b08a3e" : "2px solid var(--rule)", boxShadow: classic ? "inset 0 2px 0 #0a1226, inset 0 3px 0 rgba(160,185,215,0.5)" : isWhite ? "inset 0 3px 0 #fdfbf5, inset 0 4px 0 rgba(176,138,62,0.45), 0 -4px 14px rgba(40,50,80,0.08)" : "none", paddingBottom: "env(safe-area-inset-bottom)" }}>
-        <div className="max-w-3xl mx-auto grid grid-cols-7">
+        <div className="max-w-3xl mx-auto grid grid-cols-6">
           {[
             { id: "home",   label: "ホーム",     icon: <Home size={18} /> },
             { id: "today",  label: "今日",        icon: <Calendar size={18} /> }, // 今日やること・復習・叩き込み・特別な出題
             { id: "lapgroup", label: "周回",      icon: <Shuffle size={18} /> }, // 問題集・計画と記録・記述式・計算・弱点と分析
             { id: "sanko",  label: "参考書",      icon: <BookOpen size={18} /> }, // 参考書道場（暗記に特化した参考書）
             { id: "adventure", label: "冒険",     icon: <Castle size={18} /> },
-            { id: "status", label: "記録",        icon: <StatusIcon size={18} /> }, // ステータス・成長の年表・控え
-            { id: "notebook", label: "手帳",      icon: <Bookmark size={18} /> }, // 資格・タスク・時間・メモ・ルール帳・名言
+            { id: "notebook", label: "手帳",      icon: <Bookmark size={18} /> }, // 記録（ステータス・成長の年表・控え）・資格・タスク・時間・メモ・ルール帳・名言
           ].map((t) => {
             const badge = t.id === "today" ? getTodayReviewItems().length : t.id === "lapgroup" ? scopedPlans(state).reduce((a, p) => a + planToday(p).pending.length, 0) : 0;
             const on = t.id === "notebook" ? NOTE_TABS.includes(tab) : t.id === "lapgroup" ? ["qbank", "laps", "calc"].includes(tab) : tab === t.id;
