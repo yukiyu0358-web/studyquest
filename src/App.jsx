@@ -2407,6 +2407,26 @@ function StudyRPG({ user }) {
       return { ok: success, plus: success ? p + 1 : p, msg: success ? `${it.name} +${p + 1} に強化成功！` : "強化に失敗…（素材は失われました）" };
     },
     // 週替わりボスの結果（勝てば星霊石・賢者の結晶も。勝てるのは週に1回）
+    // まちづくり：税収（1日1回）・建物を建てる・段階の記録
+    townTax: ({ gold, potion }) => {
+      if ((normRpg(stateRef.current.rpg).town || {}).taxDay === todayStr()) return;
+      updateRpg((x) => ({ ...x, gold: x.gold + gold, goldEarned: x.goldEarned + gold, consumables: { ...x.consumables, potion: ((x.consumables || {}).potion || 0) + (potion || 0) }, town: { ...(x.town || {}), taxDay: todayStr() } }));
+      SFX.play("drop");
+      showRpgToast(`💰 街の税収 ${gold}G${potion ? "・回復薬1つ" : ""}`, "#b08a3e");
+    },
+    townBuild: (b) => {
+      const r0 = normRpg(stateRef.current.rpg);
+      if (((r0.town || {}).built || {})[b.id] || r0.gold < b.gold) return;
+      if (Object.entries(b.mats).some(([k, v]) => ((r0.materials || {})[k] || 0) < v)) return;
+      updateRpg((x) => {
+        const m = { ...x.materials };
+        Object.entries(b.mats).forEach(([k, v]) => { m[k] = (m[k] || 0) - v; });
+        return { ...x, gold: x.gold - b.gold, materials: m, town: { ...(x.town || {}), built: { ...((x.town || {}).built || {}), [b.id]: todayStr() } } };
+      });
+      SFX.play("stamp");
+      showRpgToast(`🏗 ${b.name}が建ちました！ ${b.fxText}`, "#4f7a3a");
+    },
+    townSetStage: (stage) => updateRpg((x) => ({ ...x, town: { ...(x.town || {}), stage } })),
     // 無限回廊：たどり着いた階（正解した数）。1階5G・EXP3、自己ベスト更新で+100G
     endlessFinish: (cleared) => {
       const e0 = normRpg(stateRef.current.rpg).endless || {};
@@ -3368,6 +3388,20 @@ function StudyRPG({ user }) {
     const e = { avatar: th.avatar, face: th.face, ...ev, id: uid() };
     setEvolution((cur) => { if (cur) { evoQ.current.push(e); return cur; } return e; });
   };
+  // まちづくり：レベルと人口がそろって段階が上がったら、街の発展の演出
+  useEffect(() => {
+    if (!loaded) return;
+    const r = normRpg(state.rpg);
+    const ts = townStatus(state);
+    // はじめは小屋から。すでに育つ条件がそろっていれば、小屋からいまの段階まで一度に発展する演出
+    const cur = (r.town || {}).stage ?? 0;
+    if ((r.town || {}).stage === undefined && ts.stage === 0) { rpgActions.townSetStage(0); return; }
+    if (ts.stage > cur) {
+      rpgActions.townSetStage(ts.stage);
+      showEvolution({ big: "街の発展", from: `はじまりの${TOWN_STAGES[cur].name}`, to: `はじまりの${TOWN_STAGES[ts.stage].name}`, sub: `${TOWN_STAGES[ts.stage].text}（人口${ts.pop.toLocaleString()}人）`, stage: heroStage(state.player.level),
+        afterTalk: { title: `はじまりの${TOWN_STAGES[ts.stage].name}`, lines: [["hero", `見てください！ 街が「${TOWN_STAGES[ts.stage].name}」に育ちました。`], ["hero", "覚えた問題の数だけ、人が集まってくれたんです。"], ["pet", "（相棒が、新しい通りをうれしそうに走っていく）"], ["hero", "新しい建物も建てられるようになりました。街の「建物」をのぞいてみましょう。"]] } });
+    }
+  }, [loaded, state.player.level, state.questionBanks]);
   useEffect(() => {
     if (!loaded) return;
     const r = normRpg(state.rpg);
@@ -4129,6 +4163,7 @@ function StudyRPG({ user }) {
             if (state.questionBanks.length) out.unshift(<TodayLink key="todaylink" state={state} dueN={getTodayReviewItems().length} onGo={() => setTab("today")} />);
             if (rmShow(state)) out.unshift(<RoadmapBanner key="roadmap" state={state} />);
             if (rmShow(state)) out.unshift(<EliteGoalCard key="elite" state={state} />);
+            out.unshift(<TownPanel key="town" state={state} actions={rpgActions} />);
             if ((state.qualifications || []).length) out.unshift(<StarBookBar key="book" state={state} onPick={(id) => updateDisplaySettings({ activeQual: id })} onNew={() => setTab("qual")} />);
             return out;
           })()}
@@ -9259,7 +9294,7 @@ function getRpgBonuses(state) {
   const r = normRpg(state.rpg);
   const eq = rpgEquippedItems(r);
   const setFx = setStatus(r).filter((st) => st.have === 3).map((st) => st.fx);
-  const gfx = [...setFx, ...getGrowthFx(state), ...r.skills.map((id) => (skillNodes.find((n) => n.id === id) || {}).fx || {}), ...Object.keys(r.regions || {}).filter((k) => r.regions[k].cleared).map((k) => regionInfo(k).emblem.fx), ...activeEvents(state).map((e) => e.fx), ...alliesJoined(r).map((a) => bondFx(a, r))]; // クラス・相棒・覚醒・スキル・地域の紋章・季節のイベント・仲間
+  const gfx = [...setFx, ...getGrowthFx(state), ...r.skills.map((id) => (skillNodes.find((n) => n.id === id) || {}).fx || {}), ...Object.keys(r.regions || {}).filter((k) => r.regions[k].cleared).map((k) => regionInfo(k).emblem.fx), ...activeEvents(state).map((e) => e.fx), ...alliesJoined(r).map((a) => bondFx(a, r)), ...townFx(r)]; // クラス・相棒・覚醒・スキル・地域の紋章・季節のイベント・仲間
   const sum = (k) => eq.reduce((a, it) => a + ((it.fx && it.fx[k]) || 0), 0) + gfx.reduce((a, f) => a + (f[k] || 0), 0);
   const st = calculateStatus(state);
   const boostActive = !!(r.boosts.xpUntil && Date.now() < r.boosts.xpUntil);
@@ -19350,6 +19385,139 @@ function EliteGoalCard({ state }) {
         </>) : (
           <div className="text-[11px]" style={{ color: "var(--ink-soft)", lineHeight: 1.7 }}>本番リハーサル（修練の塔）か、模試・答練の点（周回の塔 → 計画・記録）を記録すると、いまの実力と「R7なら何位か」がここに出ます。
             <button onClick={() => window.dispatchEvent(new CustomEvent("sq-open-past", { detail: { to: "laps" } }))} className="btn-sky text-[11px] px-2 py-0.5 ml-1">模試の点を記録する</button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+// ── まちづくり（2026年10月22日）：はじまりの街が、小屋から王都へ育つ。育つ条件はレベルと「人口」（定着した問題［記憶が21日以上もつ］×1＋正解したことのある問題×0.2）。
+//    段階の絵は public/art/town/stage1〜6.webp（ないあいだは学びの地図のはじまりの街を仮に使う。指示文は docs/まちづくりの絵の指示文.md）。
+//    建物はゴールドと素材で建て、勉強に効く効果が付く（getRpgBonuses に足す）。前の日に勉強すると毎日の税収。記録は rpg.town = {stage, built:{建物id: 日付}, taxDay} ──
+const TOWN_STAGES = [
+  { name: "小屋", lv: 1, pop: 0, text: "草原にぽつんと建つ、小さな小屋。ここから冒険が始まる。" },
+  { name: "集落", lv: 5, pop: 30, text: "小屋のまわりに家が増え、人が集まりはじめた。" },
+  { name: "村", lv: 12, pop: 100, text: "畑と井戸と小さな広場。仲間が行き交う村になった。" },
+  { name: "町", lv: 20, pop: 250, text: "石畳の通りに店が並び、学び舎の鐘が鳴る町。" },
+  { name: "街", lv: 30, pop: 500, text: "水路と橋で結ばれた、にぎやかな街。塔へ続く道も整った。" },
+  { name: "王都", lv: 45, pop: 1000, text: "白い城がそびえる王都。ここまでの学びが、この都をつくった。" },
+];
+const townArt = (i) => `${ART_URL}town/stage${i + 1}.webp`;
+const TOWN_BUILDINGS = [
+  { id: "library", name: "図書館", icon: "📚", stage: 1, gold: 300, mats: {}, fx: { xpPct: 3 }, fxText: "経験値+3%", need: (c) => [c.sankoRead >= 5, `参考書の章を5つ読む（いま${c.sankoRead}）`] },
+  { id: "survey", name: "測量所", icon: "📐", stage: 1, gold: 300, mats: { "m-zahyo": 3 }, fx: { critPct: 2 }, fxText: "会心率+2%", need: (c) => [c.calcOk >= 30, `計算の塔で30問正解（いま${c.calcOk}）`] },
+  { id: "inn", name: "宿屋", icon: "🛏", stage: 2, gold: 500, mats: {}, fx: { dmgCutPct: 3 }, fxText: "被ダメージ-3%・税収の日に回復薬1つ", need: (c) => [c.streak >= 7, `7日続けて学習する（最長${c.streak}日）`] },
+  { id: "school", name: "学舎", icon: "🏫", stage: 2, gold: 600, mats: {}, fx: { xpPct: 2 }, fxText: "経験値+2%", need: (c) => [c.allies >= 3, `仲間が3人加わる（いま${c.allies}人）`] },
+  { id: "clock", name: "時計台", icon: "🕰", stage: 3, gold: 800, mats: {}, fx: { critPct: 1, xpPct: 2 }, fxText: "会心率+1%・経験値+2%", need: (c) => [c.hours >= 50, `学習時間の合計50時間（いま${c.hours}時間）`] },
+  { id: "market", name: "市場", icon: "🏪", stage: 3, gold: 1000, mats: {}, fx: { goldPct: 5 }, fxText: "ゴールド+5%・税収1.5倍", need: (c) => [c.goldEarned >= 5000, `これまでに5,000G かせぐ（いま${c.goldEarned.toLocaleString()}G）`] },
+  { id: "smithy", name: "鍛冶屋", icon: "⚒", stage: 4, gold: 1500, mats: { "m-star": 2 }, fx: { bossDmgPct: 5 }, fxText: "ボスへのダメージ+5%", need: (c) => [c.forgeOk >= 5, `鍛冶で5回強化に成功（いま${c.forgeOk}）`] },
+  { id: "castle", name: "王城", icon: "🏰", stage: 5, gold: 3000, mats: { "m-sage": 1 }, fx: { xpPct: 5, dropPct: 10 }, fxText: "経験値+5%・素材+10%", need: (c) => [c.settled >= 500, `定着した問題500問（いま${c.settled}）`] },
+];
+function townStatus(state) {
+  const r = normRpg(state.rpg);
+  let settled = 0, ever = 0;
+  state.questionBanks.forEach((b) => (b.questions || []).forEach((q) => { if (q.excluded) return; if (q.fs && q.fs.s >= 21) settled++; if ((q.correct || 0) > 0) ever++; }));
+  const pop = Math.round(settled + ever * 0.2);
+  const level = state.player.level;
+  let stage = 0;
+  TOWN_STAGES.forEach((s, i) => { if (level >= s.lv && pop >= s.pop) stage = i; });
+  const c2 = r.calc2 || {};
+  const cond = {
+    settled, ever, pop, level,
+    sankoRead: Object.keys(((r.sanko || {}).read) || {}).length,
+    calcOk: Object.values(c2.stats || {}).reduce((t, s) => t + (s.ok || 0), 0),
+    streak: longestStudyStreak(state).best,
+    allies: alliesJoined(r).length,
+    hours: Math.floor(state.studyLog.reduce((t, l) => t + (Number(l.minutes) || 0), 0) / 60),
+    goldEarned: r.goldEarned || 0,
+    forgeOk: (r.forgeLog || {}).ok || 0,
+  };
+  const built = ((r.town || {}).built) || {};
+  return { stage, pop, settled, ever, level, cond, built, next: TOWN_STAGES[stage + 1] || null };
+}
+// 建てた建物の効果（getRpgBonuses へ）
+const townFx = (r) => TOWN_BUILDINGS.filter((b) => ((r.town || {}).built || {})[b.id]).map((b) => b.fx);
+// 前の日に学習していれば満額、していなければ3割。市場があれば1.5倍、宿屋があれば回復薬1つ
+function townTax(state, ts) {
+  const y = addDays(todayStr(), -1);
+  const studied = state.studyLog.some((l) => l.date === y) || state.questionBanks.some((b) => (b.questions || []).some((q) => (q.ah || []).some((h) => String(h).startsWith(ymdCode(y)))));
+  const base = 10 + ts.stage * 15 + Math.floor(ts.pop * 0.2);
+  const gold = Math.round(base * (studied ? 1 : 0.3) * (ts.built.market ? 1.5 : 1));
+  return { gold, studied, potion: ts.built.inn ? 1 : 0 };
+}
+function TownImage({ stage, height = 220 }) {
+  const [bad, setBad] = useState(false);
+  useEffect(() => { setBad(false); }, [stage]);
+  if (bad) return (
+    <div role="img" aria-label={`はじまりの${TOWN_STAGES[stage].name}（仮の絵）`} style={{ height, backgroundImage: `url(${ART_URL}townmap.webp)`, backgroundSize: `${300 - stage * 25}% auto`, backgroundPosition: "50% 30%", filter: stage < 2 ? "sepia(0.5) saturate(0.8)" : "none", position: "relative" }}>
+      <span className="jp" style={{ position: "absolute", right: 6, bottom: 4, fontSize: 9, color: "#fdfbf5", background: "rgba(20,28,50,0.55)", padding: "1px 6px", borderRadius: 999 }}>この姿の絵は準備中（仮の絵）</span>
+    </div>
+  );
+  return <img src={townArt(stage)} alt={`はじまりの${TOWN_STAGES[stage].name}`} onError={() => setBad(true)} style={{ display: "block", width: "100%", height, objectFit: "cover" }} />;
+}
+function TownPanel({ state, actions }) {
+  const [open, setOpen] = useState(false);
+  const ts = townStatus(state);
+  const r = normRpg(state.rpg);
+  const T = r.town || {};
+  const st = TOWN_STAGES[Math.min(ts.stage, (T.stage ?? ts.stage))] || TOWN_STAGES[ts.stage];
+  const shownStage = Math.min(ts.stage, T.stage ?? ts.stage);
+  const tax = townTax(state, ts);
+  const taxed = T.taxDay === todayStr();
+  const builtN = TOWN_BUILDINGS.filter((b) => ts.built[b.id]).length;
+  const bar = (label, v, need) => (
+    <div className="text-[10px]" style={{ color: "var(--ink-soft)" }}>
+      <div className="flex"><span className="flex-1">{label}</span><span style={{ color: v >= need ? "#4f7a3a" : "var(--ink)", fontWeight: 800 }}>{v.toLocaleString()} / {need.toLocaleString()}</span></div>
+      <div style={{ height: 6, borderRadius: 3, background: "var(--beige)", overflow: "hidden" }}><div style={{ width: `${Math.min(100, (v / Math.max(1, need)) * 100)}%`, height: "100%", background: v >= need ? "#6d8454" : "linear-gradient(90deg,#b08a3e,#f2c14e)" }} /></div>
+    </div>
+  );
+  return (
+    <div className="jp mb-3 overflow-hidden" style={{ borderRadius: 14, border: "1.5px solid #b08a3e", background: "var(--paper)", boxShadow: "0 6px 18px rgba(34,51,92,0.12)" }}>
+      <div style={{ position: "relative" }}>
+        <TownImage stage={shownStage} />
+        <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, padding: "18px 12px 8px", background: "linear-gradient(0deg, rgba(20,28,50,0.8), rgba(20,28,50,0))", color: "#fdfbf5" }}>
+          <div style={{ fontFamily: "'Shippori Mincho B1', serif", fontWeight: 900, fontSize: 18, letterSpacing: "0.06em" }}>🏘 はじまりの{st.name}<span className="text-[11px] ml-2" style={{ color: "#f1dfae" }}>第{shownStage + 1}段階 / 6</span></div>
+          <div className="text-[11px]" style={{ color: "#dfe8f6" }}>{st.text}</div>
+        </div>
+      </div>
+      <div className="px-3 py-2 space-y-2">
+        <div className="flex items-baseline gap-2 flex-wrap">
+          <span className="text-[13px]" style={{ fontWeight: 800, color: "var(--ink)" }}>人口 {ts.pop.toLocaleString()}人</span>
+          <span className="text-[10px]" style={{ color: "var(--ink-mute)" }}>（定着した問題 {ts.settled}×1＋正解したことのある問題 {ts.ever}×0.2）</span>
+          <span className="flex-1" />
+          <span className="text-[10px]" style={{ color: "var(--ink-soft)" }}>建物 {builtN}/{TOWN_BUILDINGS.length}</span>
+        </div>
+        {ts.next ? (
+          <div className="space-y-1">
+            <div className="text-[11px]" style={{ color: "var(--ink)", fontWeight: 700 }}>次は「{ts.next.name}」へ：レベルと人口の両方がそろうと発展します</div>
+            {bar("主人公のレベル", ts.level, ts.next.lv)}
+            {bar("人口（覚えた量）", ts.pop, ts.next.pop)}
+          </div>
+        ) : <div className="text-[11px]" style={{ color: "#4f7a3a", fontWeight: 800 }}>王都まで育ちました！ ここまでの学びが、この都をつくりました。</div>}
+        <div className="flex items-center gap-2 flex-wrap">
+          {taxed ? <span className="text-[11px]" style={{ color: "var(--ink-mute)" }}>💰 今日の税収は受け取りました</span>
+            : <button onClick={() => actions.townTax(tax)} className="btn-primary text-[12px] px-3 py-1">💰 税収を受け取る　{tax.gold}G{tax.potion ? "・回復薬1" : ""}</button>}
+          {!taxed && <span className="text-[10px]" style={{ color: "var(--ink-mute)" }}>{tax.studied ? "前の日の学習で満額" : "前の日は学習なし（3割）"}</span>}
+          <span className="flex-1" />
+          <button onClick={() => setOpen(!open)} className="btn-ghost text-[11px] px-2 py-1">{open ? "▲ 建物をとじる" : "🏗 建物を見る・建てる"}</button>
+        </div>
+        {open && (
+          <div className="grid gap-1.5 md:grid-cols-2">
+            {TOWN_BUILDINGS.map((b) => {
+              const has = !!ts.built[b.id];
+              const [ok, needText] = b.need(ts.cond);
+              const stageOk = shownStage >= b.stage;
+              const matsOk = Object.entries(b.mats).every(([k, v]) => ((r.materials || {})[k] || 0) >= v);
+              const can = !has && stageOk && ok && r.gold >= b.gold && matsOk;
+              const matText = Object.entries(b.mats).map(([k, v]) => `${(matById(k) || {}).name || k}×${v}`).join("・");
+              return (
+                <div key={b.id} className="px-2 py-1.5" style={{ borderRadius: 8, border: `1px solid ${has ? "#6d8454" : "var(--rule-soft)"}`, background: has ? "rgba(109,132,84,0.1)" : "var(--paper)", opacity: stageOk || has ? 1 : 0.6 }}>
+                  <div className="flex items-center gap-1.5"><span style={{ fontSize: 18 }}>{b.icon}</span><span className="flex-1 text-[13px]" style={{ fontWeight: 800, color: "var(--ink)" }}>{b.name}</span>{has ? <span className="text-[10px]" style={{ color: "#4f7a3a", fontWeight: 800 }}>✓ 建設済み</span> : <button disabled={!can} onClick={() => actions.townBuild(b)} className="btn-primary text-[10px] px-2 py-0.5" style={{ opacity: can ? 1 : 0.45 }}>建てる</button>}</div>
+                  <div className="text-[10px]" style={{ color: "var(--sky-deep)", fontWeight: 700 }}>効果：{b.fxText}</div>
+                  {!has && <div className="text-[10px]" style={{ color: "var(--ink-mute)" }}>{!stageOk ? `「${TOWN_STAGES[b.stage].name}」になると建てられる` : <>{ok ? "✓" : "・"} {needText}　／　{b.gold.toLocaleString()}G{matText ? `・${matText}` : ""}</>}</div>}
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
