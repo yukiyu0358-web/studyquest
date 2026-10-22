@@ -444,7 +444,7 @@ function roadmapProgress(state, t, ph) {
     const all = CALC2_ALL.length * FIXED_PER_TYPE;
     return { done: r1(cnt(fx.lapsAt) + (now ? Object.keys(fx.done || {}).length / all : 0)), unit: "周", note: `${all}問で1周` };
   }
-  if (t.kind === "rehearsal") return { done: cnt(((r.rehearsal || {}).log || []).map((x) => x.d)), unit: "回", note: "冒険 → 世界 → 鍛錬の「本番リハーサル」" };
+  if (t.kind === "rehearsal") return { done: cnt(((r.rehearsal || {}).log || []).map((x) => x.d)), unit: "回", note: "周回 → 鍛錬の「本番リハーサル」" };
   if (t.kind === "mocks") return { done: cnt((r.mocks || []).map((x) => x.d)), unit: "回", note: "周回の部屋の「模試・答練の記録」に書いた回数" };
   const man = t.custom ? t.manual || 0 : ed.manual || 0;
   return { done: man, unit: t.unit || "周", note: "自分で数える（＋1・−1）" };
@@ -948,15 +948,19 @@ const HOME_ROWS = [
   { id: "goal", name: "今日の目標（試験日から逆算）" }, { id: "final", name: "最終決戦" }, { id: "reflect", name: "今日のふりかえり" },
   { id: "quick", name: "忘れかけの3問" }, { id: "rival", name: "影の受験生" }, { id: "next", name: "次に取れそうな称号" }, { id: "stats", name: "今日の学習・連続学習・達成クエスト" },
 ];
+// 2026年10月22日：今日タブと同じ行（今日のタスク・復習・記述式・叩き込み・今日の目標・忘れかけ）と、下のタブと同じメニューは、はじめは隠す。
+// 設定で表示を変えると homeLayout.v2 が付き、そのあとは本人の選んだとおり
+const HOME_HIDE_V2 = ["row:task", "row:review", "row:kijutsu", "row:tataki", "row:goal", "row:quick", "top:menu"];
 function homeLayoutOf(state) {
   const hl = (state.displaySettings && state.displaySettings.homeLayout) || {};
   const fix = (list, all) => { const ids = all.map((x) => x.id); const got = (Array.isArray(list) ? list : []).filter((id) => ids.includes(id)); return [...got, ...ids.filter((id) => !got.includes(id))]; };
-  return { order: fix(hl.order, HOME_BLOCKS), rows: fix(hl.rows, HOME_ROWS), hidden: new Set(Array.isArray(hl.hidden) ? hl.hidden : []) };
+  const hid = Array.isArray(hl.hidden) ? hl.hidden : [];
+  return { order: fix(hl.order, HOME_BLOCKS), rows: fix(hl.rows, HOME_ROWS), hidden: new Set(hl.v2 ? hid : [...hid, ...HOME_HIDE_V2]) };
 }
 function HomeLayoutSettings({ ds, onChange }) {
   const hl = ds.homeLayout || {};
   const L = homeLayoutOf({ displaySettings: ds });
-  const save = (patch) => onChange({ homeLayout: { order: L.order, rows: L.rows, hidden: [...L.hidden], ...hl, ...patch } });
+  const save = (patch) => onChange({ homeLayout: { order: L.order, rows: L.rows, ...hl, hidden: [...L.hidden], v2: true, ...patch } });
   const toggle = (id) => { const h = new Set(L.hidden); if (h.has(id)) h.delete(id); else h.add(id); save({ hidden: [...h] }); };
   const move = (key, list, i, d) => { const a = [...list]; const j = i + d; if (j < 0 || j >= a.length) return; [a[i], a[j]] = [a[j], a[i]]; save({ [key]: a }); };
   const item = (label, hid, onUp, onDown, sub, indent) => (
@@ -1860,7 +1864,7 @@ function App() {
 const MAX_TIMER_MS = 6 * 60 * 60 * 1000; // 6時間（異常タイマー検知の閾値）
 const NOTE_TABS = ["status", "task", "timer", "memo", "rules", "quotes", "qual"]; // 下のタブ「手帳」にまとめた画面（記録＝ステータスもここに）
 // 下のタブ「周回」にまとめた画面（2026年10月22日）：問題集・計画と記録・記述式・計算・弱点と分析。laps は中の画面 lapView で分ける
-const LAP_TABS = [["qbank", null, "問題集"], ["laps", "plan", "計画・記録"], ["laps", "kijutsu", "記述式"], ["calc", null, "計算"], ["laps", "weak", "弱点・分析"]];
+const LAP_TABS = [["qbank", null, "問題集"], ["laps", "plan", "計画・記録"], ["laps", "kijutsu", "記述式"], ["calc", null, "計算"], ["laps", "train", "鍛錬"], ["laps", "weak", "弱点・分析"]];
 function StudyRPG({ user }) {
   const [state, setState] = useState(INIT);
   const [loaded, setLoaded] = useState(false);
@@ -1922,11 +1926,12 @@ function StudyRPG({ user }) {
   // 記述式の道場 ⇄ 計算の部屋：sq-open-past の合図で、その年度を開く（{to: "calc"|"laps", key}）
   const [pastReq, setPastReq] = useState(null);
   useEffect(() => {
-    const on = (e) => { const d = e.detail || {}; if (d.to) { setPastReq({ ...d, t: Date.now() }); if (d.to === "laps") setLapView(d.key || d.tataki ? "kijutsu" : "plan"); setTab(d.to); } };
+    const on = (e) => { const d = e.detail || {}; if (d.to) { setPastReq({ ...d, t: Date.now() }); if (d.to === "laps") setLapView(d.view || (d.key || d.tataki ? "kijutsu" : "plan")); setTab(d.to); } };
     window.addEventListener("sq-open-past", on);
     return () => window.removeEventListener("sq-open-past", on);
   }, []);
-  const [showDisplaySettings, setShowDisplaySettings] = useState(false); // 「Aa 文字」パネル
+  const [showDisplaySettings, setShowDisplaySettings] = useState(false); // 「⚙ 設定」パネル（もとは「Aa 文字」）
+  const [showDataMenu, setShowDataMenu] = useState(false); // 画面上部の「データ」メニュー（クラウド・ファイル）
   const [showLawSearch, setShowLawSearch] = useState(false);             // 「📜 条文」パネル
   const [showRoadmap, setShowRoadmap] = useState(false);                 // 「📅 計画」2027年 合格ロードマップ
   const [titleOpen, setTitleOpen] = useState(() => readPref("sq-title", "on") !== "off"); // 起動時のタイトル画面
@@ -4023,11 +4028,19 @@ function StudyRPG({ user }) {
               {syncStatus === "offline" && "オフライン"}
               {syncStatus === "error" && (cloudLoadFailed.current ? "読込失敗・保存停止中（再読込してください）" : "同期エラー")}
             </span>
-            <button onClick={forcePush} title="このデータをクラウドに強制保存" className="sq-tool ml-1 px-1.5 py-0.5 text-[10px] whitespace-nowrap" style={{ background: "var(--gold)", border: "none", color: "var(--paper)", cursor: "pointer" }}><Ico ch="📤" size={12} /> 保存</button>
-            <button onClick={forceSync} title="クラウドから強制再読み込み" className="sq-tool px-1.5 py-0.5 text-[10px] whitespace-nowrap" style={{ background: "var(--sky-pale)", border: "1px solid var(--sky-deep)", color: "var(--sky-deep)", cursor: "pointer" }}><Ico ch="📥" size={12} /> 読込</button>
-            <button onClick={exportJson} title="データをJSONファイルに書き出し（端末間移行用）" className="sq-tool px-1.5 py-0.5 text-[10px] whitespace-nowrap" style={{ background: "var(--sage)", border: "none", color: "var(--paper)", cursor: "pointer" }}><Ico ch="📦" size={12} /> 書出</button>
-            <button onClick={importJson} title="JSONファイルからデータを読み込み" className="sq-tool px-1.5 py-0.5 text-[10px] whitespace-nowrap" style={{ background: "var(--ink-soft)", border: "none", color: "var(--paper)", cursor: "pointer" }}><Ico ch="📂" size={12} /> 読込</button>
-            <button onClick={() => setShowDisplaySettings(!showDisplaySettings)} title="問題文のフォント・文字サイズ" className={`sq-tool${showDisplaySettings ? " on" : ""} px-1.5 py-0.5 text-[10px] whitespace-nowrap`} style={{ background: showDisplaySettings ? "var(--sky-deep)" : "var(--paper)", border: "1px solid var(--sky-deep)", color: showDisplaySettings ? "var(--paper)" : "var(--sky-deep)", cursor: "pointer" }}>Aa 文字</button>
+            {/* データ（クラウドとファイル）は1つのメニューに（2026年10月22日） */}
+            <span className="relative ml-1">
+              <button onClick={() => setShowDataMenu(!showDataMenu)} title="クラウドへの保存・読み直し、ファイルへの書き出し・読み込み" className={`sq-tool${showDataMenu ? " on" : ""} px-1.5 py-0.5 text-[10px] whitespace-nowrap`} style={{ background: showDataMenu ? "var(--sky-deep)" : "var(--paper)", border: "1px solid var(--sky-deep)", color: showDataMenu ? "var(--paper)" : "var(--sky-deep)", cursor: "pointer" }}><Ico ch="🗂" size={12} /> データ ▾</button>
+              {showDataMenu && <span aria-hidden="true" onClick={() => setShowDataMenu(false)} style={{ position: "fixed", inset: 0, zIndex: 59 }} />}
+              {showDataMenu && (
+                <span className="jp absolute left-0 mt-1 flex flex-col" style={{ zIndex: 60, top: "100%", minWidth: 210, background: "var(--paper)", border: "1px solid var(--sky-deep)", borderRadius: 8, boxShadow: "0 6px 18px rgba(34,51,92,0.2)", overflow: "hidden" }}>
+                  {[["☁ クラウドへ保存する", "いまのデータで、クラウドの記録を上書き", forcePush], ["☁ クラウドから読み直す", "ほかの端末の更新を取り込む", forceSync], ["📦 ファイルに書き出す", "データをファイルに保存（端末の引っ越し・控え）", exportJson], ["📂 ファイルから読み込む", "書き出したファイルから戻す", importJson]].map(([l, sub, fn]) => (
+                    <button key={l} onClick={() => { setShowDataMenu(false); fn(); }} className="text-left px-3 py-2" style={{ background: "none", border: "none", borderBottom: "1px solid var(--rule-soft)", cursor: "pointer", color: "var(--ink)" }}><span className="block text-[12px]" style={{ fontWeight: 700 }}>{l}</span><span className="block text-[10px]" style={{ color: "var(--ink-mute)" }}>{sub}</span></button>
+                  ))}
+                </span>
+              )}
+            </span>
+            <button onClick={() => setShowDisplaySettings(!showDisplaySettings)} title="文字・テーマ・学習の工夫・ホームの表示などの設定" className={`sq-tool${showDisplaySettings ? " on" : ""} px-1.5 py-0.5 text-[10px] whitespace-nowrap`} style={{ background: showDisplaySettings ? "var(--sky-deep)" : "var(--paper)", border: "1px solid var(--sky-deep)", color: showDisplaySettings ? "var(--paper)" : "var(--sky-deep)", cursor: "pointer" }}>⚙ 設定</button>
             <button onClick={() => setShowRoadmap(true)} title="2027年 合格ロードマップ" className="sq-tool px-1.5 py-0.5 text-[10px] whitespace-nowrap" style={{ background: "linear-gradient(180deg, #cfae62, #a8833a)", border: "none", color: "#fffdf6", cursor: "pointer", fontWeight: 700 }}>📅 計画</button>
             <button onClick={() => setShowLawSearch(!showLawSearch)} title="条文・キーワード検索" className={`sq-tool${showLawSearch ? " on" : ""} px-1.5 py-0.5 text-[10px] whitespace-nowrap`} style={{ background: showLawSearch ? "var(--gold)" : "var(--paper)", border: "1px solid var(--gold)", color: showLawSearch ? "var(--paper)" : "var(--gold)", cursor: "pointer" }}><Ico ch="📜" size={12} /> 条文</button>
           </div>
@@ -4109,14 +4122,14 @@ function StudyRPG({ user }) {
           {tab === "timer" && <TimerTab state={state} liveSeconds={liveSeconds} startTimer={startTimer} stopTimer={stopTimer} cancelTimer={cancelTimer} addManualLog={addManualLog} deleteLog={deleteLog} focusActions={focusActions} />}
           {tab === "memo" && <MemoTab state={state} addStudyNote={addStudyNote} updateStudyNote={updateStudyNote} deleteStudyNote={deleteStudyNote} addFolder={addFolder} deleteFolder={deleteFolder} renameFolder={renameFolder} reorderFolders={reorderFolders} />}
           {(tab === "qbank" || tab === "laps" || tab === "calc") && (
-            <div className="grid grid-cols-5 gap-1 p-1 mb-3" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)", borderRadius: 999 }}>
+            <div className="grid grid-cols-6 gap-1 p-1 mb-3" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)", borderRadius: 999 }}>
               {LAP_TABS.map(([t, v, label]) => { const on = tab === t && (!v || lapView === v); return (
                 <button key={label} onClick={() => { lastLap.current = [t, v]; if (v) setLapView(v); setTab(t); }} className="jp py-1.5 text-[10px] md:text-xs" style={{ borderRadius: 999, border: "none", fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap", background: on ? "linear-gradient(180deg, #cfae62, #a8833a)" : "transparent", color: on ? "#fffdf6" : "var(--ink-soft)" }}>{label}</button>
               ); })}
             </div>
           )}
           {tab === "calc" && <CalcTab state={state} actions={rpgActions} startTimer={startTimer} stopTimer={stopTimer} pastReq={pastReq && pastReq.to === "calc" ? pastReq : null} onPastOpened={() => setPastReq(null)} />}
-          {tab === "laps" && <LapRoom view={lapView} state={state} actions={planActions} rpgActions={rpgActions} pastReq={pastReq && pastReq.to === "laps" ? pastReq : null} onPastOpened={() => setPastReq(null)} startTimer={startTimer} stopTimer={stopTimer} />}
+          {tab === "laps" && <LapRoom view={lapView} recordAnswer={recordAnswer} state={state} actions={planActions} rpgActions={rpgActions} pastReq={pastReq && pastReq.to === "laps" ? pastReq : null} onPastOpened={() => setPastReq(null)} startTimer={startTimer} stopTimer={stopTimer} />}
           {tab === "rules" && <RuleBook state={state} />}
           {tab === "quotes" && <MyQuotes state={state} onChange={(list) => setState((s) => ({ ...s, myQuotes: list }))} />}
           {tab === "sanko" && <SankoTab state={state} actions={rpgActions} onCreateBank={addQuestionBank} />}
@@ -6098,8 +6111,6 @@ function QBankTab(props) {
       <HealthWarning state={state} />
       {/* ── 弱点リスト ── */}
       <WeaknessListPanel state={state} onCrossRevenge={(qid) => setCrossRevengeQualId(qid)} />
-      <WeakExportPanel state={state} />
-      <PrintNoteButton state={state} />
 
       {state.questionBanks.length === 0 ? (
         <Box title="登録済み問題集" icon={<ScrollIcon size={18} />}>
@@ -12917,14 +12928,14 @@ function WorldView({ state, actions, todayCount, onWeekly, onDungeon, onGuardian
   const linked = qual && state.questionBanks.some((b) => b.qualId === qual.id);
   const pp = passPower(state, linked ? qual.id : null);
   const world = worldOfQual(qual);
-  const [sec, setSec] = useState("story"); // story（ストーリー）| tower（試練の塔）| train（鍛錬）| road（地図と仲間）| quest（クエスト）| castle（魔王城）
-  const tabs = [["story", "ストーリー"], ["tower", "試練の塔"], ["train", "鍛錬"], ["road", "地図と仲間"], ["quest", "クエスト"], ["castle", "魔王城"]];
+  const [sec, setSec] = useState("story"); // story（ストーリー）| tower（試練の塔）| road（地図と仲間）| quest（クエスト）| castle（魔王城）。鍛錬は周回へ移した
+  const tabs = [["story", "ストーリー"], ["tower", "試練の塔"], ["road", "地図と仲間"], ["quest", "クエスト"], ["castle", "魔王城"]];
   return (
     <>
       <WorldBanner state={state} world={world} qual={qual} linked={linked} onPick={actions.setActiveQual} />
-      <div className="grid grid-cols-3 sm:grid-cols-6 gap-1 p-1" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)", borderRadius: 16 }}>
+      <div className="grid grid-cols-5 gap-1 p-1" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)", borderRadius: 16 }}>
         {tabs.map(([id, label]) => (
-          <button key={id} onClick={() => setSec(id)} className="jp py-1.5 text-xs" style={{ borderRadius: 999, border: "none", fontWeight: 700, cursor: "pointer", background: sec === id ? "linear-gradient(180deg, #cfae62, #a8833a)" : "transparent", color: sec === id ? "#fffdf6" : "var(--ink-soft)" }}>{label}</button>
+          <button key={id} onClick={() => setSec(id)} className="jp py-1.5 text-[11px] md:text-xs" style={{ borderRadius: 999, border: "none", fontWeight: 700, cursor: "pointer", background: sec === id ? "linear-gradient(180deg, #cfae62, #a8833a)" : "transparent", color: sec === id ? "#fffdf6" : "var(--ink-soft)" }}>{label}</button>
         ))}
       </div>
       {sec === "story" && (<>
@@ -12932,30 +12943,6 @@ function WorldView({ state, actions, todayCount, onWeekly, onDungeon, onGuardian
         <TopicKarte state={state} pp={pp} onStart={onStory} />
       </>)}
       {sec === "tower" && <TowerView state={state} pp={pp} onStart={onTower} />}
-      {sec === "train" && world.id === "home" && (<>
-        <NumberDeck state={state} actions={actions} />
-        <PaceDrill state={state} actions={actions} />
-        <KumiaiDrill state={state} actions={actions} />
-        <LawListen state={state} actions={actions} />
-        <TeachMode state={state} actions={actions} />
-        <RehearsalCard state={state} pp={pp} actions={actions} onStart={onRehearsal} />
-        <ShinseiDrill state={state} actions={actions} />
-        <CalcDrill state={state} actions={actions} />
-        <SakuzuDrill state={state} actions={actions} />
-        <LawCloze state={state} actions={actions} />
-        <ShoshikiDojo state={state} actions={actions} />
-        <ShoshikiCheck state={state} actions={actions} />
-      </>)}
-      {sec === "train" && world.id !== "home" && (<>
-        {world.exam && <WorldExamCard key={world.id} state={state} world={world} pp={pp} actions={actions} />}
-        {(world.drills || []).includes("radiocalc") && <RadioCalcDrill state={state} actions={actions} />}
-        {(world.drills || []).includes("blocks") && <BlockDrill state={state} actions={actions} />}
-        <NumberDeck state={state} actions={actions} />
-        <PaceDrill state={state} actions={actions} />
-        <LawListen state={state} actions={actions} />
-        <TeachMode state={state} actions={actions} />
-        <LawCloze state={state} actions={actions} />
-      </>)}
       {sec === "road" && (<>
         <PartyCard state={state} actions={actions} />
         <PartyEditor state={state} actions={actions} regions={pp.regions.filter((g) => g.total > 0).sort(byRegionOrder).map((g) => g.name)} />
@@ -15469,7 +15456,7 @@ function PlanMaker({ state, onSave, onCancel }) {
   );
 }
 // ── 周回の部屋（下のタブ「周回」）：学習計画・今日のタスク・これまでの周回の記録 ──
-function LapRoom({ view = "plan", state, actions, rpgActions, pastReq, onPastOpened, startTimer, stopTimer }) {
+function LapRoom({ view = "plan", state, actions, rpgActions, recordAnswer, pastReq, onPastOpened, startTimer, stopTimer }) {
   const [dojoFocus, setDojoFocus] = useState(false); // 記述式の道場で解いているあいだは、ほかの欄を隠す
   const active = scopedPlans(state); // 勉強の範囲の世界の計画
   const left = active.reduce((a, p) => a + planToday(p).pending.length, 0);
@@ -15485,13 +15472,18 @@ function LapRoom({ view = "plan", state, actions, rpgActions, pastReq, onPastOpe
       {show && !homeWorld && <p className="jp text-xs text-center" style={{ color: "var(--ink-mute)" }}>申請書の叩き込みは、王都の世界（土地家屋調査士）のときに出ます。</p>}
     </div>
   );
-  // 弱点・分析：弱点集・論点ごとの横断周回・学習の分析
+  // 鍛錬（2026年10月22日に冒険から移した）
+  if (view === "train") return <TrainingRoom state={state} actions={rpgActions} recordAnswer={recordAnswer} startTimer={startTimer} stopTimer={stopTimer} />;
+  // 弱点・分析：弱点集（賞金首もここ）・論点ごとの横断周回・学習の分析・印刷と書き出し
   if (view === "weak") return (
     <div className="space-y-4">
       <StudyScopeBar state={state} />
-      <WeakBook state={state} />
+      <WeakBook state={state} actions={rpgActions} />
       <RontenLap state={state} />
       <StudyAnalysis state={state} />
+      <div className="jp text-[11px] -mb-2" style={{ color: "var(--ink-soft)", fontWeight: 700 }}>🖨 印刷・書き出し</div>
+      <PrintNoteButton state={state} />
+      <WeakExportPanel state={state} />
     </div>
   );
   // 計画・記録
@@ -15516,6 +15508,41 @@ function LapRoom({ view = "plan", state, actions, rpgActions, pastReq, onPastOpe
       {show && <LapForecast state={state} />}
       {show && rpgActions && <MockLog state={state} actions={rpgActions} />}
       {show && <LapRecordsPanel state={state} />}
+    </div>
+  );
+}
+// ── 鍛錬（2026年10月22日。冒険の世界タブから周回へ移した）：本番リハーサルと、短い練習をまとめた場所。本番リハーサルの戦いもここで動かす。
+//    王都の世界（調査士）は申請書の穴埋め・組合せ問題・書式など、資格の世界は本番モードと世界の鍛錬（計算ドリル・作図ドリルは「計算」へ）──
+function TrainingRoom({ state, actions, recordAnswer, startTimer, stopTimer }) {
+  const [rehearsal, setRehearsal] = useState(null);
+  const qual = mainQual(state);
+  const linked = qual && state.questionBanks.some((b) => b.qualId === qual.id);
+  const pp = passPower(state, linked ? qual.id : null);
+  const world = worldOfQual(qual);
+  if (rehearsal) return <RehearsalRun state={state} run={rehearsal} actions={actions} recordAnswer={recordAnswer} startTimer={startTimer} stopTimer={stopTimer} onExit={() => setRehearsal(null)} />;
+  if (world.id !== "home") return (
+    <div className="space-y-4">
+      {world.exam && <WorldExamCard key={world.id} state={state} world={world} pp={pp} actions={actions} />}
+      {(world.drills || []).includes("blocks") && <BlockDrill state={state} actions={actions} />}
+      <NumberDeck state={state} actions={actions} />
+      <PaceDrill state={state} actions={actions} />
+      <LawCloze state={state} actions={actions} />
+      <LawListen state={state} actions={actions} />
+      <TeachMode state={state} actions={actions} />
+    </div>
+  );
+  return (
+    <div className="space-y-4">
+      <RehearsalCard state={state} pp={pp} actions={actions} onStart={setRehearsal} />
+      <ShinseiDrill state={state} actions={actions} />
+      <KumiaiDrill state={state} actions={actions} />
+      <NumberDeck state={state} actions={actions} />
+      <PaceDrill state={state} actions={actions} />
+      <LawCloze state={state} actions={actions} />
+      <LawListen state={state} actions={actions} />
+      <TeachMode state={state} actions={actions} />
+      <ShoshikiDojo state={state} actions={actions} />
+      <ShoshikiCheck state={state} actions={actions} />
     </div>
   );
 }
@@ -16533,16 +16560,18 @@ function TodayTab({ header = null, state, recordSRAnswer, updateSrSettings, star
             </>
           )}
         </Box>
-        <MemoryReportCard state={state} />
-        <Prescription state={state} />
-        <BountyBoard state={state} actions={rpgActionsForPairs} onStart={startSpecial} />
         {curWorld(state).id === "home" && <TatakiDueCard state={state} />}
         <KijutsuDueCard state={state} />
         <SpecialQuizCards state={state} onStart={startSpecial} />
-        <ListenMode state={state} due={due} toggleQuestionMark={toggleQuestionMark} />
-        <ReviewForecast state={state} />
-        <MemoryWeather state={state} />
+        <WeakLink state={state} />
         <ConfusionPairs state={state} actions={rpgActionsForPairs} />
+        <ListenMode state={state} due={due} toggleQuestionMark={toggleQuestionMark} />
+        <Fold title="📈 ふりかえり・予報" sub="記憶の通知表・今週の処方箋・復習の予報・記憶の天気図" k="today-look">
+          <MemoryReportCard state={state} />
+          <Prescription state={state} />
+          <ReviewForecast state={state} />
+          <MemoryWeather state={state} />
+        </Fold>
       </div>
     );
   }
@@ -17478,12 +17507,12 @@ function NumberDeck({ state, actions }) {
 
 // ── 2. 間違いの種類別の処方箋：この1週間のまちがいの傾向から、次にやることを案内 ──
 const RX = {
-  knowledge: { name: "知識不足", go: "冒険 → 世界 → 鍛錬「条文の穴埋め」「条文の音読モード」", tip: "覚えていなかった問題が多めです。条文に戻って、言葉ごと覚え直しましょう。" },
+  knowledge: { name: "知識不足", go: "周回 → 鍛錬「条文の穴埋め」「条文の音読モード」", tip: "覚えていなかった問題が多めです。条文に戻って、言葉ごと覚え直しましょう。" },
   confusion: { name: "混同", go: "今日タブ「混同ペアの対比カード」", tip: "似た知識の取り違えが多めです。2つを並べて、違いの一点を見つけましょう。" },
-  misread: { name: "読み違い", go: "「Aa 文字」の設定で「ひっかけ言葉の印」をオン", tip: "問題文の読み違いが多めです。否定語・主語・数字に印を付けて読みましょう。" },
-  careless: { name: "ケアレス", go: "冒険 → 世界 → 鍛錬「時間配分トレーニング」", tip: "わかっていたのに落とすミスが多めです。答える前の見直し手順を決めましょう。" },
-  slow: { name: "時間がかかる", go: "冒険 → 世界 → 鍛錬「時間配分トレーニング」", tip: "思い出すまでの時間が長めです。数字や結論を即答できるまで、短い周期で回しましょう。" },
-  sure: { name: "思い込み", go: "周回の部屋 → 学習の分析「思い込み度」", tip: "「確実」で答えてまちがえる問題があります。根拠の条文まで確かめましょう。" },
+  misread: { name: "読み違い", go: "画面上部の「⚙ 設定」で「ひっかけ言葉の印」をオン", tip: "問題文の読み違いが多めです。否定語・主語・数字に印を付けて読みましょう。" },
+  careless: { name: "ケアレス", go: "周回 → 鍛錬「時間配分トレーニング」", tip: "わかっていたのに落とすミスが多めです。答える前の見直し手順を決めましょう。" },
+  slow: { name: "時間がかかる", go: "周回 → 鍛錬「時間配分トレーニング」", tip: "思い出すまでの時間が長めです。数字や結論を即答できるまで、短い周期で回しましょう。" },
+  sure: { name: "思い込み", go: "周回 → 弱点・分析 → 学習の分析「思い込み度」", tip: "「確実」で答えてまちがえる問題があります。根拠の条文まで確かめましょう。" },
 };
 function Prescription({ state }) {
   const from = ymdCode(addDays(todayStr(), -6));
@@ -18023,6 +18052,8 @@ function CalcTab({ state, actions, startTimer, stopTimer, pastReq, onPastOpened 
           </div>
         </Box>
       )}
+      {curWorld(state).id === "home" && <CalcDrill state={state} actions={actions} />}
+      {curWorld(state).id === "home" && <SakuzuDrill state={state} actions={actions} />}
       <Box title="fx-JP500 の準備" icon={<Bookmark size={18} />}>
         <div className="jp text-[11px] space-y-1" style={{ color: "var(--ink)" }}>
           <div>・角度の単位を「度」にする：<KeySeq seq={["[SHIFT]", "[MENU]", "(設定)"]} /> → 角度単位 → 度（D）</div>
@@ -18732,6 +18763,33 @@ function calcDueList(state, eras, today) {
   const untried = eras.length * 2 - Object.keys(res).filter((k) => /^[LF]:/.test(k)).length;
   return { past, types, untried };
 }
+// たためる欄（開いたかどうかは端末に覚える）
+function Fold({ title, sub, k, children }) {
+  const [open, setOpen] = useState(() => { try { return localStorage.getItem(`sq-fold-${k}`) === "1"; } catch (e) { return false; } });
+  const flip = () => { const v = !open; setOpen(v); try { localStorage.setItem(`sq-fold-${k}`, v ? "1" : "0"); } catch (e) { /* 無視 */ } };
+  return (
+    <div className="space-y-3">
+      <button onClick={flip} className="jp w-full flex items-center gap-2 px-3 py-2 text-left" style={{ borderRadius: 10, border: "1px dashed var(--rule-soft)", background: "var(--paper)", cursor: "pointer", color: "var(--ink)" }}>
+        <span className="flex-1"><span className="block text-[13px]" style={{ fontWeight: 800 }}>{title}</span>{sub && <span className="block text-[10px]" style={{ color: "var(--ink-mute)" }}>{sub}</span>}</span>
+        <span style={{ color: "var(--ink-soft)" }}>{open ? "▲ たたむ" : "▼ ひらく"}</span>
+      </button>
+      {open && children}
+    </div>
+  );
+}
+// 今日タブの「弱点集」への入口（2026年10月22日、討伐依頼書を弱点集にまとめた）
+function WeakLink({ state }) {
+  const list = bounties(state);
+  if (!list.length) return null;
+  const ready = list.filter((x) => x.ready).length;
+  return (
+    <button onClick={() => window.dispatchEvent(new CustomEvent("sq-open-past", { detail: { to: "laps", view: "weak" } }))} className="jp w-full flex items-center gap-2 px-3 py-2 text-left" style={{ borderRadius: 10, border: "1px solid #c9a6a2", background: "var(--paper)", cursor: "pointer", color: "var(--ink)" }}>
+      <span style={{ fontSize: 20 }} aria-hidden="true">💀</span>
+      <span className="flex-1"><span className="block text-[13px]" style={{ fontWeight: 800 }}>弱点集（賞金首 {list.length}）</span><span className="block text-[10px]" style={{ color: "var(--ink-soft)" }}>2回以上まちがえた問題。ちがう日に3回続けて正解で卒業・賞金{ready ? `（いま受け取れる ${ready}）` : ""}</span></span>
+      <span style={{ color: "var(--sky-deep)", fontWeight: 800 }}>周回へ ▶</span>
+    </button>
+  );
+}
 // ── 弱点集（自動。2026年10月21日）：択一で2回以上まちがえた問題・叩き込みでまちがえたカード・正解率の低い計算・記述式の弱い欄を、
 //    記録から自動で集めて科目ごとにまとめる。ちがう日に3回続けて正解（カードは箱3以上・計算は7割以上）で「卒業」して消える ──
 const WEAK_GRAD = 3; // 択一：ちがう日に3回続けて正解で卒業（討伐依頼書と同じ）
@@ -18771,8 +18829,9 @@ function weakBook(state, deck) {
   return { qs, qN, cards, calc, past, radio, fields, total };
 }
 const weakItems = (list) => list.map(({ b, q }) => ({ bankId: b.id, bankName: b.name, year: b.year || "", qId: q.id }));
-function WeakBook({ state }) {
+function WeakBook({ state, actions }) {
   const { deck } = useKjDeck();
+  const prizes = bounties(state).filter((x) => x.ready); // 卒業した賞金首（賞金を受け取れる）
   const [open, setOpen] = useState(null); // 開いている科目
   const [print, setPrint] = useState(false);
   const wb = weakBook(state, deck);
@@ -18784,7 +18843,18 @@ function WeakBook({ state }) {
   return (
     <Box title={`弱点集（自動）　${wb.total}`} icon={<Skull size={18} />}>
       <div className="jp space-y-1">
-        <p className="text-[11px]" style={{ color: "var(--ink-soft)", lineHeight: 1.7 }}>まちがいの記録から自動で集めた「自分だけの弱点」です。択一は<b>ちがう日に{WEAK_GRAD}回続けて正解</b>、叩き込みのカードは3日あけて正解、計算は正解率7割で<b>卒業</b>して消えます。</p>
+        <p className="text-[11px]" style={{ color: "var(--ink-soft)", lineHeight: 1.7 }}>まちがいの記録から自動で集めた「自分だけの弱点」です。択一は<b>ちがう日に{WEAK_GRAD}回続けて正解</b>、叩き込みのカードは3日あけて正解、計算は正解率7割で<b>卒業</b>して消えます。択一の弱点は「賞金首」で、卒業すると賞金を受け取れます。</p>
+        {prizes.length > 0 && actions && (
+          <div className="px-2 py-1.5 space-y-1" style={{ background: "rgba(214,181,106,0.15)", border: "1px solid var(--gold)", borderRadius: 8 }}>
+            <div className="text-[11px]" style={{ color: "var(--ink)", fontWeight: 800 }}>🏆 卒業した賞金首 {prizes.length}　賞金を受け取れます</div>
+            {prizes.slice(0, 10).map(({ b, q, prize }) => (
+              <div key={q.id} className="flex items-center gap-2">
+                <span className="flex-1 min-w-0 text-[11px] truncate" style={{ color: "var(--ink)" }}>{q.q}<span className="text-[9px] ml-1" style={{ color: "var(--ink-mute)" }}>{b.name}</span></span>
+                <button onClick={() => actions.claimBounty(q.id, prize)} className="btn-primary text-[10px] px-2 py-0.5" style={{ whiteSpace: "nowrap" }}>討伐！ {prize}G</button>
+              </div>
+            ))}
+          </div>
+        )}
         {wb.total === 0 && <div className="text-[12px] text-center py-2" style={{ color: "var(--sage)", fontWeight: 700 }}>いま弱点はありません。この調子です！</div>}
         {wb.qN > 0 && <>
           {sec(`択一（2回以上まちがえた問題）${wb.qN}問`)}
@@ -18800,7 +18870,7 @@ function WeakBook({ state }) {
                     <div style={{ color: "var(--ink)" }}><span className="text-[10px] px-1 mr-1" style={{ background: "#7a2b2b", color: "#fdfbf5", borderRadius: 3, fontWeight: 800 }}>✕{q.wrong}</span>{q.q}</div>
                     <div className="text-[10px]" style={{ color: "var(--sky-deep)" }}>→ {q.a}</div>
                     {q.rule && <div className="text-[10px]" style={{ color: "#8a6d2c" }}>自分ルール：{q.rule}</div>}
-                    <div className="text-[9px]" style={{ color: "var(--ink-mute)" }}>{b.name}　卒業まで {Array.from({ length: WEAK_GRAD }, (_, i) => <span key={i} style={{ color: i < st ? "#b08a3e" : "var(--rule-soft)" }}>★</span>)}</div>
+                    <div className="text-[9px]" style={{ color: "var(--ink-mute)" }}>{b.name}　卒業まで {Array.from({ length: WEAK_GRAD }, (_, i) => <span key={i} style={{ color: i < st ? "#b08a3e" : "var(--rule-soft)" }}>★</span>)}　賞金 {80 + Math.min(10, q.wrong || 0) * 10}G</div>
                   </div>
                 ))}
                 {g.list.length > 40 && <div className="text-[10px]" style={{ color: "var(--ink-mute)" }}>ほか{g.list.length - 40}問（印刷では全部出ます）</div>}
@@ -18821,7 +18891,7 @@ function WeakBook({ state }) {
           {sec("計算（正解率7割未満・前回まちがえた計算）")}
           {wb.calc.length > 0 && <button onClick={() => go({ to: "calc", types: wb.calc.slice(0, 5).map((x) => x.t) })} className="w-full text-left text-[11px] px-2 py-1.5 flex items-center gap-2" style={{ ...row, cursor: "pointer" }}><span className="flex-1">{wb.calc.slice(0, 5).map((x) => `${x.name} ${Math.round(x.rate * 100)}%`).join("・")}</span><span style={{ color: "var(--sky-deep)", fontWeight: 800, whiteSpace: "nowrap" }}>5問 ▶</span></button>}
           {wb.past.map((x) => <button key={x.k + x.era} onClick={() => go({ to: "calc", kind: x.k, id: x.era })} className="w-full text-left text-[11px] px-2 py-1.5 flex items-center gap-2" style={{ ...row, border: "1px solid #e0948a", cursor: "pointer" }}><span className="flex-1">本試験の計算：{eraLabel(x.era)}の{x.k === "L" ? "土地" : "建物"}（{x.ok}/{x.n}回正解）</span><span style={{ color: "var(--sky-deep)", fontWeight: 800 }}>解く ▶</span></button>)}
-          {wb.radio.length > 0 && <div className="text-[11px] px-2 py-1.5" style={row}>無線工学：{wb.radio.map((x) => `${x.name} ${Math.round(x.rate * 100)}%`).join("・")}<div className="text-[10px]" style={{ color: "var(--ink-mute)" }}>計算の部屋の「無線工学の計算ドリル」→「苦手な種類から10問」で</div></div>}
+          {wb.radio.length > 0 && <div className="text-[11px] px-2 py-1.5" style={row}>無線工学：{wb.radio.map((x) => `${x.name} ${Math.round(x.rate * 100)}%`).join("・")}<div className="text-[10px]" style={{ color: "var(--ink-mute)" }}>周回 → 計算の「無線工学の計算ドリル」→「苦手な種類から10問」で</div></div>}
         </>}
         {wb.fields.length > 0 && <>
           {sec("記述式の欄（自己採点の平均が6割未満）")}
@@ -19150,7 +19220,7 @@ function t3Pick(st) {
   if (st.kj.length) out.push({ id: `kj:${st.kj[0].id}`, kind: "kijutsu", key: st.kj[0].id, label: `記述式の道場：${kjLabel(st.kj[0].id)}をもう一度`, sub: `前回 ${st.kj[0].r.last}点` });
   if (st.tk.due + st.tk.newLeft > 0) out.push({ id: "tataki", kind: "tataki", label: `申請書の叩き込み（復習${st.tk.due}枚・新しい${st.tk.newLeft}枚）`, sub: "目的・原因・添付書類を毎日まわす" });
   if (st.due > 0) out.push({ id: "review", kind: "review", label: `今日の復習（期限が来た${st.due}問）`, sub: "択一の記憶を保つ" });
-  if (st.weekend && !st.fullThisMonth) out.push({ id: `rh:${todayStr().slice(0, 7)}`, kind: "rehearsal", label: "今月の本番リハーサル日（150分）", sub: "できれば本番と同じ13時から。冒険 → 世界 → 鍛錬" });
+  if (st.weekend && !st.fullThisMonth) out.push({ id: `rh:${todayStr().slice(0, 7)}`, kind: "rehearsal", label: "今月の本番リハーサル日（150分）", sub: "できれば本番と同じ13時から。周回 → 鍛錬" });
   if (st.behind) out.push({ id: `rm:${st.behind.t.id}`, kind: "roadmap", base: st.behind.p.done, label: `ロードマップ：${st.behind.t.label}`, sub: `この時期の目標 ${st.behind.t.target}${st.behind.p.unit}に対して ${st.behind.p.done}${st.behind.p.unit}（遅れぎみ）` });
   if (st.cd.past.length) out.push({ id: `pc:${st.cd.past[0].k}${st.cd.past[0].era}`, kind: "pastcalc", k: st.cd.past[0].k, era: st.cd.past[0].era, label: `本試験の計算：${eraLabel(st.cd.past[0].era)}の${st.cd.past[0].k === "L" ? "土地" : "建物"}`, sub: st.cd.past[0].r.last ? "間をあけてもう一度" : "前回まちがえた計算" });
   return out.slice(0, 3);
@@ -19169,7 +19239,7 @@ function t3Go(it) {
   if (it.kind === "kijutsu") ev({ to: "laps", key: it.key });
   else if (it.kind === "tataki") ev({ to: "laps", tataki: true });
   else if (it.kind === "review") ev({ to: "today" });
-  else if (it.kind === "rehearsal") ev({ to: "adventure" });
+  else if (it.kind === "rehearsal") ev({ to: "laps", view: "train" });
   else if (it.kind === "roadmap") openRoadmap();
   else if (it.kind === "pastcalc") ev({ to: "calc", kind: it.k, id: it.era });
 }
@@ -19257,7 +19327,7 @@ function EliteGoalCard({ state }) {
           <div className="space-y-1.5">{bar("択一", now.mc, G.mc, S.mcBase)}{bar("記述", now.desc, G.desc, S.descBase)}</div>
           <div className="text-[9px] mt-1" style={{ color: "var(--ink-mute)" }}>灰色の線＝R7の基準点、赤い線＝目標。本番リハーサルか模試の点を記録するたびに更新されます。</div>
         </>) : (
-          <div className="text-[11px]" style={{ color: "var(--ink-soft)", lineHeight: 1.7 }}>本番リハーサル（冒険 → 鍛錬）か、模試・答練の点（周回 → 計画・記録）を記録すると、いまの実力と「R7なら何位か」がここに出ます。
+          <div className="text-[11px]" style={{ color: "var(--ink-soft)", lineHeight: 1.7 }}>本番リハーサル（周回 → 鍛錬）か、模試・答練の点（周回 → 計画・記録）を記録すると、いまの実力と「R7なら何位か」がここに出ます。
             <button onClick={() => window.dispatchEvent(new CustomEvent("sq-open-past", { detail: { to: "laps" } }))} className="btn-sky text-[11px] px-2 py-0.5 ml-1">模試の点を記録する</button>
           </div>
         )}
