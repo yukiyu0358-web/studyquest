@@ -19423,8 +19423,27 @@ function TodayLink({ state, dueN, onGo }) {
 }
 // マイ名言（手帳の「名言」）：好きなアニメ・漫画・本などのセリフを自分で登録し、ホームの吹き出しで偉人の名言とまぜて出す。
 // state.myQuotes = [{id, t（セリフ）, by（作品名・人物）, say（ひとこと）}]。本人の学習記録にだけ保存（公開のコードには入れない）
+// まとめて登録：1行に1つ「セリフ｜作品名・人物｜ひとこと」（｜ は | やタブでもよい。ひとことは省略可）。同じセリフはとばす
+function parseQuoteLines(text, have) {
+  const seen = new Set(have.map((x) => x.t));
+  const out = [];
+  String(text || "").split(/\r?\n/).forEach((line) => {
+    const raw = line.trim();
+    if (!raw || raw.startsWith("#")) return;
+    const [t, by = "", say = ""] = raw.split(/\s*[｜|\t]\s*/);
+    const tt = (t || "").replace(/^[「『]|[」』]$/g, "").trim();
+    if (!tt || seen.has(tt)) return;
+    seen.add(tt);
+    out.push({ id: uid(), t: tt, by: by.trim(), say: say.trim() });
+  });
+  return out;
+}
 function MyQuotes({ state, onChange }) {
   const list = state.myQuotes || [];
+  const [bulk, setBulk] = useState(null); // まとめて登録の欄（null＝閉じている）
+  const [bulkMsg, setBulkMsg] = useState("");
+  const addBulk = (text) => { const got = parseQuoteLines(text, list); if (got.length) onChange([...list, ...got]); setBulkMsg(got.length ? `${got.length}件を登録しました` : "登録できる行がありませんでした（同じセリフはとばします）"); setBulk(null); };
+  const readFile = (file) => { if (!file) return; const fr = new FileReader(); fr.onload = () => addBulk(String(fr.result || "")); fr.readAsText(file, "utf-8"); };
   const [f, setF] = useState({ t: "", by: "", say: "" });
   const [edit, setEdit] = useState(null);
   const save = () => {
@@ -19447,6 +19466,19 @@ function MyQuotes({ state, onChange }) {
           <button onClick={save} disabled={!f.t.trim()} className="btn-primary flex-1 py-1.5 text-xs">{edit ? "書きかえを保存" : "＋ 登録する"}</button>
           {edit && <button onClick={() => { setEdit(null); setF({ t: "", by: "", say: "" }); }} className="btn-ghost px-3 py-1.5 text-xs">やめる</button>}
         </div>
+        {bulk === null ? (
+          <div className="flex gap-2 flex-wrap items-center">
+            <button onClick={() => { setBulk(""); setBulkMsg(""); }} className="btn-ghost px-3 py-1 text-[11px]">📋 まとめて貼り付けて登録</button>
+            <label className="btn-ghost px-3 py-1 text-[11px]" style={{ cursor: "pointer" }}>📂 ファイル（.txt）から登録<input type="file" accept=".txt,text/plain" style={{ display: "none" }} onChange={(e) => { readFile(e.target.files && e.target.files[0]); e.target.value = ""; }} /></label>
+            {bulkMsg && <span className="text-[11px]" style={{ color: "var(--sage)", fontWeight: 700 }}>{bulkMsg}</span>}
+          </div>
+        ) : (
+          <div className="space-y-1.5 px-2 py-2" style={{ border: "1px dashed var(--gold)", borderRadius: 8 }}>
+            <div className="text-[11px]" style={{ color: "var(--ink-soft)" }}>1行に1つ「セリフ｜作品名・人物｜ひとこと」の形で貼り付けてください（ひとことは省略できます。# で始まる行はとばします）。</div>
+            <textarea value={bulk} onChange={(e) => setBulk(e.target.value)} rows={6} placeholder={"例：あきらめない気持ちが、いちばんの武器だ｜作品名・キャラクター名｜試験の前に読み返す"} className="w-full px-2 py-1.5 text-sm" style={inp} />
+            <div className="flex gap-2"><button onClick={() => addBulk(bulk)} disabled={!bulk.trim()} className="btn-primary flex-1 py-1.5 text-xs">まとめて登録する</button><button onClick={() => setBulk(null)} className="btn-ghost px-3 py-1.5 text-xs">やめる</button></div>
+          </div>
+        )}
         {list.length === 0 && <p className="text-xs text-center py-2" style={{ color: "var(--ink-mute)" }}>まだ登録していません。</p>}
         {list.slice().reverse().map((x) => (
           <div key={x.id} className="px-2 py-1.5" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)", borderRadius: 8 }}>
