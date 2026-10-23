@@ -2465,6 +2465,27 @@ function StudyRPG({ user }) {
       SFX.play("stamp");
       showRpgToast(`🏗 ${b.name}が建ちました！ ${b.fxText}`, "#4f7a3a");
     },
+    // 試験の前日・当日・試験後
+    examDaySet: (key, patch) => updateRpg((x) => { const e = x.examDay || {}; return { ...x, examDay: { ...e, [key]: { ...(e[key] || {}), ...patch } } }; }),
+    examDayAfter: (key, q, a) => {
+      updateRpg((x) => { const e = x.examDay || {}; return { ...x, gold: x.gold + 100, goldEarned: (x.goldEarned || 0) + 100, examDay: { ...e, [key]: { ...(e[key] || {}), after: { ...a, d: todayStr() } } } }; });
+      const feelLine = a.feel === "good" ? "手応えあり、なんですね。その感覚は、毎日の積み重ねがくれたものです。" : a.feel === "hard" ? "きびしかった……そう感じられるのは、最後まで真剣に向き合った証拠です。" : "五分五分。結果が出るまで、どきどきしますね。";
+      rpgActions.openTalk({ title: `${q.name}　おつかれさま`, lines: [["hero", `${q.name}の試験、ほんとうにおつかれさまでした！`], ["hero", feelLine], ...(a.note ? [["hero", `「${a.note}」……ちゃんと書き残しておきました。`]] : []), ["pet", "（相棒が、そっと寄り添ってくる）"], ["hero", "今日はゆっくり休んでください。合格したら、手帳の資格で「取得済み」にするのを忘れずに。街に記念の建物が建ちますよ。"]] });
+    },
+    townReq: (id, todayIds) => {
+      const r0 = normRpg(stateRef.current.rpg);
+      const rec = r0.townReq && r0.townReq.d === todayStr() ? r0.townReq : { d: todayStr(), got: [], bonus: false };
+      if (rec.got.includes(id)) return;
+      const got = [...rec.got, id];
+      const bonus = !rec.bonus && todayIds.every((x) => got.includes(x));
+      updateRpg((x) => {
+        let out = { ...townGain(x, TOWN_REQ_XP + (bonus ? TOWN_REQ_BONUS_XP : 0)), gold: x.gold + TOWN_REQ_GOLD, goldEarned: (x.goldEarned || 0) + TOWN_REQ_GOLD, townReq: { d: todayStr(), got, bonus: rec.bonus || bonus } };
+        if (bonus) out = { ...out, materials: { ...(out.materials || {}), "m-star": ((out.materials || {})["m-star"] || 0) + 1 } };
+        return out;
+      });
+      SFX.play("drop");
+      showRpgToast(bonus ? `📜 依頼を全部こなしました！ 街の経験値+${TOWN_REQ_XP + TOWN_REQ_BONUS_XP}・${TOWN_REQ_GOLD}G・星霊石` : `📜 依頼の報酬：街の経験値+${TOWN_REQ_XP}・${TOWN_REQ_GOLD}G`, "#b08a3e");
+    },
     townSetStage: (stage) => updateRpg((x) => ({ ...x, town: { ...(x.town || {}), stage, v: 2 } })),
     // 無限回廊：たどり着いた階（正解した数）。1階5G・EXP3、自己ベスト更新で+100G
     endlessFinish: (cleared) => {
@@ -2720,7 +2741,7 @@ function StudyRPG({ user }) {
       updateRpg((x) => {
         const c = x.radioCalc || {}, st = { ...(c.stats || {}) };
         recs.forEach((r) => { const v = st[r.type] || {}; st[r.type] = { n: (v.n || 0) + 1, ok: (v.ok || 0) + (r.ok ? 1 : 0) }; });
-        let out = { ...x, gold: x.gold + ok * 5, goldEarned: x.goldEarned + ok * 5, radioCalc: { ...c, stats: st, log: [...(c.log || []), { d: todayStr(), n: recs.length, ok }].slice(-40) } };
+        let out = tdBump({ ...x, gold: x.gold + ok * 5, goldEarned: x.goldEarned + ok * 5, radioCalc: { ...c, stats: st, log: [...(c.log || []), { d: todayStr(), n: recs.length, ok }].slice(-40) } }, "calc", recs.length);
         if (ok) out = addBond(out, "kai", 1);
         return out;
       });
@@ -2781,7 +2802,7 @@ function StudyRPG({ user }) {
         const bestMap = isBest ? { ...(c.best || {}), [type]: sec } : c.best || {};
         const typeLast = { ...(c.typeLast || {}), [type]: { d: todayStr(), s: ok ? (((c.typeLast || {})[type] || {}).s || 0) + 1 : 0 } };
         if (lapUp) fx = { ...fx, lapsAt: [...(fx.lapsAt || []), todayStr()] };
-        let out = { ...x, calc2: { ...c, stats, fixed: fx, best: bestMap, hints: (c.hints || 0) + hints, typeLast } };
+        let out = tdBump({ ...x, calc2: { ...c, stats, fixed: fx, best: bestMap, hints: (c.hints || 0) + hints, typeLast } }, "calc");
         if (ok) out = addBond(out, "kai", 1);
         if (lapUp) out = { ...out, gold: out.gold + 300, goldEarned: out.goldEarned + 300 };
         return out;
@@ -2869,7 +2890,7 @@ function StudyRPG({ user }) {
       if (mark === "o") setTimeout(() => awardXp(4), 100);
     },
     // 参考書道場：読んだ章・覚えた行・クイズ
-    sankoRead: (chKey) => updateRpg((x) => { const k = x.sanko || {}; if ((k.read || {})[chKey] === todayStr()) return x; return { ...x, sanko: { ...k, read: { ...(k.read || {}), [chKey]: todayStr() } } }; }),
+    sankoRead: (chKey) => updateRpg((x) => { const k = x.sanko || {}; if ((k.read || {})[chKey] === todayStr()) return x; return tdBump({ ...x, sanko: { ...k, read: { ...(k.read || {}), [chKey]: todayStr() } } }, "sanko"); }),
     sankoMark: (key, on) => updateRpg((x) => { const k = x.sanko || {}; const known = { ...(k.known || {}) }; if (on) known[key] = todayStr(); else delete known[key]; return { ...x, sanko: { ...k, known } }; }),
     sankoQuizLog: (key, ok) => {
       updateRpg((x) => { const k = x.sanko || {}; const q = k.quiz || {}; const miss = { ...(q.miss || {}) }; if (!ok) miss[key] = (miss[key] || 0) + 1; return { ...x, sanko: { ...k, quiz: { n: (q.n || 0) + 1, ok: (q.ok || 0) + (ok ? 1 : 0), miss } } }; });
@@ -3507,6 +3528,11 @@ function StudyRPG({ user }) {
     updateQual(qual.id, { acquired: true, acquiredAt: new Date().toISOString() });
     awardXp(XP_QUAL_ACQUIRE);
     setTimeout(() => awardAchievement(ach), 200);
+    // 街に記念の建物（2026年10月23日）：街の経験値+300・500G
+    const mo = monumentOf(qual);
+    updateRpg((x) => ({ ...townGain(x, MONUMENT_XP), gold: x.gold + MONUMENT_GOLD, goldEarned: (x.goldEarned || 0) + MONUMENT_GOLD }));
+    setTimeout(() => showEvolution({ big: "資格取得", from: null, to: `${qual.name} 合格`, sub: `街に記念の建物「${mo.icon} ${mo.name}」が建ちました（街の経験値+${MONUMENT_XP}・${MONUMENT_GOLD}G）`, stage: heroStage(stateRef.current.player.level),
+      afterTalk: { title: `${qual.name} 合格`, lines: [["hero", `${qual.name}、合格です！ ほんとうに、おつかれさまでした。`], ["hero", `街の広場に「${mo.name}」を建てました。ここまでの毎日が、ちゃんと形になったんです。`], ["pet", "（相棒が、記念の建物のまわりをうれしそうに回っている）"], ["hero", "次の目標も、この街から一緒に始めましょう。"]] } }), 900);
   };
 
   const startTimer = (qualId, autoMode = null) => setState((s) => ({ ...s, timer: { qualId, startMs: Date.now(), autoMode } }));
@@ -4179,7 +4205,7 @@ function StudyRPG({ user }) {
 
         <div className="mb-4">
           {tab === "map" && <TownMap state={state} onGo={(t) => { if (t === "laps") { const [lt, lv] = lastLap.current; if (lv) setLapView(lv); setTab(lt); } else setTab(t); window.scrollTo(0, 0); }} todayN={getTodayReviewItems().length} />}
-          {TOWN_OF_TAB[tab] && <TowerHead town={LEARN_TOWNS.find((x) => x.id === TOWN_OF_TAB[tab])} onMap={() => { setTab("map"); window.scrollTo(0, 0); }} />}
+          {TOWN_OF_TAB[tab] && <TowerHead map={curWorld(state).townmap} town={LEARN_TOWNS.find((x) => x.id === TOWN_OF_TAB[tab])} onMap={() => { setTab("map"); window.scrollTo(0, 0); }} />}
           {TOWN_OF_TAB[tab] === "home" && (
             <div className="grid grid-cols-3 gap-1 p-1 mb-3" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)", borderRadius: 999 }}>
               {TOWN_TABS.map(([id, label]) => { const on = id === "notebook" ? NOTE_TABS.includes(tab) : tab === id; const n = id === "today" ? getTodayReviewItems().length : 0; return (
@@ -4204,10 +4230,11 @@ function StudyRPG({ user }) {
               else if (id === "events" || id === "guide" || id === "quest") out.push(dash(id));
               else if (id === "quals") out.push(<div key="quals"><HomeTab state={state} liveSeconds={liveSeconds} setMainTitle={setMainTitle} setTab={setTab} todayCount={getTodayReviewItems().length} hideBanner dashboard /></div>);
             }
-            if (state.questionBanks.length) out.unshift(<TodayLink key="todaylink" state={state} dueN={getTodayReviewItems().length} onGo={() => setTab("today")} />);
+            if (state.questionBanks.length) { const items = getTodayReviewItems(); out.unshift(<TodayLink key="todaylink" state={state} dueN={items.length} dueMin={estimateMinutes(state, items)} onGo={() => setTab("today")} />); }
             if (rmShow(state)) out.unshift(<RoadmapBanner key="roadmap" state={state} />);
             if (rmShow(state)) out.unshift(<EliteGoalCard key="elite" state={state} />);
             out.unshift(<TownPanel key="town" state={state} actions={rpgActions} />);
+            if (examDayInfo(state)) out.unshift(<ExamDayCard key="examday" state={state} actions={rpgActions} />);
             if ((state.qualifications || []).length) out.unshift(<StarBookBar key="book" state={state} onPick={(id) => updateDisplaySettings({ activeQual: id, studyScope: id === "all" ? "all" : null })} onNew={() => setTab("qual")} />);
             return out;
           })()}
@@ -16208,6 +16235,41 @@ function PlanSummary({ state, onOpen }) {
     </button>
   );
 }
+// 試験日までの計画をワンタップで（2026年10月23日）：星詠みの書の資格に試験日があり、範囲の世界に進行中の計画がないとき。
+//   範囲の世界の問題集を全部（フォルダの順・問題集の順）、試験の数日前までに○周。2周目からは苦手だけ
+function QuickPlan({ state, onSave }) {
+  const [laps, setLaps] = useState(3);
+  const q = chosenQual(state) ? mainQual(state) : null;
+  if (!q || !q.examDate) return null;
+  const days0 = daysBetween(todayStr(), q.examDate);
+  if (days0 < 3) return null;
+  const sc = studyScope(state);
+  const fOrder = new Map((state.folders || []).map((f, i) => [f.id, f.order ?? i]));
+  const banks = state.questionBanks.filter((b) => sc.inScope(b) && (b.questions || []).length)
+    .sort((a, b) => ((fOrder.get(a.folderId) ?? 9999) - (fOrder.get(b.folderId) ?? 9999)) || ((a.order ?? 0) - (b.order ?? 0)));
+  if (!banks.length) return null;
+  const spare = Math.min(7, Math.max(1, Math.floor(days0 / 10))); // 最後の数日は見直しにあける
+  const end = addDays(q.examDate, -spare);
+  const days = Math.max(1, daysBetween(todayStr(), end) + 1);
+  const perDay = Math.ceil((banks.length * laps) / days);
+  const qn = banks.reduce((t, b) => t + b.questions.length, 0);
+  const md = (d) => `${Number(d.slice(5, 7))}/${Number(d.slice(8, 10))}`;
+  const chip = (on) => ({ borderRadius: 999, border: `1px solid ${on ? "var(--gold)" : "var(--rule-soft)"}`, background: on ? "var(--cream)" : "var(--paper)", color: "var(--ink)", fontWeight: on ? 800 : 500, cursor: "pointer" });
+  return (
+    <div className="p-2.5 space-y-2" style={{ background: "linear-gradient(90deg, #f6ead0, #fdfbf5)", border: "1.5px solid var(--gold)", borderRadius: 10 }}>
+      <div className="text-[13px]" style={{ fontWeight: 800, color: "var(--ink)" }}>⚡ おすすめの計画：{q.name}の試験までに全部を回す</div>
+      <div className="text-[11px]" style={{ color: "var(--ink-soft)", lineHeight: 1.7 }}>
+        問題集 {banks.length}冊（{qn.toLocaleString()}問）を、{md(end)}まで（試験の{spare}日前。残りは見直しの日）に回します。2周目からは苦手だけ。
+      </div>
+      <div className="flex items-center gap-1.5 flex-wrap">
+        <span className="text-[11px]" style={{ color: "var(--ink-soft)" }}>周回：</span>
+        {[1, 2, 3, 4, 5].map((n) => <button key={n} onClick={() => setLaps(n)} className="text-[12px] px-2.5 py-0.5" style={chip(laps === n)}>{n}周</button>)}
+        <span className="text-[11px] ml-1" style={{ color: "var(--ink)", fontWeight: 800 }}>→ 1日 {perDay}冊</span>
+      </div>
+      <button onClick={() => onSave({ name: `${q.name}：試験までに${banks.length}冊を${laps}周`, folderId: null, bankIds: banks.map((b) => b.id), laps, start: todayStr(), end, perDay, weakOnly: laps >= 2 })} className="btn-primary w-full py-2 text-xs">この計画で始める</button>
+    </div>
+  );
+}
 function PlanTasks({ state, actions }) {
   const plans = state.studyPlans || [];
   const [making, setMaking] = useState(false);
@@ -16260,6 +16322,7 @@ function PlanTasks({ state, actions }) {
             </div>
           );
         })}
+        {!active.length && !making && <QuickPlan state={state} onSave={(plan) => actions.addPlan(plan)} />}
         {making ? <PlanMaker state={state} onSave={(plan) => { actions.addPlan(plan); setMaking(false); }} onCancel={() => setMaking(false)} />
           : <button onClick={() => setMaking(true)} className="btn-ghost w-full py-2 text-xs">＋ 学習計画をつくる</button>}
         {finished.length > 0 && (
@@ -16717,7 +16780,7 @@ function TodayTab({ header = null, state, recordSRAnswer, updateSrSettings, star
           )}
           {!fin && (state.srSettings || {}).finish === false && <button onClick={() => updateSrSettings && updateSrSettings({ finish: true })} className="jp text-[10px] mb-2 underline" style={{ background: "none", border: "none", color: "var(--ink-mute)", cursor: "pointer" }}>試験前の仕上げ（30日前から目標95%）をオンにする</button>}
           <div className="grid grid-cols-2 gap-2 mb-3">
-            <Mini label="復習期限が来た問題" value={`${due.length}問`} highlight={due.length > 0} />
+            <Mini label="復習期限が来た問題" value={due.length ? `${due.length}問・${fmtEst(estimateMinutes(state, due))}` : "0問"} highlight={due.length > 0} />
             <Mini label="未学習の問題" value={`${fresh.length}問`} />
           </div>
           {due.length + fresh.length === 0 ? (
@@ -19615,6 +19678,154 @@ function townTax(state, ts) {
   const gold = Math.round(base * (studied ? 1 : 0.3) * (ts.built.market ? 1.5 : 1));
   return { gold, studied, potion: ts.built.inn ? 1 : 0 };
 }
+// ── 試験の前日・当日・試験後（2026年10月23日。星詠みの書の資格の試験日で、どの資格でも）──
+//   前日：やらないこと・持ち物・苦手の軽い確認／当日：最終確認と持ち物／試験後（7日まで）：自己採点と手応え → おつかれさまの会話。
+//   記録は rpg.examDay[`${資格id}:${試験日}`] = {chk:{持ち物}, after:{score, feel, note, d}}
+function examDayInfo(state) {
+  const q = mainQual(state);
+  if (!q || !q.examDate) return null;
+  const d = daysBetween(todayStr(), q.examDate);
+  if (d > 1 || d < -7) return null;
+  const key = `${q.id}:${q.examDate}`;
+  const rec = (normRpg(state.rpg).examDay || {})[key] || {};
+  if (d < 0 && rec.after && rec.after.d !== todayStr()) return null; // 自己採点を記録した日のあとは出さない
+  return { q, d, key, rec, phase: d === 1 ? "eve" : d === 0 ? "day" : "after", home: worldOfQual(q).id === "home" };
+}
+const EXAM_BRING = {
+  home: ["受験票", "筆記用具（受験案内で指定されたもの）", "関数電卓（持ち込める機種か受験案内で確認）", "三角定規・定規など作図の道具（受験案内で確認）", "時計（計算機能のないもの）", "昼食・飲み物", "上着（会場の温度調節に）"],
+  own: ["受験票（申込みの確認メール）", "顔写真付きの本人確認書類（受験案内で確認）", "会場までの道順と出発の時間", "時計", "飲み物"],
+};
+const EXAM_DONT = ["新しい問題集・新しい論点に手を出さない（今日は確かめるだけ）", "苦手を深追いしない（まちがえても落ち込まない）", "夜ふかししない（いつもの時間に寝る）"];
+const EXAM_FEELS = [["good", "手応えあり"], ["even", "五分五分"], ["hard", "きびしい"]];
+// 苦手のトップ20（まちがいの多い順、勉強の範囲の世界）
+function examWeakTop(state, n = 20) {
+  const sc = studyScope(state);
+  const list = [];
+  state.questionBanks.forEach((b) => { if (!sc.inScope(b)) return; (b.questions || []).forEach((q) => { if (!q.excluded && (q.wrong || 0) > 0) list.push({ b, q }); }); });
+  return list.sort((x, y) => ((y.q.wrong || 0) - (y.q.correct || 0) * 0.3) - ((x.q.wrong || 0) - (x.q.correct || 0) * 0.3)).slice(0, n)
+    .map(({ b, q }) => ({ bankId: b.id, bankName: b.name, year: b.year || "", qId: q.id }));
+}
+function ExamDayCard({ state, actions }) {
+  const info = examDayInfo(state);
+  const [score, setScore] = useState("");
+  const [feel, setFeel] = useState(null);
+  const [note, setNote] = useState("");
+  if (!info) return null;
+  const { q, phase, key, rec } = info;
+  const bring = [...(info.home ? EXAM_BRING.home : EXAM_BRING.own), ...((rec.extra || []))];
+  const chk = rec.chk || {};
+  const weak = examWeakTop(state);
+  const startWeak = () => window.dispatchEvent(new CustomEvent("sq-study-items", { detail: { items: weak, kind: "examday", title: phase === "day" ? "試験当日の最終確認" : "前日の軽い確認" } }));
+  const head = phase === "eve" ? `明日は ${q.name} の試験です` : phase === "day" ? `今日は ${q.name} の試験の日です` : `${q.name} の試験、おつかれさまでした`;
+  const sub = phase === "eve" ? "今日は「確かめる日」。新しいことはせず、早めに休みましょう。" : phase === "day" ? "ここまで積み重ねてきたものを信じて。深呼吸をひとつ。" : "結果がどうであれ、ここまで続けてきたことは本物です。自己採点と手応えを残しておきましょう。";
+  const box = (on) => <span style={{ width: 16, height: 16, flexShrink: 0, borderRadius: 4, border: `1.5px solid ${on ? "var(--gold)" : "var(--rule-soft)"}`, background: on ? "var(--gold)" : "var(--paper)", color: "#fff", fontSize: 11, fontWeight: 800, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>{on ? "✓" : ""}</span>;
+  return (
+    <div className="jp mb-3 px-3 py-2.5 space-y-2" style={{ borderRadius: 14, border: "2px solid #b08a3e", background: phase === "after" ? "linear-gradient(135deg, #eef3e6, #fdfbf5)" : "linear-gradient(135deg, #f6ead0, #fdfbf5)", boxShadow: "0 6px 18px rgba(34,51,92,0.12)" }}>
+      <div>
+        <div style={{ fontFamily: "'Shippori Mincho B1', serif", fontWeight: 900, fontSize: 17, color: "var(--ink)" }}>{phase === "after" ? "🌸" : "✒"} {head}</div>
+        <div className="text-[11px]" style={{ color: "var(--ink-soft)" }}>{sub}</div>
+      </div>
+      {phase !== "after" && (<>
+        {phase === "eve" && (
+          <div className="text-[11px]" style={{ color: "var(--ink)" }}>
+            <div style={{ fontWeight: 800 }}>今日やらないこと</div>
+            {EXAM_DONT.map((t) => <div key={t}>・{t}</div>)}
+          </div>
+        )}
+        <div>
+          <div className="text-[11px] mb-0.5" style={{ fontWeight: 800, color: "var(--ink)" }}>持ち物（{bring.filter((t) => chk[t]).length}/{bring.length}）</div>
+          <div className="grid gap-1 sm:grid-cols-2">
+            {bring.map((t) => <button key={t} onClick={() => actions.examDaySet(key, { chk: { ...chk, [t]: !chk[t] } })} className="flex items-center gap-1.5 text-left text-[11px] px-1.5 py-1" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)", borderRadius: 6, color: chk[t] ? "var(--ink-mute)" : "var(--ink)", textDecoration: chk[t] ? "line-through" : "none", cursor: "pointer" }}>{box(chk[t])}{t}</button>)}
+          </div>
+          <button onClick={() => { const t = prompt("持ち物を足す（例：目薬）"); if (t && t.trim()) actions.examDaySet(key, { extra: [...(rec.extra || []), t.trim()] }); }} className="text-[10px] mt-1" style={{ background: "none", border: "none", color: "var(--sky-deep)", cursor: "pointer" }}>＋ 持ち物を足す</button>
+          <div className="text-[9px]" style={{ color: "var(--ink-mute)" }}>持ち込めるものは、受験案内でかならず確かめてください。</div>
+        </div>
+        {weak.length > 0 && <button onClick={startWeak} className="btn-primary w-full py-2 text-xs">{phase === "day" ? "最終確認：苦手のトップ" : "軽く確認：苦手のトップ"}{weak.length}問（答えを見て思い出すだけでOK）</button>}
+      </>)}
+      {phase === "after" && (rec.after ? (
+        <div className="text-[12px]" style={{ color: "#4f7a3a", fontWeight: 800 }}>記録しました。今日はゆっくり休んでください。{rec.after.score ? `（自己採点 ${rec.after.score}）` : ""}</div>
+      ) : (
+        <div className="space-y-1.5">
+          <input className="rpg-input text-xs" value={score} onChange={(e) => setScore(e.target.value)} placeholder="自己採点（例：択一17問・記述35点／法規10問・無線工学9問）" />
+          <div className="flex gap-1.5 flex-wrap">{EXAM_FEELS.map(([id, label]) => <button key={id} onClick={() => setFeel(id)} className="text-[12px] px-2.5 py-0.5" style={{ borderRadius: 999, border: `1px solid ${feel === id ? "var(--gold)" : "var(--rule-soft)"}`, background: feel === id ? "var(--cream)" : "var(--paper)", color: "var(--ink)", fontWeight: feel === id ? 800 : 500, cursor: "pointer" }}>{label}</button>)}</div>
+          <input className="rpg-input text-xs" value={note} onChange={(e) => setNote(e.target.value)} placeholder="ひとこと（できたこと・次に活かすこと）" />
+          <button onClick={() => actions.examDayAfter(key, q, { score: score.trim(), feel, note: note.trim() })} className="btn-primary w-full py-2 text-xs">記録して、おつかれさまを聞く</button>
+        </div>
+      ))}
+    </div>
+  );
+}
+// 資格を取ったときの記念の建物（取得済みの資格の数だけ。2026年10月23日）
+const MONUMENT_XP = 300, MONUMENT_GOLD = 500;
+function monumentOf(q) {
+  const w = worldOfQual(q);
+  return w.id !== "home" ? { icon: w.icon, name: `${q.name}の記念塔` } : { icon: "🏛", name: `${q.name}の記念碑` };
+}
+// 街の絵の上の建物の印の場所（絵の上の%。下の文字の帯にかからない高さ）
+const TOWN_SPOTS = { library: [20, 46], survey: [74, 50], inn: [10, 62], school: [36, 36], clock: [52, 28], market: [62, 60], smithy: [28, 62], castle: [46, 14] };
+const MONUMENT_SPOTS = [[88, 30], [82, 16], [92, 46], [70, 22], [12, 30]];
+// その日の勉強の数え（街の依頼に使う）：計算・参考書は rpg.townDay、回答は問題の回答日 ah、時間は studyLog
+const tdBump = (x, key, n = 1) => { const t = x.townDay && x.townDay.d === todayStr() ? x.townDay : { d: todayStr(), c: {} }; return { ...x, townDay: { ...t, c: { ...t.c, [key]: (t.c[key] || 0) + n } } }; };
+function townToday(state) {
+  const r = normRpg(state.rpg);
+  const today = todayStr(), code = ymdCode(today);
+  const sc = studyScope(state);
+  let ans = 0, ok = 0, sure = 0, dueLeft = 0;
+  state.questionBanks.forEach((b) => (b.questions || []).forEach((q) => {
+    (q.ah || []).forEach((h) => { const t = String(h); if (!t.startsWith(code)) return; ans++; const m = t.slice(-1); if (m === "s" || m === "u") ok++; if (m === "s") sure++; });
+    if (sc.inScope(b) && !q.excluded && q.sr_nextReview && q.sr_nextReview <= today) dueLeft++;
+  }));
+  const min = state.studyLog.filter((l) => l.date === today).reduce((t, l) => t + (Number(l.minutes) || 0), 0);
+  const c = r.townDay && r.townDay.d === today ? r.townDay.c : {};
+  return { ans, ok, sure, min, calc: c.calc || 0, sanko: c.sanko || 0, due0: ans > 0 && dueLeft === 0 ? 1 : 0 };
+}
+// 街の住人からの依頼：建物を建てるほど、頼みに来る人が増える。毎日3つ（日付で選ぶ）
+const TOWN_REQS = [
+  { id: "ans20", who: null, icon: "🧑‍🌾", name: "広場の農夫", text: "問題に20問答える", key: "ans", n: 20 },
+  { id: "ok15", who: null, icon: "👵", name: "井戸ばたのおばあさん", text: "15問正解する", key: "ok", n: 15 },
+  { id: "min30", who: null, icon: "🧒", name: "村の子ども", text: "30分 勉強する（学習タイマー・時間の記録）", key: "min", n: 30 },
+  { id: "sanko1", who: "library", icon: "📚", name: "図書館の司書", text: "参考書の章を1つ読む", key: "sanko", n: 1 },
+  { id: "calc5", who: "survey", icon: "📐", name: "測量所の親方", text: "計算の問題を5問解く", key: "calc", n: 5 },
+  { id: "sure10", who: "inn", icon: "🛏", name: "宿屋のおかみ", text: "◎（自信あり）で10問正解する", key: "sure", n: 10 },
+  { id: "ans50", who: "school", icon: "🏫", name: "学舎の先生", text: "問題に50問答える", key: "ans", n: 50 },
+  { id: "min60", who: "clock", icon: "🕰", name: "時計台の番人", text: "60分 勉強する", key: "min", n: 60 },
+  { id: "due0", who: "market", icon: "🏪", name: "市場の商人", text: "今日の復習を全部終える", key: "due0", n: 1 },
+  { id: "ok40", who: "smithy", icon: "⚒", name: "鍛冶屋の職人", text: "40問正解する", key: "ok", n: 40 },
+  { id: "ans100", who: "castle", icon: "🏰", name: "王城の大臣", text: "問題に100問答える", key: "ans", n: 100 },
+];
+const TOWN_REQ_XP = 40, TOWN_REQ_GOLD = 40, TOWN_REQ_BONUS_XP = 60; // 3つ全部で、さらに街の経験値と星霊石
+function townReqsToday(state) {
+  const built = ((normRpg(state.rpg).town || {}).built) || {};
+  const d = todayStr();
+  return TOWN_REQS.filter((q) => !q.who || built[q.who]).sort((a, b) => hashStr(d + a.id) - hashStr(d + b.id)).slice(0, 3);
+}
+function TownRequests({ state, actions }) {
+  const r = normRpg(state.rpg);
+  const reqs = townReqsToday(state);
+  const now = townToday(state);
+  const rec = r.townReq && r.townReq.d === todayStr() ? r.townReq : { got: [], bonus: false };
+  const allGot = reqs.every((q) => rec.got.includes(q.id));
+  return (
+    <div className="space-y-1">
+      <div className="flex items-baseline gap-2"><span className="text-[12px]" style={{ fontWeight: 800, color: "var(--ink)" }}>📜 街の依頼（今日）</span><span className="text-[10px]" style={{ color: "var(--ink-mute)" }}>1つ 街の経験値+{TOWN_REQ_XP}・{TOWN_REQ_GOLD}G、3つ全部で星霊石。建物を建てると依頼の顔ぶれが増えます</span></div>
+      {reqs.map((q) => {
+        const v = Math.min(q.n, now[q.key] || 0), done = v >= q.n, got = rec.got.includes(q.id);
+        return (
+          <div key={q.id} className="flex items-center gap-2 px-2 py-1" style={{ borderRadius: 8, border: `1px solid ${got ? "#6d8454" : done ? "var(--gold)" : "var(--rule-soft)"}`, background: got ? "rgba(109,132,84,0.1)" : "var(--paper)" }}>
+            <span style={{ fontSize: 18 }} aria-hidden="true">{q.icon}</span>
+            <span className="flex-1 min-w-0">
+              <span className="block text-[12px]" style={{ fontWeight: 700, color: "var(--ink)" }}>{q.text}</span>
+              <span className="block text-[10px]" style={{ color: "var(--ink-mute)" }}>{q.name}より　{q.key === "due0" ? (done ? "完了" : "まだ") : `${v} / ${q.n}`}</span>
+            </span>
+            {got ? <span className="text-[10px]" style={{ color: "#4f7a3a", fontWeight: 800 }}>✓ 受け取り済み</span>
+              : <button disabled={!done} onClick={() => actions.townReq(q.id, reqs.map((x) => x.id))} className="btn-primary text-[10px] px-2 py-0.5" style={{ opacity: done ? 1 : 0.45 }}>受け取る</button>}
+          </div>
+        );
+      })}
+      {allGot && <div className="text-[11px] text-center" style={{ color: "#4f7a3a", fontWeight: 800 }}>今日の依頼は全部こなしました！ 街のみんなが喜んでいます</div>}
+    </div>
+  );
+}
 function TownImage({ stage, height = 220 }) {
   const [bad, setBad] = useState(false);
   useEffect(() => { setBad(false); }, [stage]);
@@ -19636,6 +19847,12 @@ function TownPanel({ state, actions }) {
   const tax = townTax(state, ts);
   const taxed = T.taxDay === todayStr();
   const builtN = TOWN_BUILDINGS.filter((b) => ts.built[b.id]).length;
+  const [tip, setTip] = useState(null); // 絵の上の印をタップしたときの説明
+  const monuments = (state.qualifications || []).filter((q) => q.acquired);
+  const marks = [
+    ...TOWN_BUILDINGS.filter((b) => ts.built[b.id]).map((b) => ({ id: b.id, icon: b.icon, at: TOWN_SPOTS[b.id] || [50, 40], title: b.name, sub: `効果：${b.fxText}` })),
+    ...monuments.slice(0, MONUMENT_SPOTS.length).map((q, i) => { const mo = monumentOf(q); return { id: `mo-${q.id}`, icon: mo.icon, at: MONUMENT_SPOTS[i], title: mo.name, sub: `${q.acquiredAt ? `${q.acquiredAt.slice(0, 4)}年${Number(q.acquiredAt.slice(5, 7))}月に合格。` : ""}資格を取った記念` }; }),
+  ];
   const bar = (label, v, need) => (
     <div className="text-[10px]" style={{ color: "var(--ink-soft)" }}>
       <div className="flex"><span className="flex-1">{label}</span><span style={{ color: v >= need ? "#4f7a3a" : "var(--ink)", fontWeight: 800 }}>{v.toLocaleString()} / {need.toLocaleString()}</span></div>
@@ -19646,6 +19863,16 @@ function TownPanel({ state, actions }) {
     <div className="jp mb-3 overflow-hidden" style={{ borderRadius: 14, border: "1.5px solid #b08a3e", background: "var(--paper)", boxShadow: "0 6px 18px rgba(34,51,92,0.12)" }}>
       <div style={{ position: "relative" }}>
         <TownImage stage={shownStage} />
+        {/* 建てた建物・記念の建物の印（タップで説明） */}
+        {marks.map((m) => (
+          <button key={m.id} onClick={() => setTip(tip === m.id ? null : m.id)} aria-label={m.title} title={m.title}
+            style={{ position: "absolute", left: `${m.at[0]}%`, top: `${m.at[1]}%`, transform: "translate(-50%, -50%)", width: 30, height: 30, borderRadius: "50%", border: "2px solid #f2c14e", background: "rgba(253,251,245,0.92)", boxShadow: "0 2px 8px rgba(20,28,50,0.45)", fontSize: 15, lineHeight: 1, cursor: "pointer", padding: 0, zIndex: 2 }}>{m.icon}</button>
+        ))}
+        {tip && (() => { const m = marks.find((x) => x.id === tip); if (!m) return null; return (
+          <div onClick={() => setTip(null)} className="text-[11px]" style={{ position: "absolute", left: `${Math.min(70, Math.max(2, m.at[0] - 14))}%`, top: `calc(${m.at[1]}% + 18px)`, zIndex: 3, maxWidth: 220, padding: "5px 9px", borderRadius: 8, background: "rgba(253,251,245,0.97)", border: "1px solid #b08a3e", boxShadow: "0 4px 14px rgba(20,28,50,0.3)", color: "var(--ink)", cursor: "pointer" }}>
+            <b>{m.icon} {m.title}</b><br /><span style={{ color: "var(--ink-soft)" }}>{m.sub}</span>
+          </div>
+        ); })()}
         <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, padding: "18px 12px 8px", background: "linear-gradient(0deg, rgba(20,28,50,0.8), rgba(20,28,50,0))", color: "#fdfbf5" }}>
           <div style={{ fontFamily: "'Shippori Mincho B1', serif", fontWeight: 900, fontSize: 18, letterSpacing: "0.06em" }}>🏘 はじまりの{st.name}<span className="text-[11px] ml-2" style={{ color: "#f1dfae" }}>第{shownStage + 1}段階 / {TOWN_STAGES.length}</span></div>
           <div className="text-[11px]" style={{ color: "#dfe8f6" }}>{st.text}</div>
@@ -19665,6 +19892,8 @@ function TownPanel({ state, actions }) {
             <div className="text-[10px]" style={{ color: "var(--ink-mute)" }}>問題に答える +1（正解は+2）・問題集を1周 +30・学習2分ごとに +1。{HERO_NAME}のレベル（戦いで上がる）とは別に育ちます。</div>
           </div>
         ) : <div className="text-[11px]" style={{ color: "#4f7a3a", fontWeight: 800 }}>王都まで育ちました！ ここまでの学びが、この都をつくりました。</div>}
+        {monuments.length > 0 && <div className="text-[10px]" style={{ color: "var(--ink-soft)" }}>記念の建物：{monuments.map((q) => { const mo = monumentOf(q); return `${mo.icon} ${mo.name}`; }).join("　")}</div>}
+        <TownRequests state={state} actions={actions} />
         <div className="flex items-center gap-2 flex-wrap">
           {taxed ? <span className="text-[11px]" style={{ color: "var(--ink-mute)" }}>💰 今日の税収は受け取りました</span>
             : <button onClick={() => actions.townTax(tax)} className="btn-primary text-[12px] px-3 py-1">💰 税収を受け取る　{tax.gold}G{tax.potion ? "・回復薬1" : ""}</button>}
@@ -19705,6 +19934,9 @@ function TownMap({ state, onGo, todayN }) {
   const outerW = Math.max(280, Math.min(vp.w - 24, 1600));
   const mapW = Math.round(phone ? Math.max(outerW, Math.min(vp.h * 0.5 * 16 / 9, outerW * 2.2)) : Math.min(outerW, Math.max(640, (vp.h - 150) * 16 / 9)));
   const scrollRef = useRef(null);
+  const wmap = curWorld(state).townmap; // 資格の世界の学びの地図（public/art。読み込めなければ王都の地図）
+  const [mapBad, setMapBad] = useState(false);
+  const mapUrl = wmap && !mapBad ? `${ART_URL}${wmap}` : `${ART_URL}townmap.webp`;
   useEffect(() => { // スマホははじまりの街が真ん中に来るように
     const el = scrollRef.current; const home = LEARN_TOWNS[0];
     if (el && mapW > outerW) el.scrollLeft = Math.max(0, mapW * (home.x + home.w / 2) / 100 - outerW / 2);
@@ -19720,7 +19952,7 @@ function TownMap({ state, onGo, todayN }) {
       </div>
       <div ref={scrollRef} style={{ width: outerW, marginLeft: `calc(50% - ${outerW / 2}px)`, overflowX: mapW > outerW ? "auto" : "visible", borderRadius: 14, WebkitOverflowScrolling: "touch" }}>
       <div className="relative overflow-hidden select-none" style={{ width: mapW, margin: "0 auto", borderRadius: 14, border: "1.5px solid #b08a3e", boxShadow: "inset 0 0 0 3px rgba(253,251,245,0.6), 0 8px 22px rgba(34,51,92,0.2)", aspectRatio: "16 / 9", background: "#bcd8f0" }}>
-        <img src={`${ART_URL}townmap.webp`} alt="学びの地図（はじまりの街・周回の塔・計算の塔・修練の塔・図書の塔・冒険の塔）" className="w-full h-full" style={{ objectFit: "cover", display: "block" }} draggable={false} />
+        <img src={mapUrl} onError={() => wmap && setMapBad(true)} alt="学びの地図（はじまりの街・周回の塔・計算の塔・修練の塔・図書の塔・冒険の塔）" className="w-full h-full" style={{ objectFit: "cover", display: "block" }} draggable={false} />
         {LEARN_TOWNS.map((t) => (
           <button key={t.id} onClick={() => onGo(t.tab)} onMouseEnter={() => setHot(t.id)} onMouseLeave={() => setHot(null)} aria-label={`${t.name}へ`} title={`${t.name}：${t.sub}`}
             style={{ position: "absolute", left: `${t.x}%`, top: `${t.y}%`, width: `${t.w}%`, height: `${t.h}%`, borderRadius: 18, border: hot === t.id ? "2px solid rgba(242,193,78,0.95)" : "2px solid transparent", background: hot === t.id ? "radial-gradient(ellipse, rgba(255,240,190,0.28), transparent 70%)" : "transparent", boxShadow: hot === t.id ? "0 0 18px rgba(242,193,78,0.7)" : "none", cursor: "pointer", transition: "all .15s" }}>
@@ -19735,7 +19967,7 @@ function TownMap({ state, onGo, todayN }) {
         {LEARN_TOWNS.map((t) => (
           <button key={t.id} onClick={() => onGo(t.tab)} title={`${t.name}：${t.sub}`} className="relative flex flex-col overflow-hidden" style={{ borderRadius: 10, border: "1px solid #b08a3e", background: "var(--paper)", cursor: "pointer", color: "var(--ink)", padding: 0 }}>
             {/* 塔の外観の絵（public/art/towers/。はじまりの街は地図のその場所を寄せて） */}
-            <span aria-hidden="true" style={{ display: "block", width: "100%", aspectRatio: "4 / 3", backgroundImage: TOWER_ART[t.id] ? `url(${ART_URL}towers/${TOWER_ART[t.id]})` : `url(${ART_URL}townmap.webp)`, backgroundSize: TOWER_ART[t.id] ? "cover" : "400% auto", backgroundPosition: TOWER_ART[t.id] ? "center 0%" : `${t.cx}% ${t.cy}%`, borderBottom: "1px solid #d6b56a" }} />
+            <span aria-hidden="true" style={{ display: "block", width: "100%", aspectRatio: "4 / 3", backgroundImage: TOWER_ART[t.id] ? `url(${ART_URL}towers/${TOWER_ART[t.id]})` : `url(${mapUrl})`, backgroundSize: TOWER_ART[t.id] ? "cover" : "400% auto", backgroundPosition: TOWER_ART[t.id] ? "center 0%" : `${t.cx}% ${t.cy}%`, borderBottom: "1px solid #d6b56a" }} />
             <span className="block w-full text-center px-1 py-1 text-[11px]" style={{ fontWeight: 800, fontFamily: "'Shippori Mincho B1', serif", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.name}</span>
             {badge[t.id] && <span style={{ position: "absolute", right: 3, top: 3, fontSize: 9, fontWeight: 800, color: "#fff", background: "var(--brick)", borderRadius: 999, padding: "0 5px", whiteSpace: "nowrap" }}>{badge[t.id]}</span>}
           </button>
@@ -19745,17 +19977,37 @@ function TownMap({ state, onGo, todayN }) {
   );
 }
 // 塔の画面の見出し：地図のその場所を寄せて見せ、「← 地図へ」でもどる
-function TowerHead({ town, onMap }) {
+function TowerHead({ town, onMap, map }) {
   if (!town) return null;
+  const bg = map ? `url(${ART_URL}${map}), url(${ART_URL}townmap.webp)` : `url(${ART_URL}townmap.webp)`; // 資格の世界の地図（なければ下の王都の地図が見える）
   return (
-    <div className="jp relative overflow-hidden mb-3 flex items-center" style={{ height: 58, borderRadius: 12, border: "1px solid #b08a3e", backgroundImage: `linear-gradient(90deg, rgba(253,251,245,0.95) 0%, rgba(253,251,245,0.75) 45%, rgba(253,251,245,0.1) 100%), url(${ART_URL}townmap.webp)`, backgroundSize: "cover, 300% auto", backgroundPosition: `center, ${town.cx}% ${town.cy}%` }}>
+    <div className="jp relative overflow-hidden mb-3 flex items-center" style={{ height: 58, borderRadius: 12, border: "1px solid #b08a3e", backgroundImage: `linear-gradient(90deg, rgba(253,251,245,0.95) 0%, rgba(253,251,245,0.75) 45%, rgba(253,251,245,0.1) 100%), ${bg}`, backgroundSize: "cover, 300% auto, 300% auto", backgroundPosition: `center, ${town.cx}% ${town.cy}%, ${town.cx}% ${town.cy}%` }}>
       <button onClick={onMap} className="ml-2 px-2.5 py-1 text-[11px]" style={{ borderRadius: 999, border: "1px solid var(--sky-deep)", background: "var(--paper)", color: "var(--sky-deep)", fontWeight: 800, cursor: "pointer", whiteSpace: "nowrap" }}>← 地図へ</button>
       <span className="ml-3" style={{ fontFamily: "'Shippori Mincho B1', serif", fontWeight: 900, fontSize: 18, color: "#22335c", letterSpacing: "0.08em" }}>{town.icon} {town.name}</span>
     </div>
   );
 }
+// 復習にかかる時間の見積もり（2026年10月23日）：問題ごとの「答えを見るまでの秒数」（ts の中央値）＋答え合わせ5秒。
+//   秒数の記録がない問題は、解いたことがあれば15秒・はじめてなら25秒
+function estimateMinutes(state, items) {
+  if (!items || !items.length) return 0;
+  const qm = new Map();
+  const qOf = (bankId, qId) => {
+    if (!qm.has(bankId)) { const b = state.questionBanks.find((x) => x.id === bankId); qm.set(bankId, new Map(((b && b.questions) || []).map((q) => [q.id, q]))); }
+    return qm.get(bankId).get(qId);
+  };
+  let sec = 0;
+  items.forEach((it) => {
+    const q = qOf(it.bankId, it.qId);
+    const ts = ((q && q.ts) || []).filter((x) => x > 0).sort((a, b) => a - b);
+    const think = ts.length ? Math.min(120, ts[Math.floor(ts.length / 2)]) : q && (q.correct || 0) + (q.wrong || 0) > 0 ? 15 : 25;
+    sec += think + 5;
+  });
+  return Math.max(1, Math.round(sec / 60));
+}
+const fmtEst = (m) => (m >= 60 ? `約${Math.floor(m / 60)}時間${m % 60 ? `${m % 60}分` : ""}` : `約${m}分`);
 // ホームの「今日の学習へ」：今日やること3つの進み具合と復習の数を見せて、今日タブへ（2026年10月22日）
-function TodayLink({ state, dueN, onGo }) {
+function TodayLink({ state, dueN, dueMin, onGo }) {
   const r = normRpg(state.rpg);
   const items = rmShow(state) && r.today3 && r.today3.d === todayStr() ? r.today3.items : null;
   let done = 0;
@@ -19766,7 +20018,7 @@ function TodayLink({ state, dueN, onGo }) {
       <span style={{ fontSize: 26 }} aria-hidden="true">☀</span>
       <span className="flex-1 min-w-0">
         <span className="block text-[15px]" style={{ fontWeight: 800, color: "var(--ink)", fontFamily: "'Shippori Mincho B1', serif" }}>{all ? "今日の学習は全部できました" : "今日の学習をはじめる"}</span>
-        <span className="block text-[11px]" style={{ color: "var(--ink-soft)" }}>{[items ? `今日やること ${done}/${items.length}` : rmShow(state) ? "今日やること3つ" : null, dueN ? `復習 ${dueN}問` : null, "すきま時間"].filter(Boolean).join("・")}は下の「今日」で</span>
+        <span className="block text-[11px]" style={{ color: "var(--ink-soft)" }}>{[items ? `今日やること ${done}/${items.length}` : rmShow(state) ? "今日やること3つ" : null, dueN ? `復習 ${dueN}問（${fmtEst(dueMin || 0)}）` : null, "すきま時間"].filter(Boolean).join("・")}は下の「今日」で</span>
       </span>
       <span style={{ color: "var(--sky-deep)", fontWeight: 900 }}>▶</span>
     </button>
