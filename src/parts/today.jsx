@@ -23,7 +23,7 @@ import { BLOCK_DIAGRAMS } from "../data/blocks";
 import { buildDeck, choicesOf, docOptions, deckNext, DECK_FIELDS, DECK_IV, DECK_MASTER } from "../game/kjdeck";
 import { ROADMAP_2027 } from "../data/roadmap";
 import { REGION_TALK, STORY_TALKS, REGION_ARC, regionArc, TRINITY_REGIONS, TRINITY_TALK, BOND_TALKS, COUNTDOWN_TALKS, ACADEMY_MEET, STUDY_GROUP_TALK } from "../data/story";
-import { AnswerHistory, AnswerPanel, BattleResult, BattleStage, Box, ConfigToggle, ERROR_TYPES, FINISH_RETENTION, LawRefChips, Mini, QuestionImages, RevealButton, SR_DEFAULTS, STUDY_PREFS, StudyScopeBar, addDays, bankWorldId, bounties, chipSt, curWorld, effectiveSr, estimateMinutes, examPlan, finishInfo, fmtEst, forgettingItems, getFsrsScheduler, homeSide, isQuestionWeak, lawIndex, lawRefCounts, mainQual, normRpg, parseLocalDate, passPower, pctTxt, planBankName, planToday, refsOfQ, regionQuests, renderFormattedText, renderQText, scopedPlans, setDisplay, shuffle, shuffleArr, studyScope, tatakiToday, themeOf, toFsrsCard, todayStr, uid, weekKey, worldsInUse, ymdCode } from "../App.jsx";
+import { featOn, AnswerHistory, AnswerPanel, BattleResult, BattleStage, Box, ConfigToggle, ERROR_TYPES, FINISH_RETENTION, LawRefChips, Mini, QuestionImages, RevealButton, SR_DEFAULTS, STUDY_PREFS, StudyScopeBar, addDays, bankWorldId, bounties, chipSt, curWorld, effectiveSr, estimateMinutes, examPlan, finishInfo, fmtEst, forgettingItems, getFsrsScheduler, homeSide, isQuestionWeak, lawIndex, lawRefCounts, mainQual, normRpg, parseLocalDate, passPower, pctTxt, planBankName, planToday, refsOfQ, regionQuests, renderFormattedText, renderQText, scopedPlans, setDisplay, shuffle, shuffleArr, studyScope, tatakiToday, themeOf, toFsrsCard, todayStr, uid, weekKey, worldsInUse, ymdCode } from "../App.jsx";
 
 
 // 交互練習：科目（地域）ごとに分けて、1問ずつ順番に取り出す（科目の中の順番はそのまま）
@@ -606,16 +606,18 @@ function TodayTab({ header = null, state, recordSRAnswer, updateSrSettings, star
         </Box>
         {curWorld(state).id === "home" && <TatakiDueCard state={state} />}
         {homeSide(state) && <KijutsuDueCard state={state} />}
-        <SpecialQuizCards state={state} onStart={startSpecial} />
+        {featOn("special") && <SpecialQuizCards state={state} onStart={startSpecial} />}
         <WeakLink state={state} />
-        <ConfusionPairs state={state} actions={rpgActionsForPairs} />
-        <ListenMode state={state} due={due} toggleQuestionMark={toggleQuestionMark} />
+        {featOn("confusion") && <ConfusionPairs state={state} actions={rpgActionsForPairs} />}
+        {featOn("listen") && <ListenMode state={state} due={due} toggleQuestionMark={toggleQuestionMark} />}
+        {featOn("review") && (
         <Fold title="📈 ふりかえり・予報" sub="記憶の通知表・今週の処方箋・復習の予報・記憶の天気図" k="today-look">
           <MemoryReportCard state={state} />
           <Prescription state={state} />
           <ReviewForecast state={state} />
           <MemoryWeather state={state} />
         </Fold>
+        )}
       </div>
     );
   }

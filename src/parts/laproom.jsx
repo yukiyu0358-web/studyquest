@@ -23,7 +23,7 @@ import { BLOCK_DIAGRAMS } from "../data/blocks";
 import { buildDeck, choicesOf, docOptions, deckNext, DECK_FIELDS, DECK_IV, DECK_MASTER } from "../game/kjdeck";
 import { ROADMAP_2027 } from "../data/roadmap";
 import { REGION_TALK, STORY_TALKS, REGION_ARC, regionArc, TRINITY_REGIONS, TRINITY_TALK, BOND_TALKS, COUNTDOWN_TALKS, ACADEMY_MEET, STUDY_GROUP_TALK } from "../data/story";
-import { ART_URL, Box, HyojiGrid, KEYCAP, KJ_MARKS, KijutsuRun, KjFieldInput, KjSection, LAWS, LapRecordsPanel, LawArticleModal, RoadmapBanner, STUDY_PREFS, StudyScopeBar, TrainingRoom, WEAK_GRAD, addDays, bounties, byRegionOrder, calcDueList, chipSt, chosenQual, correctDayStreak, curWorld, daysBetween, eraLabel, extractLawRefs, formatErrTypes, getFsrsScheduler, homeSide, isQuestionWeak, isRadioQual, kjAutoHint, lawChangeOf, lawIndex, lawsInScope, mainQual, normRpg, planBankOf, planToday, planTotal, rehearsalCfg, scopedPlans, setDisplay, shuffle, studyScope, themeOf, toFsrsCard, todayStr, uid, useLawChanges, usePastData } from "../App.jsx";
+import { featOn, ART_URL, Box, HyojiGrid, KEYCAP, KJ_MARKS, KijutsuRun, KjFieldInput, KjSection, LAWS, LapRecordsPanel, LawArticleModal, RoadmapBanner, STUDY_PREFS, StudyScopeBar, TrainingRoom, WEAK_GRAD, addDays, bounties, byRegionOrder, calcDueList, chipSt, chosenQual, correctDayStreak, curWorld, daysBetween, eraLabel, extractLawRefs, formatErrTypes, getFsrsScheduler, homeSide, isQuestionWeak, isRadioQual, kjAutoHint, lawChangeOf, lawIndex, lawsInScope, mainQual, normRpg, planBankOf, planToday, planTotal, rehearsalCfg, scopedPlans, setDisplay, shuffle, studyScope, themeOf, toFsrsCard, todayStr, uid, useLawChanges, usePastData } from "../App.jsx";
 
 
 // ============ 苦手問題の書き出し ============
@@ -372,7 +372,7 @@ function LapRoom({ view = "plan", state, actions, rpgActions, recordAnswer, past
           ))}
         </div>
       )}
-      {show && homeWorld && <RoadmapBanner state={state} />}
+      {show && homeWorld && featOn("roadmap") && <RoadmapBanner state={state} />}
       {show && <StudyScopeBar state={state} />}
       {show && <PlanTasks state={state} actions={actions} />}
       {show && <LapGrowth state={state} actions={actions} />}

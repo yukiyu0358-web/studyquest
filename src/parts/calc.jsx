@@ -23,7 +23,7 @@ import { BLOCK_DIAGRAMS } from "../data/blocks";
 import { buildDeck, choicesOf, docOptions, deckNext, DECK_FIELDS, DECK_IV, DECK_MASTER } from "../game/kjdeck";
 import { ROADMAP_2027 } from "../data/roadmap";
 import { REGION_TALK, STORY_TALKS, REGION_ARC, regionArc, TRINITY_REGIONS, TRINITY_TALK, BOND_TALKS, COUNTDOWN_TALKS, ACADEMY_MEET, STUDY_GROUP_TALK } from "../data/story";
-import { ART_URL, Box, KEYCAP, KeySeq, PAST_TOTAL, PastSection, YearFigures, chipSt, curWorld, homeSide, normRpg, pastInp, shuffle, todayStr, usePastData } from "../App.jsx";
+import { featOn, ART_URL, Box, KEYCAP, KeySeq, PAST_TOTAL, PastSection, YearFigures, chipSt, curWorld, homeSide, normRpg, pastInp, shuffle, todayStr, usePastData } from "../App.jsx";
 
 
 // ── 作図ドリル：方眼（1目盛り＝1m）に座標どおり点を打ち、土地や建物の形を描く（問題づくりは src/game/calc.js） ──
@@ -699,8 +699,8 @@ function CalcTab({ state, actions, startTimer, stopTimer, pastReq, onPastOpened 
           </div>
         </Box>
       )}
-      {curWorld(state).id === "home" && <CalcDrill state={state} actions={actions} />}
-      {curWorld(state).id === "home" && <SakuzuDrill state={state} actions={actions} />}
+      {curWorld(state).id === "home" && featOn("calcdrill") && <CalcDrill state={state} actions={actions} />}
+      {curWorld(state).id === "home" && featOn("sakuzu") && <SakuzuDrill state={state} actions={actions} />}
       <Box title="fx-JP500 の準備" icon={<Bookmark size={18} />}>
         <div className="jp text-[11px] space-y-1" style={{ color: "var(--ink)" }}>
           <div>・角度の単位を「度」にする：<KeySeq seq={["[SHIFT]", "[MENU]", "(設定)"]} /> → 角度単位 → 度（D）</div>

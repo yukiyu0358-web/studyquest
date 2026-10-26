@@ -1266,6 +1266,7 @@ function DisplaySettingsPanel({ settings, onChange, onClose, uid: userId, onRese
         )}
         <PushSettings uid={userId} />
         <StudySettings ds={ds} onChange={onChange} />
+        <FeatureSettings ds={ds} onChange={onChange} />
         <HomeLayoutSettings ds={ds} onChange={onChange} />
         <div className="jp text-xs mb-1" style={{ color: "var(--ink-soft)" }}>ホームのキャラクター（白金テーマ）</div>
         <div className="grid grid-cols-4 gap-1.5 mb-3">
@@ -1462,6 +1463,51 @@ const shuffle = (arr) => { const a = [...arr]; for (let i = a.length - 1; i > 0;
 // 設定は displaySettings.study = { explain: "off"|"say"|"write", slowSec, followUp, mix }（StudyRPG が描くたびに STUDY_PREFS へ写す）
 const STUDY_DEFAULTS = { explain: "say", slowSec: 25, followUp: true, mix: true };
 const STUDY_PREFS = { ...STUDY_DEFAULTS };
+// 機能のオン・オフ（2026年10月26日）：⚙設定の「使う機能」でオフにしたものは隠す（displaySettings.featuresOff = { id: true }。StudyRPG が描くたびに写す）
+const FEATURES = [
+  { id: "elite", name: "令和9年度の目標（上位1%）", where: "ホーム" },
+  { id: "roadmap", name: "2027年 合格ロードマップの帯", where: "ホーム" },
+  { id: "townReq", name: "街の依頼", where: "ホーム" },
+  { id: "gap", name: "すきま時間", where: "今日" },
+  { id: "special", name: "特別な出題（抜き打ち・寝る前・朝）", where: "今日" },
+  { id: "confusion", name: "混同ペアの対比カード", where: "今日" },
+  { id: "listen", name: "耳で聞く一問一答", where: "今日" },
+  { id: "review", name: "ふりかえり・予報", where: "今日" },
+  { id: "calcdrill", name: "計算ドリル（基本）", where: "計算の塔" },
+  { id: "sakuzu", name: "作図ドリル", where: "計算の塔" },
+  { id: "gacha", name: "召喚（ガチャ）", where: "冒険の塔" },
+  { id: "rune", name: "ルーン", where: "冒険の塔" },
+  { id: "tame", name: "魔物の仲間", where: "冒険の塔" },
+  { id: "alchemy", name: "調合", where: "冒険の塔" },
+  { id: "season", name: "月ごとのランク戦", where: "冒険の塔" },
+  { id: "weekday", name: "曜日の迷宮", where: "冒険の塔" },
+  { id: "errand", name: "相棒のおつかい", where: "冒険の塔" },
+  { id: "studyGroup", name: "仲間の勉強会", where: "冒険の塔" },
+  { id: "forest", name: "迷いの森", where: "冒険の塔" },
+  { id: "endless", name: "無限回廊", where: "冒険の塔" },
+];
+const FEATURES_OFF = {};
+const featOn = (id) => !FEATURES_OFF[id];
+function FeatureSettings({ ds, onChange }) {
+  const off = ds.featuresOff || {};
+  const groups = [...new Set(FEATURES.map((f) => f.where))];
+  const toggle = (id) => { const nx = { ...off }; if (nx[id]) delete nx[id]; else nx[id] = true; onChange({ featuresOff: nx }); };
+  return (
+    <div className="mb-3">
+      <div className="jp text-xs mb-1 flex items-center" style={{ color: "var(--ink-soft)" }}><span className="flex-1">使う機能（☐ にした機能は画面から隠れます。記録は消えません）</span>{Object.keys(off).length > 0 && <button onClick={() => onChange({ featuresOff: {} })} className="text-[10px] underline" style={{ background: "none", border: "none", color: "var(--sky-deep)", cursor: "pointer" }}>すべて表示にもどす</button>}</div>
+      {groups.map((g) => (
+        <div key={g} className="mb-1.5">
+          <div className="jp text-[10px] mb-0.5" style={{ color: "var(--ink-mute)", fontWeight: 700 }}>{g}</div>
+          <div className="grid grid-cols-2 gap-1">
+            {FEATURES.filter((f) => f.where === g).map((f) => (
+              <button key={f.id} onClick={() => toggle(f.id)} className="jp text-left text-[11px] px-2 py-1" style={{ background: "var(--paper)", color: off[f.id] ? "var(--ink-mute)" : "var(--ink)", border: "1px solid var(--rule-soft)", borderRadius: 6 }}>{off[f.id] ? "☐" : "☑"} {f.name}</button>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
 // 問題が出てから「答えを見る」までの秒数と、答える前に書いたひとこと（問題 id ごと。保存はしない）
 const THINK = { id: null, t0: 0, sec: {}, note: {}, pick: {} };
 // ── 4択の問題：問題文の最後に (1)〜(n) の選択肢が並び、答えが「答：(n)」で始まるもの（二陸特の CSV など）──
@@ -1875,6 +1921,7 @@ function StudyRPG({ user }) {
   const lastLap = useRef(["laps", "plan"]); // 「周回」タブで最後に開いていた画面
   useEffect(() => { if (NOTE_TABS.includes(tab)) lastNoteTab.current = tab; }, [tab]);
   Object.assign(STUDY_PREFS, STUDY_DEFAULTS, (state.displaySettings && state.displaySettings.study) || {});
+  Object.keys(FEATURES_OFF).forEach((k) => { delete FEATURES_OFF[k]; }); Object.assign(FEATURES_OFF, (state.displaySettings && state.displaySettings.featuresOff) || {});
   // 問題を id で書きかえる（自分ルール・メモへの追記）。patch は値か、問題を受け取って値を返す関数
   useEffect(() => {
     const on = (e) => {
@@ -4312,14 +4359,14 @@ function StudyRPG({ user }) {
             }
             out.unshift(<AllyOmen key="omen" state={state} onTrial={(id) => { setTab("adventure"); setTimeout(() => startAllyTrial(id), 500); }} />);
             if (state.questionBanks.length) { const items = getTodayReviewItems(); out.unshift(<TodayLink key="todaylink" state={state} dueN={items.length} dueMin={estimateMinutes(state, items)} onGo={() => setTab("today")} />); }
-            if (rmShow(state)) out.unshift(<RoadmapBanner key="roadmap" state={state} />);
-            if (rmShow(state)) out.unshift(<EliteGoalCard key="elite" state={state} />);
+            if (rmShow(state) && featOn("roadmap")) out.unshift(<RoadmapBanner key="roadmap" state={state} />);
+            if (rmShow(state) && featOn("elite")) out.unshift(<EliteGoalCard key="elite" state={state} />);
             out.unshift(<TownPanel key="town" state={state} actions={rpgActions} />);
             if (examDayInfo(state)) out.unshift(<ExamDayCard key="examday" state={state} actions={rpgActions} />);
             if ((state.qualifications || []).length) out.unshift(<StarBookBar key="book" state={state} onPick={(id) => updateDisplaySettings({ activeQual: id, studyScope: id === "all" ? "all" : null })} onNew={() => setTab("qual")} />);
             return out;
           })()}
-          {tab === "today" && <TodayTab header={<>{rmShow(state) && <TodayThree state={state} actions={rpgActions} />}{state.questionBanks.length > 0 && <GapTime state={state} />}</>} state={state} recordSRAnswer={recordSRAnswer} updateSrSettings={updateSrSettings} startTimer={startTimer} stopTimer={stopTimer} toggleQuestionMark={toggleQuestionMark} rpgActionsForPairs={rpgActions} preset={quickPreset} onPresetUsed={() => setQuickPreset(null)} planActions={planActions} />}
+          {tab === "today" && <TodayTab header={<>{rmShow(state) && <TodayThree state={state} actions={rpgActions} />}{state.questionBanks.length > 0 && featOn("gap") && <GapTime state={state} />}</>} state={state} recordSRAnswer={recordSRAnswer} updateSrSettings={updateSrSettings} startTimer={startTimer} stopTimer={stopTimer} toggleQuestionMark={toggleQuestionMark} rpgActionsForPairs={rpgActions} preset={quickPreset} onPresetUsed={() => setQuickPreset(null)} planActions={planActions} />}
           {tab === "adventure" && <AdventureTab state={state} actions={rpgActions} recordAnswer={recordAnswer} startTimer={startTimer} stopTimer={stopTimer} todayCount={getTodayReviewItems().length} />}
           {NOTE_TABS.includes(tab) && (
             <div className="grid grid-cols-7 gap-1 p-1 mb-3" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)", borderRadius: 999 }}>
@@ -9517,7 +9564,7 @@ function TownPanel({ state, actions }) {
           </div>
         ) : <div className="text-[11px]" style={{ color: "#4f7a3a", fontWeight: 800 }}>王都まで育ちました！ ここまでの学びが、この都をつくりました。</div>}
         {monuments.length > 0 && <div className="text-[10px]" style={{ color: "var(--ink-soft)" }}>記念の建物：{monuments.map((q) => { const mo = monumentOf(q); return `${mo.icon} ${mo.name}`; }).join("　")}</div>}
-        <TownRequests state={state} actions={actions} />
+        {featOn("townReq") && <TownRequests state={state} actions={actions} />}
         <div className="flex items-center gap-2 flex-wrap text-[11px]" style={{ color: "var(--ink-soft)" }}>
           <span>🎫 休息のランタン <b style={{ color: "var(--ink)" }}>{r.consumables.restTicket || 0}</b> / {CHARM_MAX}</span>
           <span className="flex-1 text-[10px]" style={{ color: "var(--ink-mute)" }}>学習できなかった日があっても、自動で連続学習を守ります</span>
@@ -10256,4 +10303,4 @@ export default App;
 export { GameIcon, Ico, RPG_ITEMS, RPG_CONSUMABLES, RPG_BOSSES, DIFFICULTIES, WHITE_CSS };
 
 // src/parts/*.jsx（切り出した画面）が使う名前
-export { ADV_CLASSES, ADV_NEED, ALLIES, ALLY_EVO, ALLY_SKILLS, ALLY_TRIAL_N, ALLY_TRIAL_PASS, ART_URL, AWAKEN_THRESHOLDS, AnswerHistory, AnswerPanel, BACKUP_KEEP, BASE_LINE, BATTLE, BATTLE_CSS, BATTLE_THEME, BOND_LV, BREW_RECIPES, BackRowAllies, BarCharPicker, BattleResult, BattleStage, Box, CASTLE_FLOORS, CAT_TIERS, CHIBI, CLASS_CHANGE_COST, ConfigToggle, DOC_LIMIT, DailyQuests, ERROR_TYPES, EVO_URL, FINISH_RETENTION, FORGE_MAX, FRAG_IDS, GACHA_COST, GACHA_PITY, GACHA_RATE, HERO_FACES, HERO_NAME, HERO_STAGES, HERO_STAGE_LV, HeroPortrait, HitNumbers, HyojiGrid, JOB_RANKS, JOURNEY_LEN, JOURNEY_PER, KEYCAP, KILL_TIERS, KJ_MARKS, KeySeq, KijutsuRun, KjFieldInput, KjSection, LAWS, LAW_BY_KEY, LUNA_CSS, LUNA_SKILLS, LapRecordsPanel, LawArticleModal, LawRefChips, LunaSprite, MASTERED_STABILITY, MON_BOSS, MON_MASK, MON_PAINTED, MON_STAND, MaterialIcon, Mini, MonPic, PASS_LINE, PAST_TOTAL, PET_THRESHOLDS, PET_TYPES, PartyFace, PastSection, PetIcon, QuestionImages, RARITY, RARITY_RANK, REHEARSAL_DEFAULT, RPG_ACHIEVEMENTS, RPG_CLASSES, RPG_MATERIALS, RPG_SLOTS, RUNE_CRIT, RUNE_DMG, RUNE_FRAG, RUNE_GOLD, RUNE_SLOTS, RehearsalRun, RevealButton, RivalCard, RoadmapBanner, SEASON_RANKS, SEC_PASS, SKILL_RESET_COST, SKILL_TREE, SMAP_ORDER, SQ_CLEAR, SR_DEFAULTS, STAGE_URL, STORY_CHAPTERS, STUDY_GROUP_PASS, STUDY_PREFS, SkillCutIn, SkyLayer, Stat, StudyScopeBar, TAME_AT, TAME_DMG, TAME_EVERY, TOWER_LAYERS, TOWER_MAX, TOWER_PASS, TRAP_MARK, TrainingRoom, TreasureChest, WEAK_GRAD, WEEKLY_REWARD, XP_QA_REVENGE, YearFigures, addDays, alliesJoined, alliesReady, allyById, allyEvoStage, auraOf, backRow, backupCol, bankWorldId, battleParty, bondFx, bondLevel, bounties, bringIntoView, buildPoolFromBanks, byRegionOrder, calcDueList, calculateStatus, castleCtx, castleFloorOf, catCounts, chapterIndex, chipSt, choiceOf, chosenQual, classRankIndex, combatPower, correctDayStreak, curWorld, daysBetween, daysUntil, dexStatus, dungeonBestOf, effectiveSr, equippedWeaponId, eraLabel, estimateMinutes, examPlan, extractLawRefs, finishInfo, fmtEst, fmtMin, forgeCost, forgedFx, forgettingItems, formatErrTypes, fragCount, fxText, gapItems, getAwakening, getCharacterTier, getClassInfo, getFsrsScheduler, getLevelTitle, getPetInfo, getRpgBonuses, getTierLabel, getXpForNextLevel, hashStr, healthReport, heroEvoArt, heroStage, homeCharOf, homeSide, isCheckpoint, isQuestionAutoWeak, isQuestionWeak, isRadioQual, joinProg, journeyEvent, kjAutoHint, lawChangeOf, lawIndex, lawRefCounts, lawsInScope, loadLaw, longestStudyStreak, mainQual, makeBackup, markTraps, matById, monSpecies, monStandUrl, monsterFor, monthlyReport, nextTitles, normRpg, parseLocalDate, passChance, passPower, pastInp, pctTxt, planBankName, planBankOf, planToday, planTotal, powerLogOf, prevMonthOf, refsOfQ, regionCleared, regionConquest, regionInfo, regionQuests, regionRank, regionStageUrl, rehearsalCfg, renderFormattedText, renderQText, rewardText, rivalPowerAt, rollChest, rollRpgItem, rpgEquippedItems, rpgInvItem, rpgItemById, runeHits, runeName, runeRegions, scopedPlans, seasonPoints, seasonRank, seasonRewardText, setDisplay, setStatus, shuffle, shuffleArr, skillPointsTotal, skillPointsUsed, splitHits, sqOpen, sqStars, sqStarsOf, starBooks, startAllyTrial, storyClears, studyScope, subjectJobs, tatakiToday, themeOf, titleLeft, toFsrsCard, todayStr, towerLayer, uid, useLawChanges, usePastData, weekKey, weeklyReport, worldArc, worldChapters, worldOfQual, worldPassChance, worldsInUse, ymdCode };
+export { featOn, ADV_CLASSES, ADV_NEED, ALLIES, ALLY_EVO, ALLY_SKILLS, ALLY_TRIAL_N, ALLY_TRIAL_PASS, ART_URL, AWAKEN_THRESHOLDS, AnswerHistory, AnswerPanel, BACKUP_KEEP, BASE_LINE, BATTLE, BATTLE_CSS, BATTLE_THEME, BOND_LV, BREW_RECIPES, BackRowAllies, BarCharPicker, BattleResult, BattleStage, Box, CASTLE_FLOORS, CAT_TIERS, CHIBI, CLASS_CHANGE_COST, ConfigToggle, DOC_LIMIT, DailyQuests, ERROR_TYPES, EVO_URL, FINISH_RETENTION, FORGE_MAX, FRAG_IDS, GACHA_COST, GACHA_PITY, GACHA_RATE, HERO_FACES, HERO_NAME, HERO_STAGES, HERO_STAGE_LV, HeroPortrait, HitNumbers, HyojiGrid, JOB_RANKS, JOURNEY_LEN, JOURNEY_PER, KEYCAP, KILL_TIERS, KJ_MARKS, KeySeq, KijutsuRun, KjFieldInput, KjSection, LAWS, LAW_BY_KEY, LUNA_CSS, LUNA_SKILLS, LapRecordsPanel, LawArticleModal, LawRefChips, LunaSprite, MASTERED_STABILITY, MON_BOSS, MON_MASK, MON_PAINTED, MON_STAND, MaterialIcon, Mini, MonPic, PASS_LINE, PAST_TOTAL, PET_THRESHOLDS, PET_TYPES, PartyFace, PastSection, PetIcon, QuestionImages, RARITY, RARITY_RANK, REHEARSAL_DEFAULT, RPG_ACHIEVEMENTS, RPG_CLASSES, RPG_MATERIALS, RPG_SLOTS, RUNE_CRIT, RUNE_DMG, RUNE_FRAG, RUNE_GOLD, RUNE_SLOTS, RehearsalRun, RevealButton, RivalCard, RoadmapBanner, SEASON_RANKS, SEC_PASS, SKILL_RESET_COST, SKILL_TREE, SMAP_ORDER, SQ_CLEAR, SR_DEFAULTS, STAGE_URL, STORY_CHAPTERS, STUDY_GROUP_PASS, STUDY_PREFS, SkillCutIn, SkyLayer, Stat, StudyScopeBar, TAME_AT, TAME_DMG, TAME_EVERY, TOWER_LAYERS, TOWER_MAX, TOWER_PASS, TRAP_MARK, TrainingRoom, TreasureChest, WEAK_GRAD, WEEKLY_REWARD, XP_QA_REVENGE, YearFigures, addDays, alliesJoined, alliesReady, allyById, allyEvoStage, auraOf, backRow, backupCol, bankWorldId, battleParty, bondFx, bondLevel, bounties, bringIntoView, buildPoolFromBanks, byRegionOrder, calcDueList, calculateStatus, castleCtx, castleFloorOf, catCounts, chapterIndex, chipSt, choiceOf, chosenQual, classRankIndex, combatPower, correctDayStreak, curWorld, daysBetween, daysUntil, dexStatus, dungeonBestOf, effectiveSr, equippedWeaponId, eraLabel, estimateMinutes, examPlan, extractLawRefs, finishInfo, fmtEst, fmtMin, forgeCost, forgedFx, forgettingItems, formatErrTypes, fragCount, fxText, gapItems, getAwakening, getCharacterTier, getClassInfo, getFsrsScheduler, getLevelTitle, getPetInfo, getRpgBonuses, getTierLabel, getXpForNextLevel, hashStr, healthReport, heroEvoArt, heroStage, homeCharOf, homeSide, isCheckpoint, isQuestionAutoWeak, isQuestionWeak, isRadioQual, joinProg, journeyEvent, kjAutoHint, lawChangeOf, lawIndex, lawRefCounts, lawsInScope, loadLaw, longestStudyStreak, mainQual, makeBackup, markTraps, matById, monSpecies, monStandUrl, monsterFor, monthlyReport, nextTitles, normRpg, parseLocalDate, passChance, passPower, pastInp, pctTxt, planBankName, planBankOf, planToday, planTotal, powerLogOf, prevMonthOf, refsOfQ, regionCleared, regionConquest, regionInfo, regionQuests, regionRank, regionStageUrl, rehearsalCfg, renderFormattedText, renderQText, rewardText, rivalPowerAt, rollChest, rollRpgItem, rpgEquippedItems, rpgInvItem, rpgItemById, runeHits, runeName, runeRegions, scopedPlans, seasonPoints, seasonRank, seasonRewardText, setDisplay, setStatus, shuffle, shuffleArr, skillPointsTotal, skillPointsUsed, splitHits, sqOpen, sqStars, sqStarsOf, starBooks, startAllyTrial, storyClears, studyScope, subjectJobs, tatakiToday, themeOf, titleLeft, toFsrsCard, todayStr, towerLayer, uid, useLawChanges, usePastData, weekKey, weeklyReport, worldArc, worldChapters, worldOfQual, worldPassChance, worldsInUse, ymdCode };
