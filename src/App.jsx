@@ -116,6 +116,15 @@ const barChars = () => [
   ...HOME_CHARS.map((c) => ({ id: c.id, name: c.name, url: c.avatar, face: c.face })),
   ...ALLIES.filter((a) => a.group === "story").map((a) => ({ id: `ally:${a.id}`, name: a.name, url: `${ART_URL}${a.img}`, face: a.face })),
 ];
+// 冒険の拠点の立ち絵（displaySettings.baseChar。未設定・"hero" は主人公の進化の絵）。id は barChars と同じ
+const baseCharOf = (state) => {
+  const id = (state.displaySettings || {}).baseChar;
+  if (!id || id === "hero") return null;
+  const h = HOME_CHARS.find((c) => c.id === id);
+  if (h) return { id, name: h.name, url: h.img || h.avatar, pos: h.pos || "center 10%" };
+  const a = id.startsWith("ally:") ? ALLIES.find((x) => x.id === id.slice(5)) : null;
+  return a ? { id, name: a.name, url: `${ART_URL}${a.img}`, pos: a.img.startsWith("chibi/") ? "center center" : "center 8%", chibi: a.img.startsWith("chibi/") } : null;
+};
 const barCharOf = (state) => { const id = (state.displaySettings || {}).barChar; return id ? barChars().find((c) => c.id === id) || null : null; };
 function CharFace({ c, size = 40, on = false }) {
   return <span style={{ display: "inline-block", width: size, height: size, borderRadius: "50%", flexShrink: 0, border: `${on ? 2 : 1}px solid #b08a3e`, boxShadow: "0 0 0 2px #fdfbf5, 0 0 0 3px rgba(176,138,62,0.45)", backgroundColor: "#e9e4d6", backgroundImage: `url(${c.url})`, backgroundSize: "300% auto", backgroundPosition: `${c.face[0]}% ${c.face[1]}%` }} />;
@@ -4204,8 +4213,8 @@ function StudyRPG({ user }) {
         </div>}
 
         <div className="mb-4">
-          {tab === "map" && <TownMap state={state} onGo={(t) => { if (t === "laps") { const [lt, lv] = lastLap.current; if (lv) setLapView(lv); setTab(lt); } else setTab(t); window.scrollTo(0, 0); }} todayN={getTodayReviewItems().length} />}
-          {TOWN_OF_TAB[tab] && <TowerHead map={curWorld(state).townmap} town={LEARN_TOWNS.find((x) => x.id === TOWN_OF_TAB[tab])} onMap={() => { setTab("map"); window.scrollTo(0, 0); }} />}
+          {tab === "map" && <TownMap state={state} onGo={(t) => { if (t === "laps") { const [lt, lv] = lastLap.current; if (lv) setLapView(lv); setTab(lt); } else setTab(t); window.scrollTo(0, 0); }} todayN={getTodayReviewItems().length} todayMin={estimateMinutes(state, getTodayReviewItems())} />}
+          {TOWN_OF_TAB[tab] && <TowerHead map={curWorld(state).townmap} stage={townShownStage(state)} town={LEARN_TOWNS.find((x) => x.id === TOWN_OF_TAB[tab])} onMap={() => { setTab("map"); window.scrollTo(0, 0); }} />}
           {TOWN_OF_TAB[tab] === "home" && (
             <div className="grid grid-cols-3 gap-1 p-1 mb-3" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)", borderRadius: 999 }}>
               {TOWN_TABS.map(([id, label]) => { const on = id === "notebook" ? NOTE_TABS.includes(tab) : tab === id; const n = id === "today" ? getTodayReviewItems().length : 0; return (
@@ -8515,6 +8524,20 @@ const LAWS = [
   { key: "musen-menkyo",   name: "無線局免許手続規則", short: "免許手続規則", aliases: ["無線局免許手続規則", "免許手続規則"] },
 ];
 const LAW_BY_KEY = Object.fromEntries(LAWS.map((l) => [l.key, l]));
+// 資格ごとの法令（2026年10月26日）：王都の世界（調査士）と二陸特の法規を分ける
+const RADIO_LAW_KEYS = new Set(["denpa-ho", "denpa-rei", "denpa-kisoku", "musen-jujisha", "musen-unyo", "musen-setsubi", "musen-menkyo"]);
+// 修練の塔・学習の分析で選べる法令：星詠みの書で資格を選んでいれば、その資格の法令だけ（「すべての資格」なら全部）
+function lawsInScope(state) {
+  if (!chosenQual(state)) return LAWS;
+  const w = curWorld(state);
+  if (w.id === "home") return LAWS.filter((l) => !RADIO_LAW_KEYS.has(l.key));
+  if (w.preset && w.preset.id === "radio") return LAWS.filter((l) => RADIO_LAW_KEYS.has(l.key));
+  // そのほかの資格の世界：その世界の問題集に出てくる法令
+  const sc = studyScope(state);
+  const used = new Set();
+  lawIndex(state).forEach((list, k) => { if (list.some(({ b }) => sc.inScope(b))) used.add(k.split(":")[0]); });
+  return LAWS.filter((l) => used.has(l.key));
+}
 const LAW_ALIAS_LIST = LAWS.flatMap((l) => l.aliases.map((a) => ({ alias: a, key: l.key }))).sort((a, b) => b.alias.length - a.alias.length);
 const SHORT_ALIASES = new Set(["法", "令", "規則"]); // 前に漢字が付くと別の法令（例：命令・手続法）になる略称
 
@@ -11106,7 +11129,7 @@ function PartyEditor({ state, actions, regions }) {
     const base = cur.length ? cur : party.map((p) => p.a.id);
     setIds(base.includes(id) ? base.filter((x) => x !== id) : base.length >= 3 ? [...base.slice(1), id] : [...base, id]);
   };
-  if (!joined.length) return null;
+  if (!joined.length) return <PartyNoAllies state={state} />;
   return (
     <Box title="パーティ編成" icon={<Sword size={18} />}>
       <div className="jp space-y-2">
@@ -11143,6 +11166,55 @@ function PartyEditor({ state, actions, regions }) {
         </div>
       </div>
     </Box>
+  );
+}
+// 仲間がまだいないとき：だれが・何をすると仲間になるか
+const allyJoinText = (a) => (a.towerNeed ? `試練の塔 第${a.towerNeed}階に着く` : a.storyNeed ? `ストーリークエストを${a.storyNeed}話クリア` : a.need ? `地域を${a.need}つ解放（守護者を倒す）` : "");
+function PartyNoAllies({ state }) {
+  const r = normRpg(state.rpg);
+  const joined = new Set(alliesJoined(r).map((a) => a.id));
+  const list = ALLIES.filter((a) => ALLY_SKILLS[a.id]);
+  return (
+    <Box title="パーティ編成" icon={<Sword size={18} />}>
+      <div className="jp space-y-1.5">
+        <p className="text-[11px]" style={{ color: "var(--ink-soft)", lineHeight: 1.7 }}>まだ一緒に戦う仲間がいません。仲間が加わると、ここで3人まで選んでパーティを組めます（ストーリー・試練の塔・ボス戦で後ろの列から加勢します）。</p>
+        <div className="grid gap-1 sm:grid-cols-2">
+          {list.map((a) => (
+            <div key={a.id} className="flex items-center gap-1.5 px-2 py-1" style={{ borderRadius: 8, border: "1px solid var(--rule-soft)", background: "var(--paper)", opacity: joined.has(a.id) ? 1 : 0.85 }}>
+              {CHIBI[a.id] ? <PartyFace id={a.id} size={30} /> : <span style={{ fontSize: 18 }}>👤</span>}
+              <span className="flex-1 min-w-0">
+                <span className="block text-[12px]" style={{ fontWeight: 800, color: "var(--ink)" }}>{a.name}<span className="text-[10px] ml-1" style={{ color: "var(--ink-mute)", fontWeight: 500 }}>{a.role}・{ROLE_NAME[ALLY_SKILLS[a.id].kind]}</span></span>
+                <span className="block text-[10px]" style={{ color: "var(--ink-soft)" }}>{joined.has(a.id) ? "✓ 加入済み" : `加入：${allyJoinText(a)}`}</span>
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </Box>
+  );
+}
+// パーティの小さな欄（拠点・試練の塔）：いまのパーティと「編成を変える」
+function PartyQuick({ state, actions, regions = [] }) {
+  const [open, setOpen] = useState(false);
+  const r = normRpg(state.rpg);
+  const joined = alliesJoined(r).filter((a) => ALLY_SKILLS[a.id]);
+  const party = battleParty(state);
+  if (open || !joined.length) return (
+    <div className="space-y-1">
+      <PartyEditor state={state} actions={actions} regions={regions} />
+      {joined.length > 0 && <button onClick={() => setOpen(false)} className="btn-ghost w-full text-[11px] py-1">▲ 編成をとじる</button>}
+    </div>
+  );
+  const syn = partySynergy(party, r);
+  return (
+    <div className="jp flex items-center gap-2 px-3 py-2" style={{ background: "var(--paper)", border: "1px solid var(--gold)", borderRadius: 10 }}>
+      <span className="text-[11px]" style={{ fontWeight: 800, color: "var(--ink)" }}>⚔ パーティ</span>
+      <PartyFace id="luna" size={36} />
+      {party.map((p) => <PartyFace key={p.a.id} id={p.a.id} p={p} size={36} />)}
+      {!party.length && <span className="text-[11px]" style={{ color: "var(--ink-mute)" }}>（仲間なし）</span>}
+      <span className="flex-1 min-w-0 text-[10px] truncate" style={{ color: "var(--ink-soft)" }}>{syn.list.length ? `✨ ${syn.list.map((x) => x.name).join("・")}` : ""}</span>
+      <button onClick={() => setOpen(true)} className="btn-primary text-[11px] px-2.5 py-1">編成を変える</button>
+    </div>
   );
 }
 function PartyCard({ state, actions }) {
@@ -12521,7 +12593,9 @@ function LawDex({ state, law, counts, actions }) {
 }
 function LawCloze({ state, actions }) {
   const cz = normRpg(state.rpg).cloze;
-  const [law, setLaw] = useState("fudosan-ho");
+  const lawList = lawsInScope(state);
+  const [law0, setLaw] = useState(() => (lawList[0] || LAWS[0]).key);
+  const law = lawList.some((l) => l.key === law0) ? law0 : (lawList[0] || LAWS[0]).key; // 資格を切り替えたら、その資格の法令に
   const [mode, setMode] = useState("often");
   const [run, setRun] = useState(null); // { law, list, i, pick:{}, checked, ok, blanks, items:[] }
   const [done, setDone] = useState(null);
@@ -12598,7 +12672,7 @@ function LawCloze({ state, actions }) {
     );
   }
 
-  const stats = LAWS.map((l) => { const lg = cz.log.filter((e) => e.law === l.key).slice(-5); const n = lg.reduce((a, e) => a + e.n, 0), ok = lg.reduce((a, e) => a + e.ok, 0); return { l, acc: n ? ok / n : null, times: cz.log.filter((e) => e.law === l.key).length, miss: Object.keys(cz.miss || {}).filter((k) => k.startsWith(`${l.key}:`)).length }; }).filter((x) => x.times > 0);
+  const stats = lawList.map((l) => { const lg = cz.log.filter((e) => e.law === l.key).slice(-5); const n = lg.reduce((a, e) => a + e.n, 0), ok = lg.reduce((a, e) => a + e.ok, 0); return { l, acc: n ? ok / n : null, times: cz.log.filter((e) => e.law === l.key).length, miss: Object.keys(cz.miss || {}).filter((k) => k.startsWith(`${l.key}:`)).length }; }).filter((x) => x.times > 0);
   return (
     <Box title="条文の穴埋め" icon={<GameIcon ch="📗" painted="c21" size={24} />}>
       <p className="jp text-[11px] mb-2" style={{ color: "var(--ink-soft)" }}>条文の大事な言葉（期間・数・「しなければならない／できる」・用語）が空欄になります。4つの中から選んでください。まちがえた条文は覚えておき、あとで集中して復習できます。</p>
@@ -12612,7 +12686,7 @@ function LawCloze({ state, actions }) {
         </div>
       )}
       <div className="jp space-y-2">
-        <div className="flex flex-wrap gap-1.5">{LAWS.map((l) => <button key={l.key} onClick={() => setLaw(l.key)} className="text-xs px-3 py-1" style={chip(law === l.key)}>{l.name}</button>)}</div>
+        <div className="flex flex-wrap gap-1.5">{lawList.map((l) => <button key={l.key} onClick={() => setLaw(l.key)} className="text-xs px-3 py-1" style={chip(law === l.key)}>{l.name}</button>)}</div>
         <div className="flex flex-wrap gap-1.5">
           {[["often", `問題によく出る条文${oftenN ? `（${oftenN}条）` : ""}`], ["dex", `図鑑のすき間（${dexLeft}条）`], ["miss", `まちがえた条文（${missN}条）`], ["all", "すべての条文"]].map(([id, nm]) => { const off = (id === "miss" && !missN) || (id === "dex" && !dexLeft); return <button key={id} disabled={off} onClick={() => setMode(id)} className="text-[11px] px-3 py-1" style={{ ...chip(mode === id), opacity: off ? 0.45 : 1 }}>{nm}</button>; })}
         </div>
@@ -13168,10 +13242,14 @@ function WorldView({ state, actions, todayCount, onWeekly, onDungeon, onGuardian
         ))}
       </div>
       {sec === "story" && (<>
+        <PartyQuick state={state} actions={actions} regions={pp.regions.filter((g) => g.total > 0).sort(byRegionOrder).map((g) => g.name)} />
         <StoryQuestView state={state} pp={pp} onStart={onStory} actions={actions} onGuardian={onGuardian} onSecBoss={onSecBoss} />
         <TopicKarte state={state} pp={pp} onStart={onStory} />
       </>)}
-      {sec === "tower" && <TowerView state={state} pp={pp} onStart={onTower} />}
+      {sec === "tower" && (<>
+        <PartyQuick state={state} actions={actions} regions={pp.regions.filter((g) => g.total > 0).sort(byRegionOrder).map((g) => g.name)} />
+        <TowerView state={state} pp={pp} onStart={onTower} />
+      </>)}
       {sec === "road" && (<>
         <PartyCard state={state} actions={actions} />
         <PartyEditor state={state} actions={actions} regions={pp.regions.filter((g) => g.total > 0).sort(byRegionOrder).map((g) => g.name)} />
@@ -13252,6 +13330,7 @@ function AdventureTab({ state, actions, recordAnswer, startTimer, stopTimer, tod
   const [qualId, setQualId] = useState("all");
   const [msg, setMsg] = useState("");
   const [view, setView] = useState("world"); // world（世界）| base（拠点・ボス）| skill | forge | dex
+  const [charPick, setCharPick] = useState(false); // 拠点のキャラを選ぶ
 
   if (endless) return <EndlessRun key={`e${endless}`} state={state} actions={actions} recordAnswer={recordAnswer} startTimer={startTimer} stopTimer={stopTimer} onExit={() => setEndless(0)} />;
   if (groupRun) {
@@ -13350,7 +13429,10 @@ function AdventureTab({ state, actions, recordAnswer, startTimer, stopTimer, tod
       {/* 拠点 */}
       <Box title="冒険の拠点" icon={<Castle size={18} />}>
         <div className="flex items-center gap-3 p-2" style={{ background: "var(--sky-pale)", border: "1px solid var(--rule-soft)" }}>
-          <div className="flex-shrink-0"><HeroPortrait state={state} size={150} /></div>
+          <div className="flex-shrink-0 flex flex-col items-center gap-1">
+            <HeroPortrait state={state} size={150} />
+            <button onClick={() => setCharPick(!charPick)} className="btn-ghost text-[11px] px-2 py-0.5">🔄 キャラを変える</button>
+          </div>
           <div className="flex-1 min-w-0">
             <div className="pixel text-sm mb-1" style={{ color: "var(--gold)" }}>💰 {r.gold.toLocaleString()} G</div>
             <div className="flex gap-1 mb-1 text-xl">{RPG_SLOTS.map((s) => <span key={s.id} title={s.label} style={{ opacity: eqMap[s.id] ? 1 : 0.25 }}>{eqMap[s.id] ? <GameIcon ch={eqMap[s.id].icon} id={eqMap[s.id].id} rarity={eqMap[s.id].rarity} size={34} /> : "▫️"}</span>)}</div>
@@ -13360,8 +13442,17 @@ function AdventureTab({ state, actions, recordAnswer, startTimer, stopTimer, tod
             {bonus.boostActive && <div className="jp text-[10px] mt-1 px-1 inline-block" style={{ background: "var(--plum)", color: "var(--paper)" }}>📕 EXP2倍 あと{boostLeft}分</div>}
           </div>
         </div>
+        {charPick && (
+          <div className="mt-2 p-2" style={{ background: "var(--paper)", border: "1px solid var(--gold)", borderRadius: 10 }}>
+            <div className="jp text-[11px] mb-1.5" style={{ color: "var(--ink-soft)", fontWeight: 700 }}>拠点に立つキャラを選ぶ（主人公を選ぶと、レベルで進化する姿にもどります）</div>
+            <BarCharPicker cur={(state.displaySettings || {}).baseChar || "hero"} onPick={(id) => { setDisplay({ baseChar: id === "hero" ? null : id }); setCharPick(false); }} />
+          </div>
+        )}
         <p className="jp text-[10px] mt-2" style={{ color: "var(--ink-mute)" }}>問題に正解するとEXPと一緒にゴールドがたまり、まれにアイテムが落ちます。完全制覇やボス討伐でも装備が手に入ります。</p>
       </Box>
+
+      {/* パーティ（2026年10月26日） */}
+      <PartyQuick state={state} actions={actions} regions={(() => { const qual = mainQual(state); const linked = qual && state.questionBanks.some((b) => b.qualId === qual.id); return passPower(state, linked ? qual.id : null).regions.filter((g) => g.total > 0).sort(byRegionOrder).map((g) => g.name); })()} />
 
       {/* 覚醒・転職の神殿・相棒 */}
       <GrowthPanels state={state} actions={actions} />
@@ -14284,6 +14375,7 @@ function HeroDecor({ stage, w }) {
 // 白金テーマの主人公：少女の立ち絵（アーチ形の額縁）。覚醒の★・相棒・クラスはドット絵版と同じ情報を出す
 function WhiteHeroPortrait({ state, size = 160 }) {
   const [imgOk, setImgOk] = useState(true);
+  const bc = baseCharOf(state); // 拠点で選んだキャラ（なければ主人公）
   const cls = getClassInfo(state);
   const pet = getPetInfo(state);
   const aw = getAwakening(state);
@@ -14296,7 +14388,8 @@ function WhiteHeroPortrait({ state, size = 160 }) {
       <div style={{ width: size, height: h, position: "relative", padding: 3, borderRadius: `${size / 2}px ${size / 2}px 4px 4px`, background: stg.frame, boxShadow: stg.glow }}>
         <HeroDecor stage={stg} w={size} />
         <div style={{ width: "100%", height: "100%", overflow: "hidden", position: "relative", borderRadius: `${size / 2 - 3}px ${size / 2 - 3}px 2px 2px`, background: "#e9e4d6" }}>
-          <StageHeroImg idx={stg.idx} onAllFail={() => setImgOk(false)} style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "center 16%", display: "block" }} />
+          {bc ? <img src={bc.url} alt={bc.name} style={{ width: "100%", height: "100%", objectFit: bc.chibi ? "contain" : "cover", objectPosition: bc.pos, display: "block" }} />
+            : <StageHeroImg idx={stg.idx} onAllFail={() => setImgOk(false)} style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "center 16%", display: "block" }} />}
           {aw.stars > 0 && (
             <div style={{ position: "absolute", top: size * 0.1, left: 0, right: 0, textAlign: "center", fontSize: Math.max(10, size * 0.08), color: "#ffe7a3", letterSpacing: 2, textShadow: "0 0 6px rgba(176,138,62,0.95), 0 1px 1px rgba(0,0,0,0.3)" }}>{"★".repeat(aw.stars)}</div>
           )}
@@ -15857,8 +15950,9 @@ function lawMastery(state) {
 }
 function LawMastery({ state }) {
   const all = lawMastery(state);
-  const laws = LAWS.filter((l) => all[l.key] && Object.keys(all[l.key]).length);
-  const [law, setLaw] = useState(laws[0] ? laws[0].key : null);
+  const laws = lawsInScope(state).filter((l) => all[l.key] && Object.keys(all[l.key]).length); // 選んでいる資格の法令だけ
+  const [law0, setLaw] = useState(laws[0] ? laws[0].key : null);
+  const law = laws.some((l) => l.key === law0) || !laws.length ? law0 : laws[0].key;
   const [open, setOpen] = useState(null);
   if (!laws.length) return <p className="jp text-xs py-3 text-center" style={{ color: "var(--ink-mute)" }}>問題文や答えに「不登法39条」のような条文が書かれていると、条文ごとの理解度を出せます。</p>;
   const m = all[law] || {};
@@ -17616,8 +17710,9 @@ function PaceDrill({ state, actions }) {
 // ── 条文の音読モード：よく出る条文を読み上げ、聞き終わったら穴埋めを1問 ──
 function LawListen({ state, actions }) {
   const counts = lawRefCounts(state);
-  const laws = LAWS.filter((l) => counts[l.key] && Object.keys(counts[l.key]).length);
-  const [law, setLaw] = useState(laws[0] ? laws[0].key : "fudosan-ho");
+  const laws = lawsInScope(state).filter((l) => counts[l.key] && Object.keys(counts[l.key]).length); // 選んでいる資格の法令だけ
+  const [law0, setLaw] = useState(laws[0] ? laws[0].key : "fudosan-ho");
+  const law = laws.some((l) => l.key === law0) || !laws.length ? law0 : laws[0].key;
   const [run, setRun] = useState(null); // { list:[{a, c}], i, phase: "read"|"quiz", pick:{}, checked, ok }
   const [rate, setRate] = useState(1);
   const can = typeof window !== "undefined" && "speechSynthesis" in window;
@@ -19925,8 +20020,16 @@ function TownPanel({ state, actions }) {
   );
 }
 // 学びの地図：絵の上の塔をタップすると、その画面へ。下に行き先の一覧（スマホでも押しやすいように）
-function TownMap({ state, onGo, todayN }) {
+// 街のいまの段階（演出の済んだ段階まで）
+function townShownStage(state) {
+  const ts = townStatus(state);
+  const T = (normRpg(state.rpg).town) || {};
+  return Math.min(ts.stage, T.stage ?? ts.stage);
+}
+function TownMap({ state, onGo, todayN, todayMin }) {
   const [hot, setHot] = useState(null);
+  const [townBad, setTownBad] = useState(false);
+  const tStage = townShownStage(state);
   // 画面の大きさに合わせて地図を大きく：PCは画面の高さいっぱいまで、スマホは大きくして横に動かせる
   const [vp, setVp] = useState(() => ({ w: window.innerWidth, h: window.innerHeight }));
   useEffect(() => { const f = () => setVp({ w: window.innerWidth, h: window.innerHeight }); window.addEventListener("resize", f); return () => window.removeEventListener("resize", f); }, []);
@@ -19953,6 +20056,15 @@ function TownMap({ state, onGo, todayN }) {
       <div ref={scrollRef} style={{ width: outerW, marginLeft: `calc(50% - ${outerW / 2}px)`, overflowX: mapW > outerW ? "auto" : "visible", borderRadius: 14, WebkitOverflowScrolling: "touch" }}>
       <div className="relative overflow-hidden select-none" style={{ width: mapW, margin: "0 auto", borderRadius: 14, border: "1.5px solid #b08a3e", boxShadow: "inset 0 0 0 3px rgba(253,251,245,0.6), 0 8px 22px rgba(34,51,92,0.2)", aspectRatio: "16 / 9", background: "#bcd8f0" }}>
         <img src={mapUrl} onError={() => wmap && setMapBad(true)} alt="学びの地図（はじまりの街・周回の塔・計算の塔・修練の塔・図書の塔・冒険の塔）" className="w-full h-full" style={{ objectFit: "cover", display: "block" }} draggable={false} />
+        {/* はじまりの街：中央の島に、いまの街の段階の絵（小屋〜王都）と看板 */}
+        {!townBad && (
+          <div aria-hidden="true" style={{ position: "absolute", left: "36%", top: "18%", width: "28%", height: "33%", pointerEvents: "none", WebkitMaskImage: "radial-gradient(ellipse at center, #000 50%, transparent 71%)", maskImage: "radial-gradient(ellipse at center, #000 50%, transparent 71%)" }}>
+            <img src={townArt(tStage)} alt="" onError={() => setTownBad(true)} style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "center 55%", display: "block" }} />
+          </div>
+        )}
+        <div aria-hidden="true" style={{ position: "absolute", left: "50%", top: "48.5%", transform: "translate(-50%, -50%)", pointerEvents: "none", padding: `${Math.round(mapW * 0.004)}px ${Math.round(mapW * 0.016)}px`, borderRadius: Math.round(mapW * 0.008), border: "2px solid #b08a3e", background: "linear-gradient(180deg, #fdfbf5, #f1e4c4)", boxShadow: "0 2px 8px rgba(20,28,50,0.35)", color: "#22335c", fontFamily: "'Shippori Mincho B1', serif", fontWeight: 900, fontSize: Math.max(11, Math.round(mapW * 0.022)), whiteSpace: "nowrap", letterSpacing: "0.06em" }}>
+          はじまりの{TOWN_STAGES[tStage].name}
+        </div>
         {LEARN_TOWNS.map((t) => (
           <button key={t.id} onClick={() => onGo(t.tab)} onMouseEnter={() => setHot(t.id)} onMouseLeave={() => setHot(null)} aria-label={`${t.name}へ`} title={`${t.name}：${t.sub}`}
             style={{ position: "absolute", left: `${t.x}%`, top: `${t.y}%`, width: `${t.w}%`, height: `${t.h}%`, borderRadius: 18, border: hot === t.id ? "2px solid rgba(242,193,78,0.95)" : "2px solid transparent", background: hot === t.id ? "radial-gradient(ellipse, rgba(255,240,190,0.28), transparent 70%)" : "transparent", boxShadow: hot === t.id ? "0 0 18px rgba(242,193,78,0.7)" : "none", cursor: "pointer", transition: "all .15s" }}>
@@ -19962,13 +20074,13 @@ function TownMap({ state, onGo, todayN }) {
       </div>
       </div>
       {mapW > outerW && <div className="text-center text-[10px]" style={{ color: "var(--ink-mute)", marginTop: 4 }}>← 地図は横に動かせます →</div>}
-      <TodayLink state={state} dueN={todayN} onGo={() => onGo("today")} />
+      <TodayLink state={state} dueN={todayN} dueMin={todayMin} onGo={() => onGo("today")} />
       <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5">
         {LEARN_TOWNS.map((t) => (
           <button key={t.id} onClick={() => onGo(t.tab)} title={`${t.name}：${t.sub}`} className="relative flex flex-col overflow-hidden" style={{ borderRadius: 10, border: "1px solid #b08a3e", background: "var(--paper)", cursor: "pointer", color: "var(--ink)", padding: 0 }}>
             {/* 塔の外観の絵（public/art/towers/。はじまりの街は地図のその場所を寄せて） */}
-            <span aria-hidden="true" style={{ display: "block", width: "100%", aspectRatio: "4 / 3", backgroundImage: TOWER_ART[t.id] ? `url(${ART_URL}towers/${TOWER_ART[t.id]})` : `url(${mapUrl})`, backgroundSize: TOWER_ART[t.id] ? "cover" : "400% auto", backgroundPosition: TOWER_ART[t.id] ? "center 0%" : `${t.cx}% ${t.cy}%`, borderBottom: "1px solid #d6b56a" }} />
-            <span className="block w-full text-center px-1 py-1 text-[11px]" style={{ fontWeight: 800, fontFamily: "'Shippori Mincho B1', serif", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.name}</span>
+            <span aria-hidden="true" style={{ display: "block", width: "100%", aspectRatio: "4 / 3", backgroundImage: TOWER_ART[t.id] ? `url(${ART_URL}towers/${TOWER_ART[t.id]})` : t.id === "home" ? `url(${townArt(tStage)}), url(${mapUrl})` : `url(${mapUrl})`, backgroundSize: TOWER_ART[t.id] ? "cover" : t.id === "home" ? "cover, 400% auto" : "400% auto", backgroundPosition: TOWER_ART[t.id] ? "center 0%" : t.id === "home" ? `center 55%, ${t.cx}% ${t.cy}%` : `${t.cx}% ${t.cy}%`, borderBottom: "1px solid #d6b56a" }} />
+            <span className="block w-full text-center px-1 py-1 text-[11px]" style={{ fontWeight: 800, fontFamily: "'Shippori Mincho B1', serif", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.id === "home" ? `はじまりの${TOWN_STAGES[tStage].name}` : t.name}</span>
             {badge[t.id] && <span style={{ position: "absolute", right: 3, top: 3, fontSize: 9, fontWeight: 800, color: "#fff", background: "var(--brick)", borderRadius: 999, padding: "0 5px", whiteSpace: "nowrap" }}>{badge[t.id]}</span>}
           </button>
         ))}
@@ -19977,13 +20089,14 @@ function TownMap({ state, onGo, todayN }) {
   );
 }
 // 塔の画面の見出し：地図のその場所を寄せて見せ、「← 地図へ」でもどる
-function TowerHead({ town, onMap, map }) {
+function TowerHead({ town, onMap, map, stage }) {
   if (!town) return null;
-  const bg = map ? `url(${ART_URL}${map}), url(${ART_URL}townmap.webp)` : `url(${ART_URL}townmap.webp)`; // 資格の世界の地図（なければ下の王都の地図が見える）
+  const home = town.id === "home" && stage != null;
+  const bg = home ? `url(${townArt(stage)}), url(${ART_URL}townmap.webp)` : map ? `url(${ART_URL}${map}), url(${ART_URL}townmap.webp)` : `url(${ART_URL}townmap.webp)`; // はじまりの街は街の段階の絵。資格の世界の地図（なければ下の王都の地図が見える）
   return (
-    <div className="jp relative overflow-hidden mb-3 flex items-center" style={{ height: 58, borderRadius: 12, border: "1px solid #b08a3e", backgroundImage: `linear-gradient(90deg, rgba(253,251,245,0.95) 0%, rgba(253,251,245,0.75) 45%, rgba(253,251,245,0.1) 100%), ${bg}`, backgroundSize: "cover, 300% auto, 300% auto", backgroundPosition: `center, ${town.cx}% ${town.cy}%, ${town.cx}% ${town.cy}%` }}>
+    <div className="jp relative overflow-hidden mb-3 flex items-center" style={{ height: 58, borderRadius: 12, border: "1px solid #b08a3e", backgroundImage: `linear-gradient(90deg, rgba(253,251,245,0.95) 0%, rgba(253,251,245,0.75) 45%, rgba(253,251,245,0.1) 100%), ${bg}`, backgroundSize: home ? "cover, cover, 300% auto" : "cover, 300% auto, 300% auto", backgroundPosition: home ? `center, center 55%, ${town.cx}% ${town.cy}%` : `center, ${town.cx}% ${town.cy}%, ${town.cx}% ${town.cy}%` }}>
       <button onClick={onMap} className="ml-2 px-2.5 py-1 text-[11px]" style={{ borderRadius: 999, border: "1px solid var(--sky-deep)", background: "var(--paper)", color: "var(--sky-deep)", fontWeight: 800, cursor: "pointer", whiteSpace: "nowrap" }}>← 地図へ</button>
-      <span className="ml-3" style={{ fontFamily: "'Shippori Mincho B1', serif", fontWeight: 900, fontSize: 18, color: "#22335c", letterSpacing: "0.08em" }}>{town.icon} {town.name}</span>
+      <span className="ml-3" style={{ fontFamily: "'Shippori Mincho B1', serif", fontWeight: 900, fontSize: 18, color: "#22335c", letterSpacing: "0.08em" }}>{town.icon} {home ? `はじまりの${TOWN_STAGES[stage].name}` : town.name}</span>
     </div>
   );
 }
