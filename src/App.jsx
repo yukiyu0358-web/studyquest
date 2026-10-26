@@ -2025,6 +2025,12 @@ function StudyRPG({ user }) {
   }, []);
   // 記述式の道場 ⇄ 計算の部屋：sq-open-past の合図で、その年度を開く（{to: "calc"|"laps", key}）
   const [pastReq, setPastReq] = useState(null);
+  const [sankoReq, setSankoReq] = useState(null); // 参考書の章を開く合図（sq-open-sanko）
+  useEffect(() => {
+    const on = (e) => { setSankoReq(e.detail || null); setTab("sanko"); window.scrollTo(0, 0); };
+    window.addEventListener("sq-open-sanko", on);
+    return () => window.removeEventListener("sq-open-sanko", on);
+  }, []);
   useEffect(() => {
     const on = (e) => { const d = e.detail || {}; if (d.to) { setPastReq({ ...d, t: Date.now() }); if (d.to === "laps" && d.view === "train") { setTab("train"); return; } if (d.to === "laps") setLapView(d.view || (d.key || d.tataki ? "kijutsu" : "plan")); setTab(d.to); } };
     window.addEventListener("sq-open-past", on);
@@ -4445,7 +4451,7 @@ function StudyRPG({ user }) {
           {tab === "laps" && <LapRoom view={lapView} recordAnswer={recordAnswer} state={state} actions={planActions} rpgActions={rpgActions} pastReq={pastReq && pastReq.to === "laps" ? pastReq : null} onPastOpened={() => setPastReq(null)} startTimer={startTimer} stopTimer={stopTimer} />}
           {tab === "rules" && <RuleBook state={state} />}
           {tab === "quotes" && <MyQuotes state={state} onChange={(list) => setState((s) => ({ ...s, myQuotes: list }))} />}
-          {tab === "sanko" && <SankoTab state={state} actions={rpgActions} onCreateBank={addQuestionBank} />}
+          {tab === "sanko" && <SankoTab state={state} actions={rpgActions} onCreateBank={addQuestionBank} req={sankoReq} onReq={() => setSankoReq(null)} />}
           {tab === "qbank" && <QBankTab openBankReq={openBankReq} onOpenedBank={() => setOpenBankReq(null)} onPlanWeakDone={(id) => markPlanBank(id, true)} state={state} addBank={addQuestionBank} deleteBank={deleteBank} recordAnswer={recordAnswer} recordRevengeAnswer={recordRevengeAnswer} awardXp={awardXp} startTimer={startTimer} stopTimer={stopTimer} incrementBankClears={incrementBankClears} updateBestStreak={updateBestStreak} moveBank={moveBank} addCloze={addCloze} deleteCloze={deleteCloze} recordClozeAnswer={recordClozeAnswer} recordClozeRevengeAnswer={recordClozeRevengeAnswer} toggleQuestionMark={toggleQuestionMark} toggleClozeMark={toggleClozeMark} recordClearSnapshot={recordClearSnapshot} createClozeBank={createClozeBank} updateQuestionFormats={updateQuestionFormats} addQuestionToBank={addQuestionToBank} editQuestion={editQuestion} deleteQuestion={deleteQuestion} moveQuestions={moveQuestions} editBankMeta={editBankMeta} addFolder={addFolder} deleteFolder={deleteFolder} renameFolder={renameFolder} reorderFolders={reorderFolders} addStudyNote={addStudyNote} updateStudyNote={updateStudyNote} deleteStudyNote={deleteStudyNote} moveBankToFolder={moveBankToFolder} setBanksQual={setBanksQual} saveSessionResume={saveSessionResume} clearSessionResume={clearSessionResume} editBankClears={editBankClears} updateQuestionMemo={updateQuestionMemo} toggleQuestionExclude={toggleQuestionExclude} />}
         </div>
       </div>
@@ -5957,12 +5963,79 @@ function useLawChanges() {
   return d;
 }
 const lawChangeOf = (changes, q) => { if (!changes || !q) return null; let last = null; refsOfQ(q).forEach((r) => { const d = (changes[r.law] || {})[r.art]; if (d && (!last || d > last.d)) last = { d, r }; }); return last && (!q.lawOk || q.lawOk < last.d) ? last : null; };
+// ── 苦手から参考書へ（2026年10月26日）：問題の根拠の条文と、参考書の行の根拠（ref）を突き合わせて、同じ条文を説明している章を探す ──
+let sankoIdx = null;
+function sankoIndex() {
+  if (sankoIdx) return sankoIdx;
+  sankoIdx = new Map();
+  SANKO_ALL.forEach((S) => (S.chapters || []).forEach((ch) => (ch.rows || []).forEach((row, i) => {
+    if (!row.ref) return;
+    extractLawRefs([row.ref]).forEach((r) => {
+      const k = `${r.law}:${r.art}`;
+      if (!sankoIdx.has(k)) sankoIdx.set(k, []);
+      const list = sankoIdx.get(k);
+      const hit = list.find((x) => x.S.id === S.id && x.ch.id === ch.id);
+      if (hit) { if (!hit.rows.includes(i)) hit.rows.push(i); } else list.push({ S, ch, rows: [i] });
+    });
+  })));
+  return sankoIdx;
+}
+// 問題の条文から、参考書の章（最大 n 個。行の当たりが多い順）
+function sankoChaptersFor(refs, n = 2) {
+  const idx = sankoIndex();
+  const m = new Map();
+  refs.forEach((r) => (idx.get(`${r.law}:${r.art}`) || []).forEach((x) => {
+    const k = `${x.S.id}:${x.ch.id}`;
+    const cur = m.get(k) || { S: x.S, ch: x.ch, rows: [] };
+    x.rows.forEach((i) => { if (!cur.rows.includes(i)) cur.rows.push(i); });
+    m.set(k, cur);
+  }));
+  return [...m.values()].sort((a, b) => b.rows.length - a.rows.length).slice(0, n);
+}
+// 参考書の章をその場で見る小窓（解いている途中でも画面を移らない）。その条文の行に印
+function SankoPeek({ hit, onClose }) {
+  const { S, ch, rows } = hit;
+  return createPortal(
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 80, background: "rgba(20,28,50,0.45)", display: "flex", alignItems: "center", justifyContent: "center", padding: 12 }}>
+      <div onClick={(e) => e.stopPropagation()} className="jp" style={{ width: "min(720px, 100%)", maxHeight: "85vh", overflowY: "auto", background: "var(--paper)", border: "1.5px solid #b08a3e", borderRadius: 12, padding: 12, boxShadow: "0 12px 30px rgba(20,28,50,0.35)" }}>
+        <div className="flex items-start gap-2 mb-1">
+          <div className="flex-1">
+            <div className="text-[10px]" style={{ color: "var(--ink-mute)" }}>📖 参考書　{S.name}</div>
+            <div style={{ fontFamily: "'Shippori Mincho B1', serif", fontWeight: 900, fontSize: 16, color: "var(--ink)" }}>{ch.title}</div>
+          </div>
+          <button onClick={onClose} className="btn-ghost text-[11px] px-2 py-0.5">とじる</button>
+        </div>
+        {ch.intro && <p className="text-[11px] mb-2" style={{ color: "var(--ink-soft)", lineHeight: 1.7 }}>{ch.intro}</p>}
+        <div style={{ overflowX: "auto" }}>
+          <table className="w-full text-[11px]" style={{ borderCollapse: "collapse" }}>
+            <thead><tr>{(ch.cols || []).map((c) => <th key={c} className="text-left px-1.5 py-1" style={{ background: "var(--cream)", borderBottom: "1px solid var(--gold)", color: "var(--ink)", whiteSpace: "nowrap" }}>{c}</th>)}</tr></thead>
+            <tbody>
+              {(ch.rows || []).map((row, i) => (
+                <tr key={i} style={{ background: rows.includes(i) ? "rgba(242,193,78,0.22)" : "transparent" }}>
+                  {(row.c || []).map((c, k) => <td key={k} className="px-1.5 py-1 align-top" style={{ borderBottom: "1px solid var(--rule-soft)", color: "var(--ink)", fontWeight: rows.includes(i) && k === 0 ? 800 : 400 }}>{c}</td>)}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {ch.tip && <p className="text-[10px] mt-2" style={{ color: "var(--ink-mute)" }}>💡 {ch.tip}</p>}
+        <div className="flex gap-2 mt-2">
+          <span className="flex-1 text-[10px] self-center" style={{ color: "var(--ink-mute)" }}>黄色の行が、この問題の条文の行です</span>
+          <button onClick={() => { onClose(); window.dispatchEvent(new CustomEvent("sq-open-sanko", { detail: { subj: S.id, ch: ch.id } })); }} className="btn-sky text-[11px] px-2 py-1">図書の塔でひらく（隠して覚える・クイズ）</button>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}
 function LawRefChips({ q }) {
   const [open, setOpen] = useState(null);
+  const [peek, setPeek] = useState(null);
   const changes = useLawChanges();
   if (!q) return null;
   const refs = extractLawRefs([q.q, q.a]);
   if (refs.length === 0) return null;
+  const books = sankoChaptersFor(refs);
   const ch = lawChangeOf(changes, q);
   return (
     <div className="flex flex-wrap items-center gap-1 mt-2">
@@ -5977,7 +6050,9 @@ function LawRefChips({ q }) {
           <button onClick={() => patchQuestion(q.id, { lawOk: ch.d })} className="ml-1 underline text-[10px]" style={{ background: "none", border: "none", color: "var(--ink-mute)", cursor: "pointer" }}>確かめた</button>
         </div>
       )}
+      {books.map((x) => <button key={`${x.S.id}:${x.ch.id}`} onClick={() => setPeek(x)} className="jp text-[11px] px-1.5 py-0.5" style={{ background: "rgba(127,163,216,0.12)", border: "1px solid #7fa3d8", color: "var(--ink)", borderRadius: 4, cursor: "pointer" }}>📖 参考書：{x.ch.title}</button>)}
       {open && <LawArticleModal target={open} onClose={() => setOpen(null)} />}
+      {peek && <SankoPeek hit={peek} onClose={() => setPeek(null)} />}
     </div>
   );
 }
@@ -10147,11 +10222,20 @@ function SankoChapter({ subj, ch, state, actions, onExit, onQuiz, onCreateBank }
     </div>
   );
 }
-function SankoTab({ state, actions, onCreateBank }) {
+function SankoTab({ state, actions, onCreateBank, req, onReq }) {
   const radio = isRadioQual(mainQual(state));
   const groups = chosenQual(state) ? SANKO_GROUPS.filter((g) => (g.id === "radio") === radio) : radio ? [...SANKO_GROUPS].reverse() : SANKO_GROUPS;
   const [subj, setSubj] = useState(groups[0].subjects[0].id);
   const [view, setView] = useState(null); // {ch} | {quiz: chapters}
+  // 問題の「📖 参考書」から：その科目のその章を開く
+  useEffect(() => {
+    if (!req) return;
+    const S0 = SANKO_ALL.find((x) => x.id === req.subj);
+    const ch0 = S0 && S0.chapters.find((c) => c.id === req.ch);
+    if (S0) setSubj(S0.id);
+    if (ch0) setView({ ch: ch0 });
+    if (onReq) onReq();
+  }, [req]);
   const S = SANKO_ALL.find((s) => s.id === subj);
   const rec = normRpg(state.rpg).sanko || {};
   const known = rec.known || {};
