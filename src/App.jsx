@@ -2481,6 +2481,42 @@ function StudyRPG({ user }) {
       const feelLine = a.feel === "good" ? "手応えあり、なんですね。その感覚は、毎日の積み重ねがくれたものです。" : a.feel === "hard" ? "きびしかった……そう感じられるのは、最後まで真剣に向き合った証拠です。" : "五分五分。結果が出るまで、どきどきしますね。";
       rpgActions.openTalk({ title: `${q.name}　おつかれさま`, lines: [["hero", `${q.name}の試験、ほんとうにおつかれさまでした！`], ["hero", feelLine], ...(a.note ? [["hero", `「${a.note}」……ちゃんと書き残しておきました。`]] : []), ["pet", "（相棒が、そっと寄り添ってくる）"], ["hero", "今日はゆっくり休んでください。合格したら、手帳の資格で「取得済み」にするのを忘れずに。街に記念の建物が建ちますよ。"]] });
     },
+    // 連続学習のお守り（休息のランタン）を街の欄で買う（2つまで）
+    buyCharm: () => {
+      if ((normRpg(stateRef.current.rpg).consumables.restTicket || 0) >= CHARM_MAX) return;
+      const m = rpgActions.buy("consumable", "restTicket");
+      if (m) showRpgToast(m, "#6c5a96");
+    },
+    // 仲間の試練に合格したら加入（出会いの会話は recruit の useEffect）
+    allyTrialFinish: ({ allyId, acc }) => {
+      if (acc < ALLY_TRIAL_PASS) return;
+      updateRpg((x) => { const rc = x.recruit || { base: recruitNow(normRpg(x)), seen: {} }; return { ...x, recruit: { ...rc, trial: { ...(rc.trial || {}), [allyId]: todayStr() } } }; });
+    },
+    // 街に住む仲間のおみやげ（1日1回ずつ）
+    townGift: (allyId) => {
+      const r0 = normRpg(stateRef.current.rpg);
+      const g = r0.townGift && r0.townGift.d === todayStr() ? r0.townGift : { d: todayStr(), got: [] };
+      if (g.got.includes(allyId)) return;
+      updateRpg((x) => addBond({ ...townGain(x, ALLY_GIFT.xp), gold: x.gold + ALLY_GIFT.gold, goldEarned: (x.goldEarned || 0) + ALLY_GIFT.gold, townGift: { d: todayStr(), got: [...g.got, allyId] } }, allyId, ALLY_GIFT.bond));
+      SFX.play("drop");
+      showRpgToast(`🎁 ${(allyById(allyId) || {}).name || "仲間"}からおみやげ：${ALLY_GIFT.gold}G・絆+${ALLY_GIFT.bond}`, "#4f6fa8");
+    },
+    // 建物を強くする（Lv2・Lv3）
+    townUpgrade: (b) => {
+      const r0 = normRpg(stateRef.current.rpg);
+      const T = r0.town || {};
+      const lv = ((T.lv || {})[b.id]) || 1;
+      if (!(T.built || {})[b.id] || lv >= BUILD_LV_MAX) return;
+      const c = buildUpCost(b, lv + 1);
+      if ((T.stage ?? 0) < c.stage || r0.gold < c.gold || Object.entries(c.mats).some(([k, v]) => ((r0.materials || {})[k] || 0) < v)) return;
+      updateRpg((x) => {
+        const m = { ...x.materials };
+        Object.entries(c.mats).forEach(([k, v]) => { m[k] = (m[k] || 0) - v; });
+        return { ...x, gold: x.gold - c.gold, materials: m, town: { ...(x.town || {}), lv: { ...((x.town || {}).lv || {}), [b.id]: lv + 1 } } };
+      });
+      SFX.play("stamp");
+      showRpgToast(`🏗 ${b.name}が Lv${lv + 1} になりました！ ${fxText(buildFx(b, lv + 1))}`, "#4f7a3a");
+    },
     townReq: (id, todayIds) => {
       const r0 = normRpg(stateRef.current.rpg);
       const rec = r0.townReq && r0.townReq.d === todayStr() ? r0.townReq : { d: todayStr(), got: [], bonus: false };
@@ -3173,6 +3209,11 @@ function StudyRPG({ user }) {
       updateRpg((x) => ({ ...x, season: { month: ym, claimed: [], history: hist.slice(-24) } }));
       if (prev) { const last = hist[hist.length - 1]; const rk = SEASON_RANKS.find((k) => k.id === last.rank); setTimeout(() => setTalk({ title: "月ごとのランク戦", lines: [["hero", `${Number(prev.slice(5, 7))}月のランク戦は「${rk.name}」でした（${last.pts}点）。おつかれさまでした！`], ["hero", `${Number(ym.slice(5, 7))}月の戦いが始まります。今月もブロンズから、一緒に駆け上がりましょう。`]] }), 3500); }
     }
+    // 月報：月が変わってはじめて開いたとき、先月の分を話す（はじめての月は記録だけ）
+    if (r.reportMonth !== ym) {
+      updateRpg((x) => ({ ...x, reportMonth: ym }));
+      if (r.reportMonth) { const rep = monthlyReport(state, prevMonthOf(ym)); if (rep) setTimeout(() => setTalk(rep), 5000); }
+    }
     const wk = weekKey();
     if (r.reportWeek !== wk) {
       const rep = weeklyReport(state, wk);
@@ -3472,6 +3513,20 @@ function StudyRPG({ user }) {
         afterTalk: { title: `はじまりの${TOWN_STAGES[ts.stage].name}`, lines: [["hero", `見てください！ 街が「${TOWN_STAGES[ts.stage].name}」に育ちました。`], ["hero", "毎日の勉強の積み重ねで、人が集まってくれたんです。"], ["pet", "（相棒が、新しい通りをうれしそうに走っていく）"], ["hero", "新しい建物も建てられるようになりました。街の「建物」をのぞいてみましょう。"]] } });
     }
   }, [loaded, (normRpg(state.rpg).town || {}).xp, (normRpg(state.rpg).town || {}).v]);
+  // 連続学習のお守り（2026年10月26日）：学習できなかった日があって連続が切れそうなとき、休息のランタンを自動で使って守る（1日1回の確認）
+  useEffect(() => {
+    if (!loaded) return;
+    const r = normRpg(state.rpg);
+    const d = todayStr();
+    if (r.charmDay === d) return;
+    const studied = (x) => state.studyLog.some((l) => l.date === x) || r.restDays.includes(x);
+    const have = r.consumables.restTicket || 0;
+    const miss = [];
+    for (let k = 1; k <= have; k++) { const x = addDays(d, -k); if (studied(x)) break; miss.push(x); }
+    const use = miss.length && miss.length <= have && studied(addDays(d, -(miss.length + 1))) ? miss : [];
+    updateRpg((x) => ({ ...x, charmDay: d, ...(use.length ? { consumables: { ...x.consumables, restTicket: Math.max(0, (x.consumables.restTicket || 0) - use.length) }, restDays: [...x.restDays, ...use].slice(-60) } : {}) }));
+    if (use.length) setTimeout(() => showRpgToast(`🎫 休息のランタンが、学習できなかった${use.length}日の連続学習を守りました`, "#6c5a96"), 2500);
+  }, [loaded]);
   // 仲間の加入：はじめて開いたときに出発点を記録（はじめの仲間だけ加入済み）。そのあと条件に届いた仲間は、出会いの会話とともに加わる
   useEffect(() => {
     if (!loaded) return;
@@ -3481,6 +3536,12 @@ function StudyRPG({ user }) {
       updateRpg((x) => (x.recruit ? x : { ...x, recruit: { base: recruitNow(normRpg(x)), seen } }));
       return;
     }
+    // 試練を待つ仲間ができたら、1回だけお知らせ
+    const rdy = alliesReady(r).filter((a) => !(r.recruit.readySeen || {})[a.id]);
+    if (rdy.length) {
+      updateRpg((x) => { const rc = x.recruit || {}; return { ...x, recruit: { ...rc, readySeen: { ...(rc.readySeen || {}), ...Object.fromEntries(rdy.map((a) => [a.id, todayStr()])) } } }; });
+      rdy.forEach((a, i) => setTimeout(() => showRpgToast(`⚔ ${a.name}が試練を待っています（冒険の塔のパーティの欄から）`, "#b08a3e"), 1200 + i * 600));
+    }
     const fresh = alliesJoined(r).filter((a) => !(r.recruit.seen || {})[a.id]);
     if (!fresh.length) return;
     updateRpg((x) => { const rc = x.recruit || {}; return { ...x, recruit: { ...rc, seen: { ...(rc.seen || {}), ...Object.fromEntries(fresh.map((a) => [a.id, todayStr()])) } } }; });
@@ -3488,7 +3549,7 @@ function StudyRPG({ user }) {
       showRpgToast(`${a.name}（${a.role}）が仲間になった！ ${fxText(a.fx)}`, "#4f6fa8");
       setTalk({ title: `${a.name}との出会い`, lines: ACADEMY_MEET[a.id] || [...(a.intro || []).map((t) => [a.id, t]), ["hero", `${a.name}さん、よろしくお願いします！ いっしょに進みましょう。`], ...(a.cheer ? [[a.id, a.cheer]] : [])] });
     }, 1600 + i * 500));
-  }, [loaded, storyClears(normRpg(state.rpg)), (normRpg(state.rpg).tower || {}).floor, clearedCount(normRpg(state.rpg)), !!normRpg(state.rpg).recruit]);
+  }, [loaded, storyClears(normRpg(state.rpg)), (normRpg(state.rpg).tower || {}).floor, clearedCount(normRpg(state.rpg)), !!normRpg(state.rpg).recruit, Object.keys((normRpg(state.rpg).recruit || {}).trial || {}).length]);
   useEffect(() => {
     if (!loaded) return;
     const r = normRpg(state.rpg);
@@ -4256,6 +4317,7 @@ function StudyRPG({ user }) {
               else if (id === "events" || id === "guide" || id === "quest") out.push(dash(id));
               else if (id === "quals") out.push(<div key="quals"><HomeTab state={state} liveSeconds={liveSeconds} setMainTitle={setMainTitle} setTab={setTab} todayCount={getTodayReviewItems().length} hideBanner dashboard /></div>);
             }
+            out.unshift(<AllyOmen key="omen" state={state} onTrial={(id) => { setTab("adventure"); setTimeout(() => startAllyTrial(id), 500); }} />);
             if (state.questionBanks.length) { const items = getTodayReviewItems(); out.unshift(<TodayLink key="todaylink" state={state} dueN={items.length} dueMin={estimateMinutes(state, items)} onGo={() => setTab("today")} />); }
             if (rmShow(state)) out.unshift(<RoadmapBanner key="roadmap" state={state} />);
             if (rmShow(state)) out.unshift(<EliteGoalCard key="elite" state={state} />);
@@ -10342,6 +10404,39 @@ function weeklyReport(state, weekStart) {
   return { title: "週報　先週のふり返り", lines };
 }
 
+// ── 冒険の月報（2026年10月26日）：月のはじめに、先月の勉強をまとめて主人公が話す ──
+const prevMonthOf = (ym) => { const [y, m] = ym.split("-").map(Number); return m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, "0")}`; };
+function monthlyReport(state, ym) {
+  const r = normRpg(state.rpg);
+  const m = Number(ym.slice(5, 7));
+  const code = ym.slice(2, 4) + ym.slice(5, 7); // 回答日 ah の「YYMM」
+  const logs = state.studyLog.filter((l) => (l.date || "").startsWith(ym));
+  const mins = logs.reduce((a, l) => a + (Number(l.minutes) || 0), 0);
+  const days = new Set(logs.map((l) => l.date)).size;
+  let ans = 0, ok = 0, laps = 0;
+  state.questionBanks.forEach((b) => {
+    (b.questions || []).forEach((q) => (q.ah || []).forEach((h) => { const t = String(h); if (!t.startsWith(code)) return; ans++; if (/[su]$/.test(t)) ok++; }));
+    laps += (b.clearHistory || []).filter((c) => (c.date || "").startsWith(ym)).length;
+  });
+  if (!mins && !ans) return null;
+  const pl = powerLogOf(state).filter((e) => (e.d || "").startsWith(ym));
+  const byDay = {};
+  logs.forEach((l) => { byDay[l.date] = (byDay[l.date] || 0) + (Number(l.minutes) || 0); });
+  const bestDay = Object.entries(byDay).sort((a, b) => b[1] - a[1])[0];
+  const newAllies = ALLIES.filter((a) => (((r.recruit || {}).seen || {})[a.id] || "").startsWith(ym) && (ALLY_JOIN[a.id] || {}).k !== "start");
+  const lines = [
+    ["hero", `${m}月の月報です。ひと月、おつかれさまでした！`],
+    ["hero", `勉強した日は${days}日、時間は合計${fmtMin(mins)}。問題には${ans.toLocaleString()}回答えて、正解は${ok.toLocaleString()}回（${ans ? Math.round((ok / ans) * 100) : 0}%）でした。`],
+  ];
+  if (bestDay) lines.push(["hero", `いちばんがんばった日は${Number(bestDay[0].slice(5, 7))}月${Number(bestDay[0].slice(8, 10))}日（${fmtMin(bestDay[1])}）です。`]);
+  if (laps) lines.push(["hero", `問題集を${laps}周しました。周回スタンプが、ちゃんと増えていますよ。`]);
+  if (pl.length >= 2) lines.push(["hero", `合格力は ${pctTxt(pl[0].p)} → ${pctTxt(pl[pl.length - 1].p)} になりました。`]);
+  if (newAllies.length) lines.push(["hero", `${newAllies.map((a) => a.name).join("・")}が仲間に加わってくれました。`]);
+  lines.push(["hero", `街はいま「はじまりの${TOWN_STAGES[townShownStage(state)].name}」です。`]);
+  lines.push(["pet", "（相棒が、カレンダーを1枚めくって胸を張っている）"]);
+  lines.push(["hero", "今月も、一歩ずつ進みましょうね。"]);
+  return { title: `${m}月の月報`, lines };
+}
 // ── 最終ボス（本番の試験）：合格力が合格ラインに届けば撃破できる ──
 // ── 科目ごとのジョブレベル：科目（地域）ごとの経験値＝正解の回数＋記憶が定着した問題×5。称号はレベルで上がる ──
 const JOB_SUBJECT = [[/不動産登記/, "登記"], [/民法/, "民法"], [/区分所有/, "区分所有"], [/調査士法/, "調査士法"], [/測量/, "測量"], [/書式/, "書式"]];
@@ -11104,7 +11199,18 @@ function joinProg(a, r) {
   const need = j.k === "tower" ? Math.min(j.n, Math.max(0, TOWER_MAX - base)) : j.n; // 塔の上に着いていたら、そこまで
   return { j, have: Math.max(0, recruitNow(r)[key] - base), need, base };
 }
-const alliesJoined = (r) => ALLIES.filter((a) => { const p = joinProg(a, r); return p.have >= p.need; });
+const allyCondMet = (a, r) => { const p = joinProg(a, r); return p.have >= p.need; };
+// 加入している仲間：はじめの仲間・試練に合格した仲間（trial）・これまでに加入した仲間（seen）
+const alliesJoined = (r) => ALLIES.filter((a) => { const k = (ALLY_JOIN[a.id] || { k: "start" }).k; const rc = r.recruit || {}; return k === "start" || (rc.seen || {})[a.id] || (rc.trial || {})[a.id]; });
+// 試練を待っている仲間（条件に届いたが、まだ試練に合格していない）
+const alliesReady = (r) => { const j = new Set(alliesJoined(r).map((a) => a.id)); return ALLIES.filter((a) => ALLY_SKILLS[a.id] && !j.has(a.id) && allyCondMet(a, r)); };
+const ALLY_TRIAL_N = 5, ALLY_TRIAL_PASS = 0.6; // 仲間の試練：5問中3問
+const startAllyTrial = (allyId) => window.dispatchEvent(new CustomEvent("sq-ally-trial", { detail: { allyId } }));
+function allyTrialPool(state, a) {
+  let pool = studyGroupPool(state, a);
+  if (pool.length < ALLY_TRIAL_N) { const sc = studyScope(state); pool = buildPoolFromBanks(state.questionBanks.filter((b) => sc.inScope(b)), ALLY_TRIAL_N); }
+  return pool.slice(0, ALLY_TRIAL_N);
+}
 // 仲間との絆：得意分野の問題に正解するたびに1つ深まる（rpg.bonds）。Lv2〜5で物語が開き、仲間の効果が強くなる
 const BOND_LV = [0, 30, 100, 250, 500];
 const bondLevel = (pts) => BOND_LV.filter((t) => (pts || 0) >= t).length;
@@ -11202,6 +11308,37 @@ function PartyEditor({ state, actions, regions }) {
     </Box>
   );
 }
+// ホームの予告：試練を待つ仲間か、あと1つで試練の仲間（2026年10月26日）
+function AllyOmen({ state, onTrial }) {
+  const r = normRpg(state.rpg);
+  const ready = alliesReady(r);
+  if (ready.length) {
+    const a = ready[0];
+    return (
+      <button onClick={() => onTrial(a.id)} className="jp w-full mb-3 flex items-center gap-3 px-4 py-2.5 text-left" style={{ borderRadius: 12, background: "linear-gradient(90deg, #f6ead0, #fdfbf5)", border: "1.5px solid var(--gold)", cursor: "pointer" }}>
+        {CHIBI[a.id] ? <PartyFace id={a.id} size={40} /> : <span style={{ fontSize: 26 }}>⚔</span>}
+        <span className="flex-1 min-w-0">
+          <span className="block text-[14px]" style={{ fontWeight: 800, color: "var(--ink)" }}>{a.name}が試練を待っています{ready.length > 1 ? `（ほか${ready.length - 1}人）` : ""}</span>
+          <span className="block text-[11px]" style={{ color: "var(--ink-soft)" }}>{a.role}「あなたの力を見せてください」　{ALLY_TRIAL_N}問中{Math.round(ALLY_TRIAL_N * ALLY_TRIAL_PASS)}問で仲間に</span>
+        </span>
+        <span style={{ color: "var(--sky-deep)", fontWeight: 900 }}>▶</span>
+      </button>
+    );
+  }
+  const joined = new Set(alliesJoined(r).map((a) => a.id));
+  const near = ALLIES.filter((a) => ALLY_SKILLS[a.id] && !joined.has(a.id)).map((a) => ({ a, p: joinProg(a, r) })).filter((x) => x.p.need - x.p.have === 1)[0];
+  if (!near) return null;
+  const k = near.p.j.k;
+  return (
+    <div className="jp mb-3 flex items-center gap-3 px-4 py-2.5" style={{ borderRadius: 12, background: "var(--paper)", border: "1px dashed var(--rule)" }}>
+      <span style={{ filter: "grayscale(1) brightness(0.35)", display: "inline-flex" }}>{CHIBI[near.a.id] ? <PartyFace id={near.a.id} size={40} /> : <span style={{ fontSize: 26 }}>👤</span>}</span>
+      <span className="flex-1 min-w-0">
+        <span className="block text-[13px]" style={{ fontWeight: 800, color: "var(--ink)" }}>🌫 だれかの気配がする……</span>
+        <span className="block text-[11px]" style={{ color: "var(--ink-soft)" }}>{k === "story" ? "ストーリークエストをあと1話" : k === "tower" ? "試練の塔をあと1階" : "地域の守護者をあと1体"}で、新しい仲間が試練を出してくれそうです。</span>
+      </span>
+    </div>
+  );
+}
 // 仲間がまだいないとき：だれが・何をすると仲間になるか
 const allyJoinText = (a, r) => {
   const p = joinProg(a, r);
@@ -11213,11 +11350,23 @@ const allyJoinText = (a, r) => {
 function AllyUpcoming({ state }) {
   const r = normRpg(state.rpg);
   const joined = new Set(alliesJoined(r).map((a) => a.id));
-  const list = ALLIES.filter((a) => ALLY_SKILLS[a.id] && !joined.has(a.id))
+  const ready = alliesReady(r);
+  const list = ALLIES.filter((a) => ALLY_SKILLS[a.id] && !joined.has(a.id) && !ready.some((x) => x.id === a.id))
     .sort((a, b) => { const pa = joinProg(a, r), pb = joinProg(b, r); return (pa.need - pa.have) / pa.need - (pb.need - pb.have) / pb.need; });
-  if (!list.length) return null;
+  if (!list.length && !ready.length) return null;
   return (
     <div className="space-y-1">
+      {ready.map((a) => (
+        <div key={a.id} className="flex items-center gap-2 px-2 py-1.5" style={{ borderRadius: 8, border: "1.5px solid var(--gold)", background: "linear-gradient(90deg, #f6ead0, #fdfbf5)" }}>
+          {CHIBI[a.id] ? <PartyFace id={a.id} size={32} /> : <span style={{ fontSize: 18 }}>👤</span>}
+          <span className="flex-1 min-w-0">
+            <span className="block text-[12px]" style={{ fontWeight: 800, color: "var(--ink)" }}>{a.name}が試練を待っています</span>
+            <span className="block text-[10px]" style={{ color: "var(--ink-soft)" }}>{a.role}・{ROLE_NAME[ALLY_SKILLS[a.id].kind]}　得意分野から{ALLY_TRIAL_N}問、{Math.round(ALLY_TRIAL_N * ALLY_TRIAL_PASS)}問正解で仲間に</span>
+          </span>
+          <button onClick={() => startAllyTrial(a.id)} className="btn-primary text-[11px] px-2.5 py-1">⚔ 試練に挑む</button>
+        </div>
+      ))}
+      {list.length > 0 && <>
       <div className="text-[11px]" style={{ fontWeight: 800, color: "var(--ink)" }}>これから加わる仲間（{list.length}人）</div>
       <div className="grid gap-1 sm:grid-cols-2">
         {list.map((a) => {
@@ -11234,28 +11383,16 @@ function AllyUpcoming({ state }) {
           );
         })}
       </div>
+      </>}
     </div>
   );
 }
 function PartyNoAllies({ state }) {
-  const r = normRpg(state.rpg);
-  const joined = new Set(alliesJoined(r).map((a) => a.id));
-  const list = ALLIES.filter((a) => ALLY_SKILLS[a.id]);
   return (
     <Box title="パーティ編成" icon={<Sword size={18} />}>
       <div className="jp space-y-1.5">
-        <p className="text-[11px]" style={{ color: "var(--ink-soft)", lineHeight: 1.7 }}>まだ一緒に戦う仲間がいません。仲間が加わると、ここで3人まで選んでパーティを組めます（ストーリー・試練の塔・ボス戦で後ろの列から加勢します）。</p>
-        <div className="grid gap-1 sm:grid-cols-2">
-          {list.map((a) => (
-            <div key={a.id} className="flex items-center gap-1.5 px-2 py-1" style={{ borderRadius: 8, border: "1px solid var(--rule-soft)", background: "var(--paper)", opacity: joined.has(a.id) ? 1 : 0.85 }}>
-              {CHIBI[a.id] ? <PartyFace id={a.id} size={30} /> : <span style={{ fontSize: 18 }}>👤</span>}
-              <span className="flex-1 min-w-0">
-                <span className="block text-[12px]" style={{ fontWeight: 800, color: "var(--ink)" }}>{a.name}<span className="text-[10px] ml-1" style={{ color: "var(--ink-mute)", fontWeight: 500 }}>{a.role}・{ROLE_NAME[ALLY_SKILLS[a.id].kind]}</span></span>
-                <span className="block text-[10px]" style={{ color: "var(--ink-soft)" }}>{joined.has(a.id) ? "✓ 加入済み" : `加入：${allyJoinText(a, r)}`}</span>
-              </span>
-            </div>
-          ))}
-        </div>
+        <p className="text-[11px]" style={{ color: "var(--ink-soft)", lineHeight: 1.7 }}>まだ一緒に戦う仲間がいません。ストーリーや試練の塔を進めると仲間が試練を出してくれます。合格すると、ここで3人まで選んでパーティを組めます（ストーリー・試練の塔・ボス戦で後ろの列から加勢します）。</p>
+        <AllyUpcoming state={state} />
       </div>
     </Box>
   );
@@ -11273,7 +11410,10 @@ function PartyQuick({ state, actions, regions = [] }) {
     </div>
   );
   const syn = partySynergy(party, r);
+  const ready = alliesReady(r);
   return (
+    <div className="space-y-1">
+    {ready.map((a) => <button key={a.id} onClick={() => startAllyTrial(a.id)} className="jp w-full text-left px-3 py-1.5 text-[12px]" style={{ borderRadius: 10, border: "1.5px solid var(--gold)", background: "linear-gradient(90deg, #f6ead0, #fdfbf5)", color: "var(--ink)", fontWeight: 800, cursor: "pointer" }}>⚔ {a.name}が試練を待っています ― 挑む ▶</button>)}
     <div className="jp flex items-center gap-2 px-3 py-2" style={{ background: "var(--paper)", border: "1px solid var(--gold)", borderRadius: 10 }}>
       <span className="text-[11px]" style={{ fontWeight: 800, color: "var(--ink)" }}>⚔ パーティ</span>
       <PartyFace id="luna" size={36} />
@@ -11281,6 +11421,7 @@ function PartyQuick({ state, actions, regions = [] }) {
       {!party.length && <span className="text-[11px]" style={{ color: "var(--ink-mute)" }}>（仲間なし）</span>}
       <span className="flex-1 min-w-0 text-[10px] truncate" style={{ color: "var(--ink-soft)" }}>{syn.list.length ? `✨ ${syn.list.map((x) => x.name).join("・")}` : ""}</span>
       <button onClick={() => setOpen(true)} className="btn-primary text-[11px] px-2.5 py-1">編成を変える</button>
+    </div>
     </div>
   );
 }
@@ -13342,6 +13483,7 @@ function WorldView({ state, actions, todayCount, onWeekly, onDungeon, onGuardian
         <RivalCard state={state} pp={pp} qual={qual} />
         <PowerChart state={state} />
         <button onClick={() => actions.openTalk(weeklyReport(state, weekKey()) || { title: "週報", lines: [["hero", "週報は、合格力の記録が1週間分たまると読めるようになります。"], ["hero", "毎日の積み重ねを、来週いっしょにふり返りましょうね。"]] })} className="jp btn-ghost w-full py-2 text-sm">先週の週報を見る</button>
+        <button onClick={() => { const ym = todayStr().slice(0, 7); actions.openTalk(monthlyReport(state, prevMonthOf(ym)) || monthlyReport(state, ym) || { title: "月報", lines: [["hero", "月報は、勉強の記録がたまると読めるようになります。"]] }); }} className="jp btn-ghost w-full py-2 text-sm">先月の月報を見る</button>
         <CastleCard state={state} pp={pp} actions={actions} />
         <DungeonCard state={state} pp={pp} onStart={onDungeon} />
       </>)}
@@ -13398,7 +13540,22 @@ function AdventureTab({ state, actions, recordAnswer, startTimer, stopTimer, tod
   const [msg, setMsg] = useState("");
   const [view, setView] = useState("world"); // world（世界）| base（拠点・ボス）| skill | forge | dex
   const [charPick, setCharPick] = useState(false); // 拠点のキャラを選ぶ
+  const [allyTrial, setAllyTrial] = useState(null); // 仲間の試練 { allyId, pool, n }
+  const stRef = useRef(state); stRef.current = state;
+  useEffect(() => {
+    const f = (e) => { const a = allyById(e.detail && e.detail.allyId); if (!a) return; const pool = allyTrialPool(stRef.current, a); if (pool.length) { setAllyTrial({ allyId: a.id, pool }); window.scrollTo(0, 0); } };
+    window.addEventListener("sq-ally-trial", f);
+    return () => window.removeEventListener("sq-ally-trial", f);
+  }, []);
 
+  if (allyTrial) {
+    const a = allyById(allyTrial.allyId);
+    return <TrialRun key={`at-${a.id}-${allyTrial.n || 0}`} state={state} recordAnswer={recordAnswer} startTimer={startTimer} stopTimer={stopTimer}
+      run={{ kind: "仲間の試練", title: `${a.name}の試練`, sub: `${a.name}「あなたの力を見せてください」　${ALLY_TRIAL_N}問中${Math.round(ALLY_TRIAL_N * ALLY_TRIAL_PASS)}問正解で仲間に`, pool: allyTrial.pool, pass: ALLY_TRIAL_PASS, boss: "last" }}
+      onFinish={(acc) => actions.allyTrialFinish({ allyId: a.id, acc })}
+      onExit={() => setAllyTrial(null)} nextLabel="もどる"
+      onNext={(retry) => { if (retry === true) setAllyTrial({ ...allyTrial, pool: allyTrialPool(state, a), n: (allyTrial.n || 0) + 1 }); else setAllyTrial(null); }} />;
+  }
   if (endless) return <EndlessRun key={`e${endless}`} state={state} actions={actions} recordAnswer={recordAnswer} startTimer={startTimer} stopTimer={stopTimer} onExit={() => setEndless(0)} />;
   if (groupRun) {
     const a = allyById(groupRun.allyId);
@@ -19831,7 +19988,7 @@ function townStatus(state) {
   return { stage, pop, settled, ever, level, xp, cond, built, next: TOWN_STAGES[stage + 1] || null };
 }
 // 建てた建物の効果（getRpgBonuses へ）
-const townFx = (r) => TOWN_BUILDINGS.filter((b) => ((r.town || {}).built || {})[b.id]).map((b) => b.fx);
+const townFx = (r) => TOWN_BUILDINGS.filter((b) => ((r.town || {}).built || {})[b.id]).map((b) => buildFx(b, (((r.town || {}).lv || {})[b.id]) || 1));
 // 前の日に学習していれば満額、していなければ3割。市場があれば1.5倍、宿屋があれば回復薬1つ
 function townTax(state, ts) {
   const y = addDays(todayStr(), -1);
@@ -19917,6 +20074,9 @@ function ExamDayCard({ state, actions }) {
     </div>
   );
 }
+// 連続学習のお守り：休息のランタン（RPG_CONSUMABLES の restTicket）を街の欄で2つまで買える
+const CHARM_MAX = 2;
+const CHARM_PRICE = 400;
 // 資格を取ったときの記念の建物（取得済みの資格の数だけ。2026年10月23日）
 const MONUMENT_XP = 300, MONUMENT_GOLD = 500;
 function monumentOf(q) {
@@ -19926,6 +20086,16 @@ function monumentOf(q) {
 // 街の絵の上の建物の印の場所（絵の上の%。下の文字の帯にかからない高さ）
 const TOWN_SPOTS = { library: [20, 46], survey: [74, 50], inn: [10, 62], school: [36, 36], clock: [52, 28], market: [62, 60], smithy: [28, 62], castle: [46, 14] };
 const MONUMENT_SPOTS = [[88, 30], [82, 16], [92, 46], [70, 22], [12, 30]];
+// 街に住む仲間（加入した仲間の家の場所。絵の上の%）とおみやげ
+const ALLY_TOWN_SPOTS = { rine: [27, 52], kai: [80, 60], mira: [56, 58], kaito: [42, 47], serena: [16, 40], raven: [60, 38], lilia: [34, 26], ezra: [68, 46], fin: [90, 62], mirei: [6, 50], claude: [48, 60] };
+const ALLY_HOMES = { rine: "図書館の近く", kai: "測量所の近く", mira: "市場の近く", kaito: "学舎の寮", serena: "宿屋の2階", raven: "時計台の下", lilia: "広場の礼拝堂", ezra: "測量所の隣", fin: "森のそばの小屋", mirei: "鍛冶屋の裏の工房", claude: "歯車の工房" };
+const ALLY_GIFT = { gold: 15, bond: 2, xp: 5 };
+const allyTownLine = (a) => { const xs = [a.cheer, ...((a.intro || []).slice(-1))].filter(Boolean); return xs.length ? xs[hashStr(todayStr() + a.id) % xs.length] : "今日もよろしくお願いします！"; };
+// 建物のレベル（Lv1〜3）：Lv2は効果1.5倍・Lv3は2倍。強くするのに、ゴールド（2倍・4倍）と星霊石、街の段階が要る
+const BUILD_LV_MAX = 3;
+const BUILD_LV_MULT = [1, 1, 1.5, 2];
+const buildFx = (b, lv) => Object.fromEntries(Object.entries(b.fx).map(([k, v]) => [k, Math.round(v * BUILD_LV_MULT[lv] * 10) / 10]));
+const buildUpCost = (b, lv) => ({ gold: b.gold * (lv === 2 ? 2 : 4), mats: { ...b.mats, "m-star": ((b.mats || {})["m-star"] || 0) + (lv - 1) }, stage: Math.min(TOWN_STAGES.length - 1, b.stage + (lv === 2 ? 2 : 4)) });
 // その日の勉強の数え（街の依頼に使う）：計算・参考書は rpg.townDay、回答は問題の回答日 ah、時間は studyLog
 const tdBump = (x, key, n = 1) => { const t = x.townDay && x.townDay.d === todayStr() ? x.townDay : { d: todayStr(), c: {} }; return { ...x, townDay: { ...t, c: { ...t.c, [key]: (t.c[key] || 0) + n } } }; };
 function townToday(state) {
@@ -20011,8 +20181,11 @@ function TownPanel({ state, actions }) {
   const builtN = TOWN_BUILDINGS.filter((b) => ts.built[b.id]).length;
   const [tip, setTip] = useState(null); // 絵の上の印をタップしたときの説明
   const monuments = (state.qualifications || []).filter((q) => q.acquired);
+  const blv = (T.lv || {});
+  const gift = r.townGift && r.townGift.d === todayStr() ? r.townGift.got : [];
   const marks = [
-    ...TOWN_BUILDINGS.filter((b) => ts.built[b.id]).map((b) => ({ id: b.id, icon: b.icon, at: TOWN_SPOTS[b.id] || [50, 40], title: b.name, sub: `効果：${b.fxText}` })),
+    ...TOWN_BUILDINGS.filter((b) => ts.built[b.id]).map((b) => ({ id: b.id, icon: b.icon, at: TOWN_SPOTS[b.id] || [50, 40], title: `${b.name}${(blv[b.id] || 1) > 1 ? ` Lv${blv[b.id]}` : ""}`, sub: `効果：${(blv[b.id] || 1) > 1 ? fxText(buildFx(b, blv[b.id])) : b.fxText}`, lv: blv[b.id] || 1 })),
+    ...alliesJoined(r).filter((a) => ALLY_TOWN_SPOTS[a.id]).map((a) => ({ id: `al-${a.id}`, ally: a, at: ALLY_TOWN_SPOTS[a.id], title: `${a.name}（${ALLY_HOMES[a.id] || "街"}に住んでいます）`, sub: `💬 ${allyTownLine(a)}`, gift: !gift.includes(a.id) })),
     ...monuments.slice(0, MONUMENT_SPOTS.length).map((q, i) => { const mo = monumentOf(q); return { id: `mo-${q.id}`, icon: mo.icon, at: MONUMENT_SPOTS[i], title: mo.name, sub: `${q.acquiredAt ? `${q.acquiredAt.slice(0, 4)}年${Number(q.acquiredAt.slice(5, 7))}月に合格。` : ""}資格を取った記念` }; }),
   ];
   const bar = (label, v, need) => (
@@ -20028,11 +20201,16 @@ function TownPanel({ state, actions }) {
         {/* 建てた建物・記念の建物の印（タップで説明） */}
         {marks.map((m) => (
           <button key={m.id} onClick={() => setTip(tip === m.id ? null : m.id)} aria-label={m.title} title={m.title}
-            style={{ position: "absolute", left: `${m.at[0]}%`, top: `${m.at[1]}%`, transform: "translate(-50%, -50%)", width: 30, height: 30, borderRadius: "50%", border: "2px solid #f2c14e", background: "rgba(253,251,245,0.92)", boxShadow: "0 2px 8px rgba(20,28,50,0.45)", fontSize: 15, lineHeight: 1, cursor: "pointer", padding: 0, zIndex: 2 }}>{m.icon}</button>
+            style={{ position: "absolute", left: `${m.at[0]}%`, top: `${m.at[1]}%`, transform: "translate(-50%, -50%)", width: m.ally ? 32 : 30, height: m.ally ? 32 : 30, borderRadius: "50%", border: m.ally ? "2px solid #7fa3d8" : "2px solid #f2c14e", background: m.ally ? `#e9e4d6 url(${ART_URL}${m.ally.img}) ${m.ally.face[0]}% ${m.ally.face[1]}% / 300% auto no-repeat` : "rgba(253,251,245,0.92)", boxShadow: "0 2px 8px rgba(20,28,50,0.45)", fontSize: 15, lineHeight: 1, cursor: "pointer", padding: 0, zIndex: 2 }}>
+            {m.ally ? "" : m.icon}
+            {m.ally && m.gift && <span style={{ position: "absolute", right: -6, top: -6, fontSize: 12 }}>🎁</span>}
+            {m.lv > 1 && <span style={{ position: "absolute", right: -8, bottom: -6, fontSize: 9, fontWeight: 900, color: "#fff", background: "#b08a3e", borderRadius: 999, padding: "0 4px" }}>Lv{m.lv}</span>}
+          </button>
         ))}
         {tip && (() => { const m = marks.find((x) => x.id === tip); if (!m) return null; return (
           <div onClick={() => setTip(null)} className="text-[11px]" style={{ position: "absolute", left: `${Math.min(70, Math.max(2, m.at[0] - 14))}%`, top: `calc(${m.at[1]}% + 18px)`, zIndex: 3, maxWidth: 220, padding: "5px 9px", borderRadius: 8, background: "rgba(253,251,245,0.97)", border: "1px solid #b08a3e", boxShadow: "0 4px 14px rgba(20,28,50,0.3)", color: "var(--ink)", cursor: "pointer" }}>
-            <b>{m.icon} {m.title}</b><br /><span style={{ color: "var(--ink-soft)" }}>{m.sub}</span>
+            <b>{m.ally ? "" : `${m.icon} `}{m.title}</b><br /><span style={{ color: "var(--ink-soft)" }}>{m.sub}</span>
+            {m.ally && m.gift && <><br /><button onClick={(e) => { e.stopPropagation(); actions.townGift(m.ally.id); setTip(null); }} className="btn-primary text-[10px] px-2 py-0.5 mt-1">🎁 おみやげを受け取る（{ALLY_GIFT.gold}G・絆+{ALLY_GIFT.bond}）</button></>}
           </div>
         ); })()}
         <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, padding: "18px 12px 8px", background: "linear-gradient(0deg, rgba(20,28,50,0.8), rgba(20,28,50,0))", color: "#fdfbf5" }}>
@@ -20056,6 +20234,11 @@ function TownPanel({ state, actions }) {
         ) : <div className="text-[11px]" style={{ color: "#4f7a3a", fontWeight: 800 }}>王都まで育ちました！ ここまでの学びが、この都をつくりました。</div>}
         {monuments.length > 0 && <div className="text-[10px]" style={{ color: "var(--ink-soft)" }}>記念の建物：{monuments.map((q) => { const mo = monumentOf(q); return `${mo.icon} ${mo.name}`; }).join("　")}</div>}
         <TownRequests state={state} actions={actions} />
+        <div className="flex items-center gap-2 flex-wrap text-[11px]" style={{ color: "var(--ink-soft)" }}>
+          <span>🎫 休息のランタン <b style={{ color: "var(--ink)" }}>{r.consumables.restTicket || 0}</b> / {CHARM_MAX}</span>
+          <span className="flex-1 text-[10px]" style={{ color: "var(--ink-mute)" }}>学習できなかった日があっても、自動で連続学習を守ります</span>
+          <button disabled={(r.consumables.restTicket || 0) >= CHARM_MAX || r.gold < CHARM_PRICE} onClick={() => actions.buyCharm()} className="btn-ghost text-[10px] px-2 py-0.5" style={{ opacity: (r.consumables.restTicket || 0) >= CHARM_MAX || r.gold < CHARM_PRICE ? 0.45 : 1 }}>{CHARM_PRICE}Gで買う</button>
+        </div>
         <div className="flex items-center gap-2 flex-wrap">
           {taxed ? <span className="text-[11px]" style={{ color: "var(--ink-mute)" }}>💰 今日の税収は受け取りました</span>
             : <button onClick={() => actions.townTax(tax)} className="btn-primary text-[12px] px-3 py-1">💰 税収を受け取る　{tax.gold}G{tax.potion ? "・回復薬1" : ""}</button>}
@@ -20074,8 +20257,19 @@ function TownPanel({ state, actions }) {
               const matText = Object.entries(b.mats).map(([k, v]) => `${(matById(k) || {}).name || k}×${v}`).join("・");
               return (
                 <div key={b.id} className="px-2 py-1.5" style={{ borderRadius: 8, border: `1px solid ${has ? "#6d8454" : "var(--rule-soft)"}`, background: has ? "rgba(109,132,84,0.1)" : "var(--paper)", opacity: stageOk || has ? 1 : 0.6 }}>
-                  <div className="flex items-center gap-1.5"><span style={{ fontSize: 18 }}>{b.icon}</span><span className="flex-1 text-[13px]" style={{ fontWeight: 800, color: "var(--ink)" }}>{b.name}</span>{has ? <span className="text-[10px]" style={{ color: "#4f7a3a", fontWeight: 800 }}>✓ 建設済み</span> : <button disabled={!can} onClick={() => actions.townBuild(b)} className="btn-primary text-[10px] px-2 py-0.5" style={{ opacity: can ? 1 : 0.45 }}>建てる</button>}</div>
-                  <div className="text-[10px]" style={{ color: "var(--sky-deep)", fontWeight: 700 }}>効果：{b.fxText}</div>
+                  <div className="flex items-center gap-1.5"><span style={{ fontSize: 18 }}>{b.icon}</span><span className="flex-1 text-[13px]" style={{ fontWeight: 800, color: "var(--ink)" }}>{b.name}</span>{has ? <span className="text-[10px]" style={{ color: "#4f7a3a", fontWeight: 800 }}>✓ 建設済み{(blv[b.id] || 1) > 1 ? `　Lv${blv[b.id]}` : ""}</span> : <button disabled={!can} onClick={() => actions.townBuild(b)} className="btn-primary text-[10px] px-2 py-0.5" style={{ opacity: can ? 1 : 0.45 }}>建てる</button>}</div>
+                  <div className="text-[10px]" style={{ color: "var(--sky-deep)", fontWeight: 700 }}>効果：{has && (blv[b.id] || 1) > 1 ? fxText(buildFx(b, blv[b.id])) : b.fxText}</div>
+                  {has && (blv[b.id] || 1) < BUILD_LV_MAX && (() => {
+                    const nl = (blv[b.id] || 1) + 1, c = buildUpCost(b, nl);
+                    const okU = shownStage >= c.stage && r.gold >= c.gold && Object.entries(c.mats).every(([k, v]) => ((r.materials || {})[k] || 0) >= v);
+                    const mt = Object.entries(c.mats).map(([k, v]) => `${(matById(k) || {}).name || k}×${v}`).join("・");
+                    return (
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        <span className="flex-1 text-[10px]" style={{ color: "var(--ink-mute)" }}>Lv{nl}へ：{fxText(buildFx(b, nl))}　／　{shownStage >= c.stage ? "" : `「${TOWN_STAGES[c.stage].name}」になると・`}{c.gold.toLocaleString()}G・{mt}</span>
+                        <button disabled={!okU} onClick={() => actions.townUpgrade(b)} className="btn-ghost text-[10px] px-2 py-0.5" style={{ opacity: okU ? 1 : 0.45 }}>強くする</button>
+                      </div>
+                    );
+                  })()}
                   {!has && <div className="text-[10px]" style={{ color: "var(--ink-mute)" }}>{!stageOk ? `「${TOWN_STAGES[b.stage].name}」になると建てられる` : <>{ok ? "✓" : "・"} {needText}　／　{b.gold.toLocaleString()}G{matText ? `・${matText}` : ""}</>}</div>}
                 </div>
               );
