@@ -1349,6 +1349,41 @@ const SR_DEFAULTS = { retention: 0.9, maxInterval: 365 }; // 目標記憶率90%�
 const fsrsSchedulerCache = new Map();
 // 試験前の仕上げ：いちばん近い試験日の30日前から、目標の記憶率を95%に上げる（設定 srSettings.finish で切りかえ。既定はオン）
 const FINISH_DAYS = 30, FINISH_RETENTION = 0.95;
+// ── 復習の山をならす（2026年10月26日）：srSettings.dailyCap（1日の上限。0＝しない）をこえた復習は、記憶率の高い問題から明日以降の7日間（上限に余裕のある日）へずらす。
+//    次に出す日（sr_nextReview）だけを変え、FSRS の記録（fs）はそのまま。srSettings.autoLevel で毎朝自動（rpg.levelDay）──
+const LEVEL_CAPS = [0, 50, 80, 120, 200];
+const LEVEL_SPREAD = 7;
+function levelPlan(state) {
+  const cap = (state.srSettings || {}).dailyCap || 0;
+  if (!cap) return null;
+  const today = todayStr();
+  const sc = studyScope(state);
+  const sch = getFsrsScheduler(effectiveSr(state)), now = new Date();
+  const due = [];
+  const load = {};
+  for (let i = 1; i <= LEVEL_SPREAD; i++) load[addDays(today, i)] = 0;
+  state.questionBanks.forEach((b) => {
+    if (!sc.inScope(b)) return;
+    (b.questions || []).forEach((q) => {
+      if (q.excluded || !q.sr_nextReview) return;
+      if (load[q.sr_nextReview] !== undefined) { load[q.sr_nextReview]++; return; }
+      if (q.sr_nextReview > today) return;
+      let r = 0; try { r = sch.get_retrievability(toFsrsCard(q, now), now, false); } catch (e) { r = 0; }
+      due.push({ id: q.id, r });
+    });
+  });
+  if (due.length <= cap) return { cap, n: due.length, over: 0, shift: {} };
+  due.sort((a, b) => a.r - b.r); // 忘れかけを今日に残す
+  const extra = due.slice(cap);
+  const days = Object.keys(load).sort();
+  const shift = {};
+  extra.forEach((x) => {
+    const d = days.find((k) => load[k] < cap) || days.reduce((m, k) => (load[k] < load[m] ? k : m), days[0]);
+    load[d]++; shift[x.id] = d;
+  });
+  return { cap, n: due.length, over: extra.length, shift };
+}
+const levelApply = (shift) => window.dispatchEvent(new CustomEvent("sq-sr-shift", { detail: { shift } }));
 function finishInfo(state) {
   const sr = state.srSettings || {};
   if (sr.finish === false) return null;
@@ -1932,6 +1967,25 @@ function StudyRPG({ user }) {
     window.addEventListener("sq-q-patch", on);
     return () => window.removeEventListener("sq-q-patch", on);
   }, []);
+  // 復習の山をならす：問題ごとに次に出す日だけを書きかえる（一度の setState で）
+  useEffect(() => {
+    const on = (e) => {
+      const shift = (e.detail || {}).shift || {};
+      if (!Object.keys(shift).length) return;
+      setState((s) => ({ ...s, questionBanks: s.questionBanks.map((b) => (b.questions || []).some((q) => shift[q.id]) ? { ...b, questions: b.questions.map((q) => (shift[q.id] ? { ...q, sr_nextReview: shift[q.id] } : q)) } : b) }));
+    };
+    window.addEventListener("sq-sr-shift", on);
+    return () => window.removeEventListener("sq-sr-shift", on);
+  }, []);
+  // 毎朝、自動でならす（srSettings.autoLevel。1日1回 rpg.levelDay）
+  useEffect(() => {
+    if (!loaded || !(state.srSettings || {}).autoLevel) return;
+    const r = normRpg(state.rpg);
+    if (r.levelDay === todayStr()) return;
+    const plan = levelPlan(state);
+    updateRpg((x) => ({ ...x, levelDay: todayStr() }));
+    if (plan && plan.over) { levelApply(plan.shift); setTimeout(() => showRpgToast(`📉 復習の山をならしました：上限${plan.cap}問をこえた${plan.over}問を、明日からの${LEVEL_SPREAD}日間へ`, "#4f6fa8"), 2000); }
+  }, [loaded]);
   // 言葉の一括置換（問題タブ）：文字だけを置き換え、学習の記録は残す
   useEffect(() => {
     const on = (e) => {
@@ -10303,4 +10357,4 @@ export default App;
 export { GameIcon, Ico, RPG_ITEMS, RPG_CONSUMABLES, RPG_BOSSES, DIFFICULTIES, WHITE_CSS };
 
 // src/parts/*.jsx（切り出した画面）が使う名前
-export { featOn, ADV_CLASSES, ADV_NEED, ALLIES, ALLY_EVO, ALLY_SKILLS, ALLY_TRIAL_N, ALLY_TRIAL_PASS, ART_URL, AWAKEN_THRESHOLDS, AnswerHistory, AnswerPanel, BACKUP_KEEP, BASE_LINE, BATTLE, BATTLE_CSS, BATTLE_THEME, BOND_LV, BREW_RECIPES, BackRowAllies, BarCharPicker, BattleResult, BattleStage, Box, CASTLE_FLOORS, CAT_TIERS, CHIBI, CLASS_CHANGE_COST, ConfigToggle, DOC_LIMIT, DailyQuests, ERROR_TYPES, EVO_URL, FINISH_RETENTION, FORGE_MAX, FRAG_IDS, GACHA_COST, GACHA_PITY, GACHA_RATE, HERO_FACES, HERO_NAME, HERO_STAGES, HERO_STAGE_LV, HeroPortrait, HitNumbers, HyojiGrid, JOB_RANKS, JOURNEY_LEN, JOURNEY_PER, KEYCAP, KILL_TIERS, KJ_MARKS, KeySeq, KijutsuRun, KjFieldInput, KjSection, LAWS, LAW_BY_KEY, LUNA_CSS, LUNA_SKILLS, LapRecordsPanel, LawArticleModal, LawRefChips, LunaSprite, MASTERED_STABILITY, MON_BOSS, MON_MASK, MON_PAINTED, MON_STAND, MaterialIcon, Mini, MonPic, PASS_LINE, PAST_TOTAL, PET_THRESHOLDS, PET_TYPES, PartyFace, PastSection, PetIcon, QuestionImages, RARITY, RARITY_RANK, REHEARSAL_DEFAULT, RPG_ACHIEVEMENTS, RPG_CLASSES, RPG_MATERIALS, RPG_SLOTS, RUNE_CRIT, RUNE_DMG, RUNE_FRAG, RUNE_GOLD, RUNE_SLOTS, RehearsalRun, RevealButton, RivalCard, RoadmapBanner, SEASON_RANKS, SEC_PASS, SKILL_RESET_COST, SKILL_TREE, SMAP_ORDER, SQ_CLEAR, SR_DEFAULTS, STAGE_URL, STORY_CHAPTERS, STUDY_GROUP_PASS, STUDY_PREFS, SkillCutIn, SkyLayer, Stat, StudyScopeBar, TAME_AT, TAME_DMG, TAME_EVERY, TOWER_LAYERS, TOWER_MAX, TOWER_PASS, TRAP_MARK, TrainingRoom, TreasureChest, WEAK_GRAD, WEEKLY_REWARD, XP_QA_REVENGE, YearFigures, addDays, alliesJoined, alliesReady, allyById, allyEvoStage, auraOf, backRow, backupCol, bankWorldId, battleParty, bondFx, bondLevel, bounties, bringIntoView, buildPoolFromBanks, byRegionOrder, calcDueList, calculateStatus, castleCtx, castleFloorOf, catCounts, chapterIndex, chipSt, choiceOf, chosenQual, classRankIndex, combatPower, correctDayStreak, curWorld, daysBetween, daysUntil, dexStatus, dungeonBestOf, effectiveSr, equippedWeaponId, eraLabel, estimateMinutes, examPlan, extractLawRefs, finishInfo, fmtEst, fmtMin, forgeCost, forgedFx, forgettingItems, formatErrTypes, fragCount, fxText, gapItems, getAwakening, getCharacterTier, getClassInfo, getFsrsScheduler, getLevelTitle, getPetInfo, getRpgBonuses, getTierLabel, getXpForNextLevel, hashStr, healthReport, heroEvoArt, heroStage, homeCharOf, homeSide, isCheckpoint, isQuestionAutoWeak, isQuestionWeak, isRadioQual, joinProg, journeyEvent, kjAutoHint, lawChangeOf, lawIndex, lawRefCounts, lawsInScope, loadLaw, longestStudyStreak, mainQual, makeBackup, markTraps, matById, monSpecies, monStandUrl, monsterFor, monthlyReport, nextTitles, normRpg, parseLocalDate, passChance, passPower, pastInp, pctTxt, planBankName, planBankOf, planToday, planTotal, powerLogOf, prevMonthOf, refsOfQ, regionCleared, regionConquest, regionInfo, regionQuests, regionRank, regionStageUrl, rehearsalCfg, renderFormattedText, renderQText, rewardText, rivalPowerAt, rollChest, rollRpgItem, rpgEquippedItems, rpgInvItem, rpgItemById, runeHits, runeName, runeRegions, scopedPlans, seasonPoints, seasonRank, seasonRewardText, setDisplay, setStatus, shuffle, shuffleArr, skillPointsTotal, skillPointsUsed, splitHits, sqOpen, sqStars, sqStarsOf, starBooks, startAllyTrial, storyClears, studyScope, subjectJobs, tatakiToday, themeOf, titleLeft, toFsrsCard, todayStr, towerLayer, uid, useLawChanges, usePastData, weekKey, weeklyReport, worldArc, worldChapters, worldOfQual, worldPassChance, worldsInUse, ymdCode };
+export { levelPlan, levelApply, LEVEL_CAPS, LEVEL_SPREAD, featOn, ADV_CLASSES, ADV_NEED, ALLIES, ALLY_EVO, ALLY_SKILLS, ALLY_TRIAL_N, ALLY_TRIAL_PASS, ART_URL, AWAKEN_THRESHOLDS, AnswerHistory, AnswerPanel, BACKUP_KEEP, BASE_LINE, BATTLE, BATTLE_CSS, BATTLE_THEME, BOND_LV, BREW_RECIPES, BackRowAllies, BarCharPicker, BattleResult, BattleStage, Box, CASTLE_FLOORS, CAT_TIERS, CHIBI, CLASS_CHANGE_COST, ConfigToggle, DOC_LIMIT, DailyQuests, ERROR_TYPES, EVO_URL, FINISH_RETENTION, FORGE_MAX, FRAG_IDS, GACHA_COST, GACHA_PITY, GACHA_RATE, HERO_FACES, HERO_NAME, HERO_STAGES, HERO_STAGE_LV, HeroPortrait, HitNumbers, HyojiGrid, JOB_RANKS, JOURNEY_LEN, JOURNEY_PER, KEYCAP, KILL_TIERS, KJ_MARKS, KeySeq, KijutsuRun, KjFieldInput, KjSection, LAWS, LAW_BY_KEY, LUNA_CSS, LUNA_SKILLS, LapRecordsPanel, LawArticleModal, LawRefChips, LunaSprite, MASTERED_STABILITY, MON_BOSS, MON_MASK, MON_PAINTED, MON_STAND, MaterialIcon, Mini, MonPic, PASS_LINE, PAST_TOTAL, PET_THRESHOLDS, PET_TYPES, PartyFace, PastSection, PetIcon, QuestionImages, RARITY, RARITY_RANK, REHEARSAL_DEFAULT, RPG_ACHIEVEMENTS, RPG_CLASSES, RPG_MATERIALS, RPG_SLOTS, RUNE_CRIT, RUNE_DMG, RUNE_FRAG, RUNE_GOLD, RUNE_SLOTS, RehearsalRun, RevealButton, RivalCard, RoadmapBanner, SEASON_RANKS, SEC_PASS, SKILL_RESET_COST, SKILL_TREE, SMAP_ORDER, SQ_CLEAR, SR_DEFAULTS, STAGE_URL, STORY_CHAPTERS, STUDY_GROUP_PASS, STUDY_PREFS, SkillCutIn, SkyLayer, Stat, StudyScopeBar, TAME_AT, TAME_DMG, TAME_EVERY, TOWER_LAYERS, TOWER_MAX, TOWER_PASS, TRAP_MARK, TrainingRoom, TreasureChest, WEAK_GRAD, WEEKLY_REWARD, XP_QA_REVENGE, YearFigures, addDays, alliesJoined, alliesReady, allyById, allyEvoStage, auraOf, backRow, backupCol, bankWorldId, battleParty, bondFx, bondLevel, bounties, bringIntoView, buildPoolFromBanks, byRegionOrder, calcDueList, calculateStatus, castleCtx, castleFloorOf, catCounts, chapterIndex, chipSt, choiceOf, chosenQual, classRankIndex, combatPower, correctDayStreak, curWorld, daysBetween, daysUntil, dexStatus, dungeonBestOf, effectiveSr, equippedWeaponId, eraLabel, estimateMinutes, examPlan, extractLawRefs, finishInfo, fmtEst, fmtMin, forgeCost, forgedFx, forgettingItems, formatErrTypes, fragCount, fxText, gapItems, getAwakening, getCharacterTier, getClassInfo, getFsrsScheduler, getLevelTitle, getPetInfo, getRpgBonuses, getTierLabel, getXpForNextLevel, hashStr, healthReport, heroEvoArt, heroStage, homeCharOf, homeSide, isCheckpoint, isQuestionAutoWeak, isQuestionWeak, isRadioQual, joinProg, journeyEvent, kjAutoHint, lawChangeOf, lawIndex, lawRefCounts, lawsInScope, loadLaw, longestStudyStreak, mainQual, makeBackup, markTraps, matById, monSpecies, monStandUrl, monsterFor, monthlyReport, nextTitles, normRpg, parseLocalDate, passChance, passPower, pastInp, pctTxt, planBankName, planBankOf, planToday, planTotal, powerLogOf, prevMonthOf, refsOfQ, regionCleared, regionConquest, regionInfo, regionQuests, regionRank, regionStageUrl, rehearsalCfg, renderFormattedText, renderQText, rewardText, rivalPowerAt, rollChest, rollRpgItem, rpgEquippedItems, rpgInvItem, rpgItemById, runeHits, runeName, runeRegions, scopedPlans, seasonPoints, seasonRank, seasonRewardText, setDisplay, setStatus, shuffle, shuffleArr, skillPointsTotal, skillPointsUsed, splitHits, sqOpen, sqStars, sqStarsOf, starBooks, startAllyTrial, storyClears, studyScope, subjectJobs, tatakiToday, themeOf, titleLeft, toFsrsCard, todayStr, towerLayer, uid, useLawChanges, usePastData, weekKey, weeklyReport, worldArc, worldChapters, worldOfQual, worldPassChance, worldsInUse, ymdCode };

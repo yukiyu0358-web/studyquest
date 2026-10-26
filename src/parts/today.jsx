@@ -23,7 +23,7 @@ import { BLOCK_DIAGRAMS } from "../data/blocks";
 import { buildDeck, choicesOf, docOptions, deckNext, DECK_FIELDS, DECK_IV, DECK_MASTER } from "../game/kjdeck";
 import { ROADMAP_2027 } from "../data/roadmap";
 import { REGION_TALK, STORY_TALKS, REGION_ARC, regionArc, TRINITY_REGIONS, TRINITY_TALK, BOND_TALKS, COUNTDOWN_TALKS, ACADEMY_MEET, STUDY_GROUP_TALK } from "../data/story";
-import { featOn, AnswerHistory, AnswerPanel, BattleResult, BattleStage, Box, ConfigToggle, ERROR_TYPES, FINISH_RETENTION, LawRefChips, Mini, QuestionImages, RevealButton, SR_DEFAULTS, STUDY_PREFS, StudyScopeBar, addDays, bankWorldId, bounties, chipSt, curWorld, effectiveSr, estimateMinutes, examPlan, finishInfo, fmtEst, forgettingItems, getFsrsScheduler, homeSide, isQuestionWeak, lawIndex, lawRefCounts, mainQual, normRpg, parseLocalDate, passPower, pctTxt, planBankName, planToday, refsOfQ, regionQuests, renderFormattedText, renderQText, scopedPlans, setDisplay, shuffle, shuffleArr, studyScope, tatakiToday, themeOf, toFsrsCard, todayStr, uid, weekKey, worldsInUse, ymdCode } from "../App.jsx";
+import { levelPlan, levelApply, LEVEL_CAPS, LEVEL_SPREAD, featOn, AnswerHistory, AnswerPanel, BattleResult, BattleStage, Box, ConfigToggle, ERROR_TYPES, FINISH_RETENTION, LawRefChips, Mini, QuestionImages, RevealButton, SR_DEFAULTS, STUDY_PREFS, StudyScopeBar, addDays, bankWorldId, bounties, chipSt, curWorld, effectiveSr, estimateMinutes, examPlan, finishInfo, fmtEst, forgettingItems, getFsrsScheduler, homeSide, isQuestionWeak, lawIndex, lawRefCounts, mainQual, normRpg, parseLocalDate, passPower, pctTxt, planBankName, planToday, refsOfQ, regionQuests, renderFormattedText, renderQText, scopedPlans, setDisplay, shuffle, shuffleArr, studyScope, tatakiToday, themeOf, toFsrsCard, todayStr, uid, weekKey, worldsInUse, ymdCode } from "../App.jsx";
 
 
 // 交互練習：科目（地域）ごとに分けて、1問ずつ順番に取り出す（科目の中の順番はそのまま）
@@ -116,6 +116,29 @@ function PlanSummary({ state, onOpen }) {
 
 // ── 復習の予報：これから14日間、毎日いくつ復習が来るか（sr_nextReview の日付で数える）。今日の分には期限切れも含む ──
 const FORECAST_DAYS = 14;
+// 復習の山をならす：1日の上限と、あふれた分を明日以降へ
+function LevelCard({ state, updateSrSettings }) {
+  const sr = state.srSettings || {};
+  const plan = levelPlan(state);
+  const chip = (on) => ({ borderRadius: 999, border: `1px solid ${on ? "var(--gold)" : "var(--rule-soft)"}`, background: on ? "var(--cream)" : "var(--paper)", color: "var(--ink)", fontWeight: on ? 800 : 500, cursor: "pointer" });
+  return (
+    <div className="jp mb-3 px-2 py-1.5" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)", borderRadius: 8 }}>
+      <div className="flex items-center gap-1.5 flex-wrap">
+        <span className="text-[11px]" style={{ fontWeight: 800, color: "var(--ink)" }}>📉 1日の復習の上限</span>
+        {LEVEL_CAPS.map((c) => <button key={c} onClick={() => updateSrSettings && updateSrSettings({ dailyCap: c })} className="text-[11px] px-2 py-0.5" style={chip((sr.dailyCap || 0) === c)}>{c ? `${c}問` : "なし"}</button>)}
+        {(sr.dailyCap || 0) > 0 && <button onClick={() => updateSrSettings && updateSrSettings({ autoLevel: !sr.autoLevel })} className="text-[11px] px-2 py-0.5" style={chip(!!sr.autoLevel)}>{sr.autoLevel ? "☑" : "☐"} 毎朝自動でならす</button>}
+      </div>
+      {plan && plan.over > 0 && (
+        <div className="flex items-center gap-2 mt-1.5">
+          <span className="flex-1 text-[11px]" style={{ color: "var(--ink-soft)", lineHeight: 1.6 }}>今日の復習は{plan.n}問で、上限{plan.cap}問を{plan.over}問こえています。記憶率の高い{plan.over}問を、明日からの{LEVEL_SPREAD}日間（上限に余裕のある日）へならせます。</span>
+          <button onClick={() => levelApply(plan.shift)} className="btn-primary text-[11px] px-2.5 py-1">ならす</button>
+        </div>
+      )}
+      {(sr.dailyCap || 0) > 0 && plan && !plan.over && <div className="text-[10px] mt-1" style={{ color: "var(--ink-mute)" }}>今日の復習は{plan.n}問。上限の中におさまっています。</div>}
+      {!(sr.dailyCap > 0) && <div className="text-[10px] mt-1" style={{ color: "var(--ink-mute)" }}>上限を決めると、あふれた日の復習を、記憶率の高い問題から明日以降へ少しずつずらして、毎日の量をそろえます（記憶の記録はそのまま）。</div>}
+    </div>
+  );
+}
 function reviewForecast(state) {
   const today = todayStr();
   const days = Array.from({ length: FORECAST_DAYS }, (_, i) => ({ date: addDays(today, i), n: 0 }));
@@ -560,6 +583,7 @@ function TodayTab({ header = null, state, recordSRAnswer, updateSrSettings, star
             <Mini label="復習期限が来た問題" value={due.length ? `${due.length}問・${fmtEst(estimateMinutes(state, due))}` : "0問"} highlight={due.length > 0} />
             <Mini label="未学習の問題" value={`${fresh.length}問`} />
           </div>
+          <LevelCard state={state} updateSrSettings={updateSrSettings} />
           {due.length + fresh.length === 0 ? (
             <p className="jp text-sm text-center py-3" style={{ color: "var(--sky-deep)" }}>✅ 今日の復習は完了！また明日。</p>
           ) : (
