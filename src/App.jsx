@@ -2487,6 +2487,55 @@ function StudyRPG({ user }) {
       const m = rpgActions.buy("consumable", "restTicket");
       if (m) showRpgToast(m, "#6c5a96");
     },
+    // 上級職へ昇格
+    promoteClass: () => {
+      const r0 = normRpg(stateRef.current.rpg);
+      const id = r0.classId;
+      if (!id || classAdvOf(r0, id)) return "";
+      if (stateRef.current.player.level < ADV_NEED.level || (r0.bossWins || 0) < ADV_NEED.bossWins) return "まだ条件を満たしていません";
+      if (r0.gold < ADV_NEED.gold) return "ゴールドが足りません";
+      updateRpg((x) => ({ ...x, gold: x.gold - ADV_NEED.gold, classAdv: { ...(x.classAdv || {}), [id]: todayStr() } }));
+      const ad = ADV_CLASSES[id];
+      setTimeout(() => showEvolution({ big: "上級職", from: classById(id).name, to: ad.name, sub: `専用の技「${ad.skill.name}」を覚えた（ボス戦のコマンド）`, stage: heroStage(stateRef.current.player.level) }), 300);
+      return `👑 ${ad.name}に昇格した！`;
+    },
+    // ルーンをはめる（欠片5つと100G。前のルーンは消える）
+    setRune: (slot, mat) => {
+      const r0 = normRpg(stateRef.current.rpg);
+      if (((r0.materials || {})[mat] || 0) < RUNE_FRAG || r0.gold < RUNE_GOLD) return;
+      updateRpg((x) => { const rs = [...(x.runes || [])]; while (rs.length < RUNE_SLOTS) rs.push(null); rs[slot] = mat; return { ...x, gold: x.gold - RUNE_GOLD, materials: { ...x.materials, [mat]: (x.materials[mat] || 0) - RUNE_FRAG }, runes: rs }; });
+      SFX.play("stamp");
+      showRpgToast(`💠 ${runeName(mat)}をはめた！ ${runeRegions(mat).join("・")}の問題で力を発揮します`, "#4f6fa8");
+    },
+    // 連れていく魔物の仲間
+    setTame: (img) => updateRpg((x) => ({ ...x, tameActive: x.tameActive === img ? null : img })),
+    // 調合
+    brew: (id) => {
+      const rc = BREW_RECIPES.find((x) => x.id === id);
+      const r0 = normRpg(stateRef.current.rpg);
+      if (!rc || r0.gold < rc.gold || ((r0.materials || {})["m-star"] || 0) < rc.star || fragCount(r0.materials) < rc.frag) return;
+      updateRpg((x) => {
+        let m = takeFrags(x.materials, rc.frag);
+        if (!m) return x;
+        if (rc.star) m = { ...m, "m-star": (m["m-star"] || 0) - rc.star };
+        const base = { ...x, gold: x.gold - rc.gold, materials: m };
+        return id === "potion" ? { ...base, consumables: { ...x.consumables, potion: (x.consumables.potion || 0) + 1 } } : { ...base, brew: { ...(x.brew || {}), [id]: ((x.brew || {})[id] || 0) + 1 } };
+      });
+      SFX.play("drop");
+      showRpgToast(`${rc.icon} ${rc.name}ができた！`, "#6c5a96");
+    },
+    useBrew: (id) => updateRpg((x) => ({ ...x, brew: { ...(x.brew || {}), [id]: Math.max(0, ((x.brew || {})[id] || 0) - 1) } })),
+    // 迷いの森：集めたものを受け取る（1日1回）
+    forestFinish: ({ cleared, floor, loot }) => {
+      updateRpg((x) => {
+        const m = { ...x.materials };
+        Object.entries(loot.mats || {}).forEach(([k, v]) => { m[k] = (m[k] || 0) + v; });
+        const f = x.forest || {};
+        return { ...x, gold: x.gold + (loot.gold || 0), goldEarned: (x.goldEarned || 0) + (loot.gold || 0), materials: m, forest: { d: todayStr(), best: Math.max(f.best || 0, floor), clears: (f.clears || 0) + (cleared ? 1 : 0), last: { floor, cleared, gold: loot.gold || 0 } } };
+      });
+      if (loot.xp) setTimeout(() => awardXp(loot.xp), 300);
+      SFX.play(cleared ? "victory" : "result");
+    },
     // 仲間の試練に合格したら加入（出会いの会話は recruit の useEffect）
     allyTrialFinish: ({ allyId, acc }) => {
       if (acc < ALLY_TRIAL_PASS) return;
@@ -3435,13 +3484,19 @@ function StudyRPG({ user }) {
         }
         // 種族ごとの討伐数（モンスター図鑑のメダル）
         let kills = x.kills || {};
+        let tamed = x.tamed || {};
         if (stat.kind) {
           const before = kills[stat.kind] || 0, after = before + 1;
           kills = { ...kills, [stat.kind]: after };
+          if (after >= TAME_AT && !tamed[stat.kind]) {
+            tamed = { ...tamed, [stat.kind]: todayStr() };
+            const spT = monSpecies(stat.kind);
+            setTimeout(() => showRpgToast(`🐾 ${spT ? spT.name : "魔物"}が仲間になりたそうにこちらを見ている……仲間になった！（冒険の拠点で連れていけます）`, "#6c5a96"), 2600);
+          }
           const tier = KILL_TIERS.find((t) => t.n === after);
           if (tier) { gold += tier.gold; const sp = [...MON_PAINTED, ...MON_BOSS].find((z) => z.img === stat.kind); setTimeout(() => showRpgToast(`🏅 ${sp ? sp.name : "魔物"}を${after}体討伐！ 図鑑に${tier.name}メダル（${tier.gold}G）`, tier.color), 900); }
         }
-        let out = { ...x, gold: x.gold + gold, goldEarned: x.goldEarned + gold, materials: m, daily: { ...d, k }, journey: jn, kills };
+        let out = { ...x, gold: x.gold + gold, goldEarned: x.goldEarned + gold, materials: m, daily: { ...d, k }, journey: jn, kills, tamed };
         ALLIES.filter((a) => stat.region && a.likes.includes(stat.region)).forEach((a) => { out = addBond(out, a.id, 1); });
         return out;
       });
@@ -9396,7 +9451,7 @@ function forgeCost(it, p, forgePct = 0) {
 }
 
 // はじめからやり直す（2026年10月22日）：ゲームの進みだけを消すときに、rpg から消す項目（学習の記録＝記述式・叩き込みのカード・計算の成績・参考書・模試・合格力などは残す）
-const GAME_KEYS = ["gold", "goldEarned", "inventory", "consumables", "equipped", "bossWins", "bossLosses", "bossLog", "boosts", "restDays", "crits", "classId", "pet", "materials", "skills", "forgeLog", "daily", "weekly", "dungeon", "regions", "castle", "castleByWorld", "cats", "journey", "sq", "tower", "secBoss", "arcSeen", "conquered", "bonds", "bondSeen", "gacha", "party", "kills", "hl", "hlLog", "hlBest", "hlRec", "endless", "bounty", "errand", "studyGroup", "weekdayDone", "season", "recruit"];
+const GAME_KEYS = ["gold", "goldEarned", "inventory", "consumables", "equipped", "bossWins", "bossLosses", "bossLog", "boosts", "restDays", "crits", "classId", "pet", "materials", "skills", "forgeLog", "daily", "weekly", "dungeon", "regions", "castle", "castleByWorld", "cats", "journey", "sq", "tower", "secBoss", "arcSeen", "conquered", "bonds", "bondSeen", "gacha", "party", "kills", "hl", "hlLog", "hlBest", "hlRec", "endless", "bounty", "errand", "studyGroup", "weekdayDone", "season", "recruit", "classAdv", "runes", "tamed", "tameActive", "brew", "forest"];
 // parts：{ game：キャラクターと冒険, town：まちづくり, laps：周回の記録 }。学習の記憶（FSRS・回答履歴）には触れない
 function resetProgress(s, parts) {
   let rpg = { ...(s.rpg || {}) };
@@ -9923,7 +9978,7 @@ function MonsterKinds({ state }) {
       {kt && <span title={`${kt.name}メダル`} style={{ position: "absolute", right: 3, top: 3, width: 14, height: 14, borderRadius: "50%", background: `radial-gradient(circle at 35% 30%, #fff, ${kt.color})`, border: `1px solid ${kt.color}`, fontSize: 8, lineHeight: "12px", color: "#3a2a10", fontWeight: 800 }}>{kt.name}</span>}
       <div className="flex justify-center"><MonPic m={{ sp: x }} size={56} dim={ok ? 0 : 2} /></div>
       <div className="text-[9px] truncate" style={{ fontWeight: 700, color: ok ? "var(--ink)" : "var(--ink-mute)" }}>{ok ? x.name : "？？？"}</div>
-      <div className="text-[8px]" style={{ color: "var(--ink-mute)" }}>{sub}{kills[x.img] ? `・倒した${kills[x.img]}` : ""}</div>
+      <div className="text-[8px]" style={{ color: "var(--ink-mute)" }}>{sub}{kills[x.img] ? `・倒した${kills[x.img]}` : ""}{(normRpg(state.rpg).tamed || {})[x.img] ? "・🐾仲間" : ""}</div>
     </div>
   ); };
   return (
@@ -13434,7 +13489,7 @@ function TrialRun({ state, run, recordAnswer, startTimer, stopTimer, onExit, onF
   );
 }
 
-function WorldView({ state, actions, todayCount, onWeekly, onDungeon, onGuardian, onStory, onTower, onSecBoss, onRehearsal, onStudyGroup, onEndless }) {
+function WorldView({ state, actions, todayCount, onWeekly, onDungeon, onGuardian, onStory, onTower, onSecBoss, onRehearsal, onStudyGroup, onEndless, onForest }) {
   const qual = mainQual(state);
   const linked = qual && state.questionBanks.some((b) => b.qualId === qual.id);
   const pp = passPower(state, linked ? qual.id : null);
@@ -13472,6 +13527,7 @@ function WorldView({ state, actions, todayCount, onWeekly, onDungeon, onGuardian
         <WeekdayDungeon state={state} />
         <LumiErrand state={state} actions={actions} />
         <StudyGroupCard state={state} onStart={onStudyGroup} />
+        {onForest && <ForestCard state={state} onStart={onForest} />}
         {onEndless && <EndlessCard state={state} onStart={onEndless} />}
         <DailyQuests state={state} actions={actions} todayCount={todayCount} />
         <CategoryQuests state={state} pp={pp} actions={actions} />
@@ -13541,6 +13597,7 @@ function AdventureTab({ state, actions, recordAnswer, startTimer, stopTimer, tod
   const [view, setView] = useState("world"); // world（世界）| base（拠点・ボス）| skill | forge | dex
   const [charPick, setCharPick] = useState(false); // 拠点のキャラを選ぶ
   const [allyTrial, setAllyTrial] = useState(null); // 仲間の試練 { allyId, pool, n }
+  const [forest, setForest] = useState(0); // 迷いの森（数が変わるたびに最初から）
   const stRef = useRef(state); stRef.current = state;
   useEffect(() => {
     const f = (e) => { const a = allyById(e.detail && e.detail.allyId); if (!a) return; const pool = allyTrialPool(stRef.current, a); if (pool.length) { setAllyTrial({ allyId: a.id, pool }); window.scrollTo(0, 0); } };
@@ -13548,6 +13605,7 @@ function AdventureTab({ state, actions, recordAnswer, startTimer, stopTimer, tod
     return () => window.removeEventListener("sq-ally-trial", f);
   }, []);
 
+  if (forest) return <ForestRun key={`f${forest}`} state={state} actions={actions} recordAnswer={recordAnswer} startTimer={startTimer} stopTimer={stopTimer} onExit={() => setForest(0)} />;
   if (allyTrial) {
     const a = allyById(allyTrial.allyId);
     return <TrialRun key={`at-${a.id}-${allyTrial.n || 0}`} state={state} recordAnswer={recordAnswer} startTimer={startTimer} stopTimer={stopTimer}
@@ -13641,9 +13699,9 @@ function AdventureTab({ state, actions, recordAnswer, startTimer, stopTimer, tod
     </div>
   );
   if (view === "skill") return <div className="space-y-4">{nav}{msgBox}<SkillPanel state={state} actions={actions} flash={flash} /></div>;
-  if (view === "forge") return <div className="space-y-4">{nav}{msgBox}<ForgePanel state={state} actions={actions} /></div>;
+  if (view === "forge") return <div className="space-y-4">{nav}{msgBox}<ForgePanel state={state} actions={actions} /><AlchemyPanel state={state} actions={actions} /></div>;
   if (view === "dex") return <div className="space-y-4">{nav}<EvolutionRoad state={state} /><MonsterDex state={state} /></div>;
-  if (view === "world") return <div className="space-y-4">{nav}<WorldView state={state} actions={actions} todayCount={todayCount} onWeekly={(boss, pool) => { if (pool.length === 0) { flash("出題できる問題がありません"); return; } setBattle({ boss, pool }); }} onDungeon={(n, pool) => setDungeon({ pool, minutes: n })} onRehearsal={(run) => setRehearsal(run)} onEndless={() => setEndless(Date.now())} onStudyGroup={(allyId) => { const a = allyById(allyId); const pool = studyGroupPool(state, a); if (pool.length) setGroupRun({ allyId, pool }); else flash("出題できる問題がありません"); }} onStory={(run) => setStoryRun(run)} onTower={(run) => setTowerRun(run)} onSecBoss={({ bank, region }) => { const pool = buildPoolFromBanks([bank], 15); if (pool.length) setSecRun({ bank, region, pool }); }} onGuardian={(g) => { const info = regionInfo(g.name); const pool = buildPoolFromBanks(g.banks, 15); if (pool.length === 0) { flash("出題できる問題がありません"); return; } setBattle({ boss: { id: info.boss, guardian: true, region: g.name, idx: 3, loop: 0, icon: info.icon, name: info.guardian, label: `${g.name}の守護者 ${info.guardian}`, hp: 200, atk: 20 }, pool }); }} /></div>;
+  if (view === "world") return <div className="space-y-4">{nav}<WorldView state={state} actions={actions} todayCount={todayCount} onWeekly={(boss, pool) => { if (pool.length === 0) { flash("出題できる問題がありません"); return; } setBattle({ boss, pool }); }} onDungeon={(n, pool) => setDungeon({ pool, minutes: n })} onRehearsal={(run) => setRehearsal(run)} onEndless={() => setEndless(Date.now())} onForest={() => setForest(Date.now())} onStudyGroup={(allyId) => { const a = allyById(allyId); const pool = studyGroupPool(state, a); if (pool.length) setGroupRun({ allyId, pool }); else flash("出題できる問題がありません"); }} onStory={(run) => setStoryRun(run)} onTower={(run) => setTowerRun(run)} onSecBoss={({ bank, region }) => { const pool = buildPoolFromBanks([bank], 15); if (pool.length) setSecRun({ bank, region, pool }); }} onGuardian={(g) => { const info = regionInfo(g.name); const pool = buildPoolFromBanks(g.banks, 15); if (pool.length === 0) { flash("出題できる問題がありません"); return; } setBattle({ boss: { id: info.boss, guardian: true, region: g.name, idx: 3, loop: 0, icon: info.icon, name: info.guardian, label: `${g.name}の守護者 ${info.guardian}`, hp: 200, atk: 20 }, pool }); }} /></div>;
 
   return (
     <div className="space-y-4">
@@ -13677,6 +13735,10 @@ function AdventureTab({ state, actions, recordAnswer, startTimer, stopTimer, tod
 
       {/* パーティ（2026年10月26日） */}
       <PartyQuick state={state} actions={actions} regions={(() => { const qual = mainQual(state); const linked = qual && state.questionBanks.some((b) => b.qualId === qual.id); return passPower(state, linked ? qual.id : null).regions.filter((g) => g.total > 0).sort(byRegionOrder).map((g) => g.name); })()} />
+
+      {/* ルーン・魔物の仲間（2026年10月26日） */}
+      <RunePanel state={state} actions={actions} />
+      <TamePanel state={state} actions={actions} />
 
       {/* 覚醒・転職の神殿・相棒 */}
       <GrowthPanels state={state} actions={actions} />
@@ -13849,6 +13911,10 @@ function BossBattle({ state, boss, pool, actions, recordAnswer, startTimer, stop
   const [fx, setFx] = useState(null); // 技の演出 { n, side: "hero"|"mon", atk, t, dmg, crit, assist }
   const [assist, setAssist] = useState(null); // 仲間の加勢の演出 { n, p, val, heal, joint }
   const [charging, setCharging] = useState(false); // ボスが力を溜めている
+  const [ap, setAp] = useState(0); // 行動ポイント（正解で+1、◎で+2）
+  const [guard, setGuard] = useState(0); // 守りの構え：残り回数（受けるダメージ半分）
+  const [weaken, setWeaken] = useState(false); // 弱体の薬：ボスの攻撃-30%
+  const tame = r.tameActive && (r.tamed || {})[r.tameActive] ? monSpecies(r.tameActive) : null; // 連れている魔物
   const healedRef = useRef(false); // 回復はボス1体につき1回
   const party = battleParty(state, typeof boss.region === "string" ? boss.region : boss.region && boss.region.name);
   const synergy = partySynergy(party, normRpg(state.rpg));
@@ -13895,14 +13961,15 @@ function BossBattle({ state, boss, pool, actions, recordAnswer, startTimer, stop
     if (correct) {
       const base = 12 + Math.min(30, Math.floor(st.int / 40));
       const mult = meta && meta.conf === "unsure" ? 0.6 : 1;
-      const crit = Math.random() * 100 < bonus.critPct;
+      const runeN = bank ? runeHits(r, themeOf(bank.name).mat) : 0; // ルーン：その科目の問題で強くなる
+      const crit = Math.random() * 100 < bonus.critPct + runeN * RUNE_CRIT;
       const nc = combo + 1;
       // 連続で正解すると、2連目から少しずつ威力が上がる（最大+30%）
       const comboMul = 1 + Math.min(0.3, (nc - 1) * 0.06);
       const breakMul = charging ? 1.3 : 1; // 溜めを止めた一撃
       // 挑発された苦手の地域に正解すると「言い返した！」で1.5倍
       const tauntHit = !!taunt && !!bank && themeOf(bank.name).region === taunt.region;
-      let dmg = Math.max(1, Math.round(base * mult * comboMul * breakMul * (1 + bonus.bossDmgPct / 100) * (1 + synergy.dmgPct / 100) * (crit ? 2 : 1) * (tauntHit ? 1.5 : 1)));
+      let dmg = Math.max(1, Math.round(base * mult * comboMul * breakMul * (1 + bonus.bossDmgPct / 100) * (1 + synergy.dmgPct / 100) * (crit ? 2 : 1) * (tauntHit ? 1.5 : 1) * (1 + RUNE_DMG * runeN)));
       // 障壁：◎（自信ありの正解）を続けて砕く。砕けるまでダメージは4分の1
       let shieldMsg = null;
       if (sh) {
@@ -13923,8 +13990,12 @@ function BossBattle({ state, boss, pool, actions, recordAnswer, startTimer, stop
       else if (partner) as = { p: partner, val: Math.max(1, Math.round(dmg * 0.6)), joint: JOINT_SKILLS[partner.a.id] };
       else if (chase && nc % 3 === 0) as = { p: chase, val: Math.max(1, Math.round(dmg * 0.4)) };
       else if (magic && (crit || Math.random() < 0.2)) as = { p: magic, val: Math.max(1, Math.round(dmg * 0.3)) };
-      nb = Math.max(0, bossHp - dmg - (as ? as.val : 0));
+      // 連れている魔物の加勢（4連撃ごと。障壁があるあいだは通らない）
+      const tameVal = tame && !sh && nc % TAME_EVERY === 0 ? Math.max(1, Math.round(dmg * TAME_DMG)) : 0;
+      nb = Math.max(0, bossHp - dmg - (as ? as.val : 0) - tameVal);
+      if (tameVal) { setTimeout(() => setBossHp((v) => Math.max(0, Math.min(v, nb))), t * 1000 + 700); addLog(`🐾 ${tame.name}が加勢！ さらに${tameVal}のダメージ`); }
       setCombo(nc);
+      setAp((a) => Math.min(AP_MAX, a + (meta && meta.conf === "sure" ? 2 : 1)));
       const cut = bossCut(nc);
       const big = crit || !!cut || nc >= 3;
       if (cut) setTimeout(() => SFX.play("combo"), 120);
@@ -13943,8 +14014,9 @@ function BossBattle({ state, boss, pool, actions, recordAnswer, startTimer, stop
       if (charging) { setCharging(false); addLog(`🛡 溜めを止めた！ ${boss.name}の力が霧散した（ダメージ1.3倍）`); }
     } else {
       if (sh && sh.left !== sh.need) { sh = { ...sh, left: sh.need }; addLog("🛡 障壁が元に戻った……"); }
-      const raw = boss.atk * (meta && meta.confident ? 1.3 : 1) * (charging ? 2.5 : 1) * (phase2 ? 1.2 : 1);
+      const raw = boss.atk * (meta && meta.confident ? 1.3 : 1) * (charging ? 2.5 : 1) * (phase2 ? 1.2 : 1) * (guard > 0 ? 0.5 : 1) * (weaken ? 0.7 : 1);
       const dmg = Math.max(1, Math.round(raw * (1 - bonus.dmgCutPct / 100)));
+      if (guard > 0) { setGuard(guard - 1); addLog(`🛡 守りの構えで、ダメージを半分におさえた`); }
       const atk = monAttackFor(boss.art);
       t = impactOf(atk);
       nh = Math.max(0, hp - dmg);
@@ -13998,6 +14070,42 @@ function BossBattle({ state, boss, pool, actions, recordAnswer, startTimer, stop
     setIdx(idx + 1);
   };
 
+  // コマンド：行動ポイントを使う技・回復・守り（上級職の専用の技・調合の道具も）
+  const cmdBase = () => Math.max(1, Math.round((12 + Math.min(30, Math.floor(st.int / 40))) * (1 + bonus.bossDmgPct / 100) * (1 + synergy.dmgPct / 100)));
+  const hitBoss = (dmg, label, opts = {}) => {
+    const n = ++fxN.current;
+    const atk = heroAttackFor({ weapon: equippedWeaponId(r), region: bossRegion, crit: true, combo: 5 });
+    const t = impactOf(atk);
+    let d = Math.max(1, Math.round(dmg)), sh = shield;
+    if (sh && opts.breakShield) { sh = null; addLog("💥 障壁を打ち砕いた！"); }
+    else if (sh && opts.pierce) { const left = sh.left - 1; sh = left <= 0 ? null : { ...sh, left }; addLog(left <= 0 ? "💥 障壁を貫いて砕いた！" : `🏹 障壁を貫いた（あと${left}回で砕ける）`); }
+    else if (sh) d = Math.max(1, Math.round(d * 0.25));
+    setShield(sh);
+    const nb = Math.max(0, bossHp - d);
+    setFx({ n, side: "hero", atk, t, dmg: d, crit: true, big: true, hits: splitHits(d, 3) });
+    if (atk.kind !== "slash") SFX.play(atk.sfx);
+    setTimeout(() => { setBossHp(nb); SFX.play("crit"); }, t * 1000);
+    setTimeout(() => setFx((f) => (f && f.n === n ? null : f)), 1600 + t * 1000);
+    addLog(`${label} ${d}のダメージ！`);
+    if (nb <= 0) { busy.current = true; addLog(`🎉 ${boss.name}を倒した！`); setTimeout(() => { setDying("boss"); SFX.play("victory"); }, t * 1000 + 250); setTimeout(() => finish(true, false), t * 1000 + 2100); }
+  };
+  const adv = getClassInfo(state) && getClassInfo(state).adv;
+  const cmds = [...BOSS_COMMANDS.filter((c) => !c.party || party.length), ...(adv ? [{ ...adv.skill, ap: 4, adv: true }] : [])];
+  const doCommand = (c) => {
+    if (busy.current || dying || result || ap < c.ap) return;
+    setAp(ap - c.ap);
+    const b0 = cmdBase();
+    if (c.id === "power") hitBoss(b0 * 3, `⚔ ${HERO_NAME}の渾身の一撃！`);
+    else if (c.id === "heal") { const v = Math.round(maxHp * 0.3); setHp(Math.min(maxHp, hp + v)); SFX.play("holy"); addLog(`💚 癒やしの祈り。HPが${v}回復した`); }
+    else if (c.id === "guard") { setGuard(2); SFX.play("holy"); addLog("🛡 守りの構え！ 次の2回、受けるダメージが半分に"); }
+    else if (c.id === "joint") hitBoss(b0 * 4, `🤝 ${HERO_NAME}と${party[0].a.name}の連携技！`);
+    else if (c.id === "meteor") hitBoss(b0 * 4, "☄ メテオフォール！");
+    else if (c.id === "aegis") { const v = Math.round(maxHp * 0.4); setHp(Math.min(maxHp, hp + v)); setGuard(3); SFX.play("holy"); addLog(`🛡 聖盾の祈り。HPが${v}回復し、次の3回を守る`); }
+    else if (c.id === "arrows") hitBoss(b0 * 2.5, "🏹 千本の矢！", { pierce: true });
+    else if (c.id === "brave") hitBoss(b0 * 3, "✨ ブレイブスラッシュ！", { breakShield: true });
+  };
+  const useScroll = () => { if (busy.current || dying || !(((r.brew || {}).scroll || 0) > 0)) return; actions.useBrew("scroll"); hitBoss(cmdBase() * 2.5, "📜 攻撃の巻物を読み上げた！"); };
+  const useWeaken = () => { if (busy.current || dying || weaken || !(((r.brew || {}).weaken || 0) > 0)) return; actions.useBrew("weaken"); setWeaken(true); SFX.play("magicHit"); addLog(`⚗ 弱体の薬！ ${boss.name}の攻撃が30%弱まった`); };
   const usePotion = () => {
     if (!(r.consumables.potion > 0) || hp >= maxHp) return;
     actions.useConsumable("potion");
@@ -14051,6 +14159,31 @@ function BossBattle({ state, boss, pool, actions, recordAnswer, startTimer, stop
         </div>
         <button disabled={!(r.consumables.potion > 0) || hp >= maxHp || !!dying} onClick={usePotion} className="jp text-[11px] px-2 btn-ghost flex-shrink-0">🧪×{r.consumables.potion || 0}</button>
       </div>
+      {/* コマンド（2026年10月26日） */}
+      <div className="jp px-2 py-1.5" style={{ background: "var(--paper)", border: "1px solid var(--gold)", borderRadius: 8 }}>
+        <div className="flex items-center gap-1.5 flex-wrap mb-1">
+          <span className="text-[11px]" style={{ fontWeight: 800, color: "var(--ink)" }}>⚡ 行動ポイント</span>
+          <span className="flex gap-0.5">{Array.from({ length: AP_MAX }, (_, i) => <span key={i} style={{ width: 12, height: 12, borderRadius: 3, background: i < ap ? "linear-gradient(180deg, #f2c14e, #b08a3e)" : "var(--beige)", border: "1px solid #d6b56a" }} />)}</span>
+          <span className="text-[10px]" style={{ color: "var(--ink-mute)" }}>正解で+1（◎は+2）</span>
+          {guard > 0 && <span className="text-[10px]" style={{ color: "#4f6fa8", fontWeight: 800 }}>🛡守り×{guard}</span>}
+          {weaken && <span className="text-[10px]" style={{ color: "#6c5a96", fontWeight: 800 }}>⚗弱体中</span>}
+          {tame && <span className="text-[10px]" style={{ color: "#6c5a96" }}>🐾{tame.name}</span>}
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-1">
+          {cmds.map((c) => (
+            <button key={c.id} disabled={ap < c.ap || !!dying} onClick={() => doCommand(c)} className="text-left px-1.5 py-1" style={{ borderRadius: 6, border: `1px solid ${c.adv ? "#b08a3e" : "var(--rule-soft)"}`, background: ap >= c.ap ? (c.adv ? "linear-gradient(90deg, #f6ead0, #fdfbf5)" : "var(--cream)") : "var(--paper)", opacity: ap >= c.ap ? 1 : 0.5, cursor: ap >= c.ap ? "pointer" : "default", color: "var(--ink)" }}>
+              <span className="block text-[11px]" style={{ fontWeight: 800 }}>{c.icon} {c.name}</span>
+              <span className="block text-[9px]" style={{ color: "var(--ink-mute)" }}>{c.ap}AP・{c.text}</span>
+            </button>
+          ))}
+        </div>
+        {(((r.brew || {}).scroll || 0) > 0 || ((r.brew || {}).weaken || 0) > 0) && (
+          <div className="flex gap-1 mt-1">
+            <button disabled={!(((r.brew || {}).scroll || 0) > 0) || !!dying} onClick={useScroll} className="btn-ghost text-[10px] px-2 py-0.5">📜 攻撃の巻物×{(r.brew || {}).scroll || 0}</button>
+            <button disabled={!(((r.brew || {}).weaken || 0) > 0) || weaken || !!dying} onClick={useWeaken} className="btn-ghost text-[10px] px-2 py-0.5">⚗ 弱体の薬×{(r.brew || {}).weaken || 0}</button>
+          </div>
+        )}
+      </div>
       {q ? (
         <div className="rpg-box p-1">
           <div className="rpg-inner-border min-h-[160px] flex flex-col">
@@ -14077,6 +14210,241 @@ function BossBattle({ state, boss, pool, actions, recordAnswer, startTimer, stop
   );
 }
 
+// ── ルーン（冒険の拠点）──
+function RunePanel({ state, actions }) {
+  const r = normRpg(state.rpg);
+  const [slot, setSlot] = useState(null);
+  const rs = [...(r.runes || [])]; while (rs.length < RUNE_SLOTS) rs.push(null);
+  return (
+    <Box title="ルーン" icon={<StarIcon size={18} />}>
+      <div className="jp space-y-2">
+        <p className="text-[11px]" style={{ color: "var(--ink-soft)", lineHeight: 1.7 }}>欠片{RUNE_FRAG}つと{RUNE_GOLD}Gでルーンを作り、3つの枠にはめます。その科目の問題で、1つにつきダメージ+{Math.round(RUNE_DMG * 100)}%（ボス戦は会心率も+{RUNE_CRIT}%）。同じルーンを重ねると強くなります。</p>
+        <div className="grid grid-cols-3 gap-1.5">
+          {rs.map((m, i) => (
+            <button key={i} onClick={() => setSlot(slot === i ? null : i)} className="px-1 py-2 text-center" style={{ borderRadius: 10, border: `1.5px solid ${slot === i ? "var(--gold)" : m ? "#7fa3d8" : "var(--rule-soft)"}`, background: m ? "linear-gradient(180deg, #eef3fb, var(--paper))" : "var(--paper)", cursor: "pointer", color: "var(--ink)" }}>
+              <span className="block" style={{ fontSize: 22 }}>{m ? "💠" : "◇"}</span>
+              <span className="block text-[11px]" style={{ fontWeight: 800 }}>{m ? runeName(m) : `枠${i + 1}（空き）`}</span>
+              {m && <span className="block text-[9px]" style={{ color: "var(--ink-mute)" }}>{runeRegions(m).join("・")}</span>}
+            </button>
+          ))}
+        </div>
+        {slot !== null && (
+          <div className="grid gap-1 sm:grid-cols-2">
+            {FRAG_IDS.map((id) => {
+              const have = (r.materials || {})[id] || 0, ok = have >= RUNE_FRAG && r.gold >= RUNE_GOLD;
+              return (
+                <button key={id} disabled={!ok} onClick={() => { actions.setRune(slot, id); setSlot(null); }} className="text-left px-2 py-1" style={{ borderRadius: 8, border: "1px solid var(--rule-soft)", background: "var(--paper)", opacity: ok ? 1 : 0.5, cursor: ok ? "pointer" : "default", color: "var(--ink)" }}>
+                  <span className="block text-[12px]" style={{ fontWeight: 800 }}>💠 {runeName(id)}<span className="text-[10px] ml-1" style={{ color: "var(--ink-mute)", fontWeight: 500 }}>（{(matById(id) || {}).name} {have}/{RUNE_FRAG}）</span></span>
+                  <span className="block text-[10px]" style={{ color: "var(--ink-soft)" }}>{runeRegions(id).join("・") || "—"}の問題で力を発揮</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </Box>
+  );
+}
+// ── 魔物の仲間（冒険の拠点）──
+function TamePanel({ state, actions }) {
+  const r = normRpg(state.rpg);
+  const list = Object.keys(r.tamed || {}).map(monSpecies).filter(Boolean);
+  const kills = r.kills || {};
+  const near = [...MON_PAINTED, ...MON_BOSS].filter((x) => !(r.tamed || {})[x.img] && (kills[x.img] || 0) > 0).sort((a, b) => (kills[b.img] || 0) - (kills[a.img] || 0)).slice(0, 3);
+  return (
+    <Box title="魔物の仲間" icon={<Sword size={18} />}>
+      <div className="jp space-y-2">
+        <p className="text-[11px]" style={{ color: "var(--ink-soft)", lineHeight: 1.7 }}>同じ種類の魔物を{TAME_AT}体倒すと、仲間になりたそうにこちらを見て、仲間になります。1体を連れていくと、ボス戦で{TAME_EVERY}連撃ごとに加勢してくれます（与えたダメージの{Math.round(TAME_DMG * 100)}%）。</p>
+        {list.length > 0 ? (
+          <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5">
+            {list.map((x) => { const on = r.tameActive === x.img; return (
+              <button key={x.img} onClick={() => actions.setTame(x.img)} className="text-center px-1 py-1" style={{ borderRadius: 10, border: `1.5px solid ${on ? "var(--gold)" : "var(--rule-soft)"}`, background: on ? "var(--cream)" : "var(--paper)", cursor: "pointer", color: "var(--ink)" }}>
+                <span className="flex justify-center"><MonPic m={{ sp: x }} size={48} /></span>
+                <span className="block text-[10px] truncate" style={{ fontWeight: 800 }}>{on ? "🐾 " : ""}{x.name}</span>
+                <span className="block text-[9px]" style={{ color: "var(--ink-mute)" }}>{on ? "連れている" : "連れていく"}</span>
+              </button>
+            ); })}
+          </div>
+        ) : <p className="text-[11px]" style={{ color: "var(--ink-mute)" }}>まだ仲間になった魔物はいません。</p>}
+        {near.length > 0 && <div className="text-[10px]" style={{ color: "var(--ink-mute)" }}>もうすぐ：{near.map((x) => `${x.name} ${kills[x.img]}/${TAME_AT}`).join("　")}</div>}
+      </div>
+    </Box>
+  );
+}
+// ── 調合（鍛冶場）──
+function AlchemyPanel({ state, actions }) {
+  const r = normRpg(state.rpg);
+  const frags = fragCount(r.materials), stars = (r.materials || {})["m-star"] || 0;
+  const have = (id) => (id === "potion" ? r.consumables.potion || 0 : (r.brew || {})[id] || 0);
+  return (
+    <Box title="調合" icon={<Pencil size={18} />}>
+      <div className="jp space-y-1.5">
+        <p className="text-[11px]" style={{ color: "var(--ink-soft)" }}>余った欠片（多いものから使います）と星霊石で、ボス戦の道具をつくります。いま：欠片 {frags}個・星霊石 {stars}個</p>
+        {BREW_RECIPES.map((rc) => {
+          const ok = frags >= rc.frag && stars >= rc.star && r.gold >= rc.gold;
+          return (
+            <div key={rc.id} className="flex items-center gap-2 px-2 py-1.5" style={{ borderRadius: 8, border: "1px solid var(--rule-soft)", background: "var(--paper)" }}>
+              <span style={{ fontSize: 20 }}>{rc.icon}</span>
+              <span className="flex-1 min-w-0">
+                <span className="block text-[12px]" style={{ fontWeight: 800, color: "var(--ink)" }}>{rc.name}<span className="text-[10px] ml-1" style={{ color: "var(--ink-mute)", fontWeight: 500 }}>持っている {have(rc.id)}</span></span>
+                <span className="block text-[10px]" style={{ color: "var(--ink-soft)" }}>{rc.text}　／　欠片{rc.frag}{rc.star ? `・星霊石${rc.star}` : ""}{rc.gold ? `・${rc.gold}G` : ""}</span>
+              </span>
+              <button disabled={!ok} onClick={() => actions.brew(rc.id)} className="btn-primary text-[11px] px-2.5 py-1" style={{ opacity: ok ? 1 : 0.45 }}>つくる</button>
+            </div>
+          );
+        })}
+      </div>
+    </Box>
+  );
+}
+// ── 迷いの森（2026年10月26日）：1日1回の探索。分かれ道で部屋を選び、6層の最深部の森の主をめざす。ハートが0で終わり（集めたものはもらえる）。rpg.forest = {d, best, clears, last} ──
+const FOREST_FLOORS = 6, FOREST_HEARTS = 3;
+const FOREST_ROOMS = {
+  battle: { icon: "⚔", name: "魔物の部屋", text: "3問で2問正解", n: 3, pass: 0.6, gold: 30, frag: 1, xp: 10 },
+  elite: { icon: "💀", name: "強敵の部屋", text: "5問で4問正解・報酬が多い", n: 5, pass: 0.8, gold: 80, star: 1, xp: 25 },
+  chest: { icon: "🎁", name: "宝箱の部屋", text: "ゴールドや欠片" },
+  spring: { icon: "⛲", name: "癒やしの泉", text: "ハートが1つ回復" },
+  event: { icon: "❓", name: "ふしぎな部屋", text: "なにかが起こる" },
+  boss: { icon: "👑", name: "森の主", text: "6問で4問正解", n: 6, pass: 0.6, gold: 200, sage: 1, xp: 80 },
+};
+function forestMap(day) {
+  const rnd = (k) => (hashStr(`${day}:${k}`) % 1000) / 1000;
+  const pick = (f, sd) => { if (f === 0) return sd ? "chest" : "battle"; const x = rnd(`${f}-${sd}`); return x < 0.4 ? "battle" : x < 0.55 ? "elite" : x < 0.7 ? "chest" : x < 0.85 ? "spring" : "event"; };
+  return Array.from({ length: FOREST_FLOORS }, (_, f) => (f === FOREST_FLOORS - 1 ? ["boss"] : [pick(f, 0), pick(f, 1)]));
+}
+function ForestCard({ state, onStart }) {
+  const fr = normRpg(state.rpg).forest || {};
+  const done = fr.d === todayStr();
+  return (
+    <Box title="迷いの森" icon={<Castle size={18} />}>
+      <div className="jp space-y-1.5">
+        <p className="text-[11px]" style={{ color: "var(--ink-soft)", lineHeight: 1.7 }}>1日1回の探索。分かれ道で部屋を選びながら、{FOREST_FLOORS}層の最深部にいる森の主をめざします。魔物・強敵・宝箱・癒やしの泉・ふしぎな部屋……毎日ちがう森になります。ハート{FOREST_HEARTS}つがなくなったら終わり（集めたものはもらえます）。</p>
+        <div className="text-[10px]" style={{ color: "var(--ink-mute)" }}>最深 {fr.best || 0}層・森の主の討伐 {fr.clears || 0}回{fr.last && fr.d === todayStr() ? `　／　今日：${fr.last.cleared ? "森の主を倒した！" : `${fr.last.floor}層まで`}（${fr.last.gold}G）` : ""}</div>
+        <button disabled={done} onClick={onStart} className="btn-primary w-full py-2 text-sm" style={{ opacity: done ? 0.5 : 1 }}>{done ? "今日の探索は終わりました（また明日）" : "🌲 森に入る"}</button>
+      </div>
+    </Box>
+  );
+}
+function ForestRun({ state, actions, recordAnswer, startTimer, stopTimer, onExit }) {
+  const day = todayStr();
+  const [map] = useState(() => forestMap(day));
+  const [run, setRun] = useState({ floor: 0, hearts: FOREST_HEARTS, path: [], loot: { gold: 0, mats: {}, xp: 0 }, msg: "森の入り口に立った。道が二手に分かれている……", blessed: false, over: null });
+  const [battle, setBattle] = useState(null); // { type, pool, pass }
+  const passedRef = useRef(null);
+  const sc = studyScope(state);
+  const banks = state.questionBanks.filter((b) => sc.inScope(b));
+  const end = (cur, cleared) => {
+    const nx = { ...cur, over: cleared ? "clear" : "down" };
+    setRun(nx);
+    actions.forestFinish({ cleared, floor: cleared ? FOREST_FLOORS : cur.floor, loot: cur.loot });
+  };
+  const addLoot = (lt, add) => {
+    const mats = { ...lt.mats };
+    Object.entries(add.mats || {}).forEach(([k, v]) => { mats[k] = (mats[k] || 0) + v; });
+    return { gold: lt.gold + (add.gold || 0), mats, xp: lt.xp + (add.xp || 0) };
+  };
+  const fragOf = (k) => FRAG_IDS[hashStr(`${day}:${k}`) % FRAG_IDS.length];
+  const enter = (type, side) => {
+    const room = FOREST_ROOMS[type];
+    const path = [...run.path, side];
+    if (room.n) {
+      const pool = buildPoolFromBanks(banks, room.n);
+      if (!pool.length) { setRun({ ...run, msg: "出題できる問題がありません。" }); return; }
+      passedRef.current = null;
+      setBattle({ type, pool, pass: Math.max(0.34, room.pass - (run.blessed ? 0.2 : 0)), path });
+      return;
+    }
+    let cur = { ...run, path, floor: run.floor + 1 };
+    if (type === "chest") {
+      const g = 30 + (hashStr(`${day}:c${run.floor}`) % 71), fr = fragOf(`cf${run.floor}`);
+      cur = { ...cur, loot: addLoot(run.loot, { gold: g, mats: { [fr]: 2 } }), msg: `🎁 宝箱を開けた！ ${g}Gと${(matById(fr) || {}).name}×2` };
+    } else if (type === "spring") {
+      cur = run.hearts < FOREST_HEARTS ? { ...cur, hearts: run.hearts + 1, msg: "⛲ 癒やしの泉。ハートが1つ回復した" } : { ...cur, loot: addLoot(run.loot, { gold: 20 }), msg: "⛲ 癒やしの泉。元気いっぱいなので、泉の底の20Gを拾った" };
+    } else if (type === "event") {
+      const x = hashStr(`${day}:e${run.floor}`) % 3;
+      cur = x === 0 ? { ...cur, loot: addLoot(run.loot, { gold: 50 }), msg: "🧳 旅の商人に道を教えたら、お礼に50Gをもらった" }
+        : x === 1 ? { ...cur, blessed: true, msg: "🗿 古い石碑の祝福。次の戦いの突破ラインが下がる" }
+        : { ...cur, loot: addLoot(run.loot, { mats: { "m-star": 1 } }), msg: "✨ 木の根元で光る石を見つけた。星霊石×1" };
+    }
+    setRun(cur);
+  };
+  const leaveBattle = () => {
+    const b = battle; if (!b) return;
+    const room = FOREST_ROOMS[b.type];
+    const ok = passedRef.current === true;
+    setBattle(null);
+    let cur = { ...run, path: b.path, floor: run.floor + 1, blessed: false };
+    if (ok) {
+      const add = { gold: room.gold, xp: room.xp, mats: { ...(room.frag ? { [fragOf(`bf${run.floor}`)]: room.frag } : {}), ...(room.star ? { "m-star": room.star } : {}), ...(room.sage ? { "m-sage": room.sage } : {}) } };
+      cur = { ...cur, loot: addLoot(run.loot, add), msg: `${room.icon} ${room.name}を突破！ ${room.gold}G${room.star ? "・星霊石" : ""}${room.sage ? "・賢者の結晶" : ""}` };
+      if (b.type === "boss") { end(cur, true); return; }
+    } else {
+      cur = { ...cur, hearts: run.hearts - 1, msg: `💔 ${room.name}で押し返された……ハートが1つ減った` };
+      if (cur.hearts <= 0 || b.type === "boss") { end(cur, false); return; }
+    }
+    setRun(cur);
+  };
+  if (battle) {
+    const room = FOREST_ROOMS[battle.type];
+    return <TrialRun key={`fb-${run.floor}-${battle.type}`} state={state} recordAnswer={recordAnswer} startTimer={startTimer} stopTimer={stopTimer}
+      run={{ kind: room.name, title: `迷いの森 第${run.floor + 1}層　${room.icon} ${room.name}`, sub: `${room.text}${run.blessed ? "（石碑の祝福で突破ラインが下がっている）" : ""}`, pool: battle.pool, pass: battle.pass, boss: battle.type === "battle" ? "last" : "all", scene: STAGE_URL(battle.type === "boss" ? "lava" : "meadow") }}
+      onFinish={(acc) => { passedRef.current = acc >= battle.pass; return {}; }}
+      onExit={leaveBattle} nextLabel="森を進む" onNext={leaveBattle} />;
+  }
+  const hearts = "❤".repeat(Math.max(0, run.hearts)) + "🤍".repeat(Math.max(0, FOREST_HEARTS - run.hearts));
+  const lootText = `${run.loot.gold}G${Object.entries(run.loot.mats).map(([k, v]) => `・${(matById(k) || {}).name}×${v}`).join("")}${run.loot.xp ? `・EXP${run.loot.xp}` : ""}`;
+  return (
+    <div className="jp space-y-3">
+      <div className="flex items-center justify-between text-xs">
+        <button onClick={() => { if (run.over) { onExit(); return; } if (confirm("森を出ますか？（ここまで集めたものは受け取れます。今日の探索は終わりになります）")) { end(run, false); } }} style={{ color: "var(--ink-soft)" }}>← {run.over ? "もどる" : "森を出る"}</button>
+        <span style={{ fontWeight: 800, color: "var(--ink)" }}>{hearts}</span>
+      </div>
+      <div className="relative overflow-hidden px-3 py-3" style={{ borderRadius: 12, border: "1.5px solid #6d8454", background: `linear-gradient(180deg, rgba(20,40,28,0.55), rgba(20,40,28,0.75)), url(${STAGE_URL("meadow")}) center/cover`, color: "#eef6ea" }}>
+        <div style={{ fontFamily: "'Shippori Mincho B1', serif", fontWeight: 900, fontSize: 18 }}>🌲 迷いの森{run.over ? "" : `　第${Math.min(FOREST_FLOORS, run.floor + 1)}層 / ${FOREST_FLOORS}`}</div>
+        <div className="text-[12px] mt-1">{run.msg}</div>
+        <div className="text-[10px] mt-1" style={{ color: "#cfe3c8" }}>集めたもの：{lootText}</div>
+      </div>
+      {run.over ? (
+        <Box title={run.over === "clear" ? "森の主を倒した！" : "探索おわり"} icon={<Award size={18} />}>
+          <div className="text-center py-2">
+            <div className="text-[13px]" style={{ fontWeight: 800, color: "var(--ink)" }}>{run.over === "clear" ? "最深部の森の主を討ち取りました！" : `${run.floor}層まで進みました`}</div>
+            <div className="text-[12px] mt-1" style={{ color: "var(--gold)", fontWeight: 800 }}>受け取ったもの：{lootText}</div>
+          </div>
+          <button onClick={onExit} className="btn-primary w-full py-2">もどる</button>
+        </Box>
+      ) : (
+        <div className="space-y-1.5">
+          {map.map((rooms, f) => f).reverse().map((f) => {
+            const rooms = map[f];
+            const cur = f === run.floor, past = f < run.floor;
+            return (
+              <div key={f} className="flex items-center gap-2">
+                <span className="text-[10px] w-10 text-right" style={{ color: cur ? "var(--ink)" : "var(--ink-mute)", fontWeight: cur ? 800 : 500 }}>{f + 1}層</span>
+                <div className={`flex-1 grid ${rooms.length > 1 ? "grid-cols-2" : "grid-cols-1"} gap-1.5`}>
+                  {rooms.map((type, sd) => {
+                    const rm = FOREST_ROOMS[type];
+                    const chosen = past && run.path[f] === sd;
+                    if (cur) return (
+                      <button key={sd} onClick={() => enter(type, sd)} className="text-left px-2 py-2" style={{ borderRadius: 10, border: "1.5px solid var(--gold)", background: "linear-gradient(90deg, #f6ead0, #fdfbf5)", cursor: "pointer", color: "var(--ink)" }}>
+                        <span className="block text-[13px]" style={{ fontWeight: 800 }}>{rm.icon} {rm.name}</span>
+                        <span className="block text-[10px]" style={{ color: "var(--ink-soft)" }}>{rm.text}</span>
+                      </button>
+                    );
+                    return (
+                      <div key={sd} className="px-2 py-1.5 text-[11px]" style={{ borderRadius: 10, border: `1px ${past ? "solid" : "dashed"} var(--rule-soft)`, background: chosen ? "var(--cream)" : "var(--paper)", color: past ? (chosen ? "var(--ink)" : "var(--ink-mute)") : "var(--ink-mute)", opacity: past && !chosen ? 0.5 : 1 }}>
+                        {past ? `${chosen ? "✓ " : ""}${rm.icon} ${rm.name}` : f === FOREST_FLOORS - 1 ? "👑 ？？？" : "🌫 霧で見えない"}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
 // ── ボス戦の舞台：背景の景色・漂う光・大きなボスの絵・主人公の顔と HP・技の演出 ──
 // 冒険のステージ（イラストフォルダの戦いの背景7枚）
 const STAGE_URL = (n) => `${ART_URL}stage/${n}.webp`;
@@ -14324,6 +14692,37 @@ const RPG_CLASSES = [
   { id: "hero",   name: "勇者", icon: "⚔️", color: "#c99a3a", ranks: ["見習い勇者", "勇者", "歴戦の勇者", "覇者", "伝説の勇者"],           style: "ボス討伐・完全制覇が多い", bonusText: (k) => `ボスへの攻撃+${10 + 4 * k}%`, fx: (k) => ({ bossDmgPct: 10 + 4 * k }) },
 ];
 const CLASS_CHANGE_COST = 300;
+// ── 上級職（2026年10月26日）：Lv30・ボス討伐5回・500Gで昇格。クラスの効果が1.5倍になり、ボス戦で専用の技（コマンド）が使える。rpg.classAdv = {クラスid: 日付} ──
+const ADV_NEED = { level: 30, bossWins: 5, gold: 500 };
+const ADV_CLASSES = {
+  sage: { name: "天文の大魔導", skill: { id: "meteor", name: "メテオフォール", icon: "☄", text: "ダメージ4倍" } },
+  knight: { name: "聖盾の守護者", skill: { id: "aegis", name: "聖盾の祈り", icon: "🛡", text: "HP40%回復・3回守る" } },
+  ranger: { name: "風弓の射手", skill: { id: "arrows", name: "千本の矢", icon: "🏹", text: "ダメージ2.5倍・障壁を貫く" } },
+  hero: { name: "光輝の英雄", skill: { id: "brave", name: "ブレイブスラッシュ", icon: "✨", text: "ダメージ3倍・障壁を砕く" } },
+};
+const classAdvOf = (r, id) => !!(id && (r.classAdv || {})[id]);
+// ── ルーン：欠片から作って装備の3つの枠にはめる。その科目（欠片の地域）の問題で、1つにつきダメージ+15%（ボス戦は会心率+5%も）。rpg.runes = [欠片id|null ×3] ──
+const RUNE_SLOTS = 3, RUNE_FRAG = 5, RUNE_GOLD = 100, RUNE_DMG = 0.15, RUNE_CRIT = 5;
+const runeHits = (r, mat) => (mat ? (r.runes || []).filter((x) => x === mat).length : 0);
+const runeName = (mat) => `${((matById(mat) || {}).name || "").replace(/の欠片$/, "")}のルーン`;
+const runeRegions = (mat) => [...new Set([...MON_THEMES.filter((t) => t.mat === mat).map((t) => t.region), ...(mat === MON_THEME_DEFAULT.mat ? [MON_THEME_DEFAULT.region] : []), ...[...PRESET_REGIONS.values()].filter((x) => x.mat === mat).map((x) => x.name)])];
+// ── 魔物の仲間：同じ種族を TAME_AT 体倒すと仲間になる。1体を連れていくと、ボス戦で4連撃ごとに加勢（rpg.tamed = {種族: 日付}, rpg.tameActive） ──
+const TAME_AT = 10, TAME_EVERY = 4, TAME_DMG = 0.25;
+const monSpecies = (img) => [...MON_PAINTED, ...MON_BOSS].find((z) => z.img === img) || null;
+// ── 調合：欠片（多いものから使う）と星霊石から、ボス戦の道具をつくる。rpg.brew = {scroll, weaken}（回復薬は consumables.potion） ──
+const BREW_RECIPES = [
+  { id: "potion", name: "回復薬", icon: "🧪", frag: 3, star: 0, gold: 0, text: "ボス戦でHPを40回復" },
+  { id: "scroll", name: "攻撃の巻物", icon: "📜", frag: 5, star: 0, gold: 30, text: "ボス戦でダメージ2.5倍の一撃" },
+  { id: "weaken", name: "弱体の薬", icon: "⚗", frag: 3, star: 1, gold: 0, text: "ボス戦でボスの攻撃を30%弱める" },
+];
+// ── ボス戦のコマンド：正解で行動ポイント（◎は+2）がたまり、技・回復・守りを選ぶ ──
+const AP_MAX = 6;
+const BOSS_COMMANDS = [
+  { id: "power", name: "渾身の一撃", icon: "⚔", ap: 3, text: "ダメージ3倍" },
+  { id: "heal", name: "癒やしの祈り", icon: "💚", ap: 2, text: "HPを30%回復" },
+  { id: "guard", name: "守りの構え", icon: "🛡", ap: 2, text: "次の2回、受けるダメージ半分" },
+  { id: "joint", name: "仲間と連携", icon: "🤝", ap: 4, text: "仲間との合体技（ダメージ4倍）", party: true },
+];
 const classById = (id) => RPG_CLASSES.find((c) => c.id === id) || null;
 const classRankIndex = (level) => Math.max(0, Math.min(4, tierIndex(level) - 1)); // Lv10〜：0、Lv50〜：4
 function getClassAptitude(state) {
@@ -14341,7 +14740,8 @@ function getClassInfo(state) {
   const c = classById(r.classId);
   if (!c) return null;
   const k = classRankIndex(state.player.level);
-  return { ...c, rank: k, rankName: c.ranks[k] };
+  const adv = classAdvOf(r, c.id) ? ADV_CLASSES[c.id] : null;
+  return { ...c, rank: k, rankName: adv ? adv.name : c.ranks[k], adv };
 }
 
 // ── 相棒 ──
@@ -14391,7 +14791,7 @@ function getAwakening(state) {
 function getGrowthFx(state) {
   const fx = [];
   const c = getClassInfo(state);
-  if (c) fx.push(c.fx(c.rank));
+  if (c) fx.push(c.adv ? Object.fromEntries(Object.entries(c.fx(c.rank)).map(([k, v]) => [k, Math.round(v * 1.5 * 10) / 10])) : c.fx(c.rank)); // 上級職は1.5倍
   const p = getPetInfo(state);
   if (p && p.stage > 0) fx.push(p.type.fx(p.stage));
   const aw = getAwakening(state);
@@ -14750,6 +15150,19 @@ function GrowthPanels({ state, actions }) {
               })}
             </div>
             <p className="jp text-[10px] mt-2" style={{ color: "var(--ink-mute)" }}>クラスの称号はレベルとともに上がります（Lv10・20・30・40・50）。</p>
+            {cls && (() => {
+              const ad = ADV_CLASSES[cls.id];
+              if (cls.adv) return <div className="jp mt-2 p-2 text-[11px]" style={{ border: `1.5px solid ${cls.color}`, background: "var(--cream)", borderRadius: 8, color: "var(--ink)" }}>👑 上級職 <b>{ad.name}</b>（効果1.5倍）<br />専用の技：{ad.skill.icon} <b>{ad.skill.name}</b>（ボス戦のコマンド・4AP、{ad.skill.text}）</div>;
+              const ok = level >= ADV_NEED.level && (r.bossWins || 0) >= ADV_NEED.bossWins && r.gold >= ADV_NEED.gold;
+              return (
+                <div className="jp mt-2 p-2" style={{ border: "1px dashed var(--gold)", borderRadius: 8, background: "var(--paper)" }}>
+                  <div className="text-[12px]" style={{ fontWeight: 800, color: "var(--ink)" }}>👑 上級職への昇格：{ad.name}</div>
+                  <div className="text-[10px]" style={{ color: "var(--ink-soft)" }}>効果が1.5倍になり、ボス戦で専用の技 {ad.skill.icon}{ad.skill.name}（{ad.skill.text}）が使えます</div>
+                  <div className="text-[10px] mt-0.5" style={{ color: "var(--ink-mute)" }}>{level >= ADV_NEED.level ? "✓" : "・"} Lv{ADV_NEED.level}（いま{level}）　{(r.bossWins || 0) >= ADV_NEED.bossWins ? "✓" : "・"} ボス討伐{ADV_NEED.bossWins}回（いま{r.bossWins || 0}）　{r.gold >= ADV_NEED.gold ? "✓" : "・"} {ADV_NEED.gold}G</div>
+                  <button disabled={!ok} onClick={() => { if (confirm(`${ad.name}に昇格しますか？（${ADV_NEED.gold}G）`)) flash(actions.promoteClass()); }} className="btn-primary w-full text-[11px] py-1 mt-1" style={{ opacity: ok ? 1 : 0.45 }}>昇格する</button>
+                </div>
+              );
+            })()}
           </>
         )}
       </Box>
@@ -15357,7 +15770,7 @@ function BattleStage({ state, q, bankName, battleKey, boss = false, scene: scene
         const weak = monWeak(m);
         const atk = heroAttackFor({ weapon: equippedWeaponId(normRpg(stRef.current.rpg)), region: m.th && m.th.region, crit, combo: BATTLE.combo, weak });
         const weakHit = !!weak && atk.id === weak;
-        const base = Math.round((30 + stRef.current.player.level * 2) * (1 + b.bossDmgPct / 100) * (crit ? 2 : 1) * (0.9 + Math.random() * 0.2) * (confused ? 0.5 : 1) * (weakHit ? 1.5 : 1) * (ult ? 3 : 1));
+        const base = Math.round((30 + stRef.current.player.level * 2) * (1 + b.bossDmgPct / 100) * (crit ? 2 : 1) * (0.9 + Math.random() * 0.2) * (confused ? 0.5 : 1) * (weakHit ? 1.5 : 1) * (ult ? 3 : 1) * (1 + RUNE_DMG * runeHits(normRpg(stRef.current.rpg), m.th && m.th.mat)));
         const quickHit = quick ? Math.max(1, Math.round(base * 0.3)) : 0;
         const dmg = base + quickHit;
         // 必殺ゲージ：◎で20・△で10・先制で+5。必殺技を放つと0に
@@ -15749,23 +16162,19 @@ function AnswerPanel({ onAnswer: onAnswerRaw, wrongLabel = "不正解", correctL
   const sec = qid ? THINK.sec[qid] || 0 : 0;
   const note = qid ? THINK.note[qid] : null;
   const slow = sec >= (STUDY_PREFS.slowSec || 25);
-  const askRule = question && (question.wrong || 0) >= 1 && !question.rule; // 2回目のまちがいで自分ルールを書く
   // 回答をバトル演出（BattleStage）にも伝えてから、いつもの記録処理へ。かかった秒数も記録する
   const onAnswer = (correct, meta) => { const m = { ...(meta || {}), sec: sec || undefined }; if (qid) delete THINK.pick[qid]; emitBattle({ correct, conf: m.conf, errType: m.errType, sec: m.sec }); onAnswerRaw(correct, m); };
   const pv = question ? previewIntervals(question, srSettings) : null; // 次回までの日数
   const submitWrong = (errType) => onAnswer(false, { errType: errType || null, confident, rule: rule.trim() || undefined });
-  // キーボード：1＝✕／2＝△／3＝◎。✕のあとは 1〜4＝原因、0 か Enter＝原因を選ばずに次へ、Esc＝戻る
+  // キーボード：1＝✕（そのまま次へ）／2＝△／3＝◎。4択でまちがえたあとは 1・0・Enter で次へ
   useAnswerKeys((k) => {
     if (stage === "choose") {
-      if (k === "1") { setStage("wrong"); return true; }
+      if (k === "1") { submitWrong(null); return true; }
       if (k === "2") { onAnswer(true, { conf: "unsure" }); return true; }
       if (k === "3") { onAnswer(true, slow ? { conf: "unsure", slow: true } : { conf: "sure" }); return true; }
       return false;
     }
-    const i = Number(k);
-    if (/^[1-9]$/.test(k) && i <= ERROR_TYPES.length) { submitWrong(ERROR_TYPES[i - 1].id); return true; }
-    if (k === "0" || k === "Enter") { submitWrong(null); return true; }
-    if (k === "Escape" && pickOk !== false) { setStage("choose"); return true; }
+    if (k === "1" || k === "0" || k === "Enter") { submitWrong(null); return true; }
     return false;
   }, [stage, qid, confident, rule, slow]);
   // 答えを開く前に書いたひとこと・かかった時間・自分ルール（答えの下、ボタンの上に出す）
@@ -15796,40 +16205,12 @@ function AnswerPanel({ onAnswer: onAnswerRaw, wrongLabel = "不正解", correctL
   );
 
   if (stage === "wrong") {
+    // 4択でまちがえた番号を選んだとき：正解を見せて「次へ」だけ（原因を選ぶ画面は2026年10月26日にやめた）
     return (
       <>
       {info}
-      <div className="mt-3 p-2" style={{ background: "var(--cream)", border: "1px solid var(--brick)" }}>
-        <div className="flex items-center justify-between mb-2">
-          <div className="jp text-xs" style={{ color: "var(--brick)" }}>✕ 間違えた原因は？</div>
-          {pickOk !== false && <button onClick={() => setStage("choose")} className="jp text-[10px] px-1.5 py-0.5" style={{ border: "1px solid var(--rule-soft)", color: "var(--ink-soft)", background: "var(--paper)" }}>← 戻る</button>}
-        </div>
-        {askRule && (
-          <div className="mb-2">
-            <div className="jp text-[11px] mb-1" style={{ color: "var(--ink)", fontWeight: 700 }}>📏 2回目のまちがいです。次はまちがえない「自分ルール」を一行で（空でもOK）</div>
-            <input value={rule} onChange={(e) => setRule(e.target.value)} placeholder="例：地目の変更は1か月以内。権利の登記は期限なし" className="jp w-full px-2 py-1.5 text-sm" style={{ background: "var(--paper)", border: "1px dashed var(--gold)", borderRadius: 6, color: "var(--ink)" }} />
-          </div>
-        )}
-        <div className="grid grid-cols-2 gap-2">
-          {ERROR_TYPES.map((t) => (
-            <button key={t.id} onClick={() => submitWrong(t.id)} className="jp btn-ghost py-2 px-2 text-left">
-              <div className="text-sm">{t.icon} {t.label}</div>
-              <div className="text-[10px]" style={{ color: "var(--ink-mute)" }}>{t.hint}</div>
-            </button>
-          ))}
-        </div>
-        <button
-          onClick={() => setConfident(!confident)}
-          className="w-full jp text-[11px] py-1.5 mt-2 text-left px-2"
-          style={{ background: confident ? "var(--brick)" : "var(--paper)", color: confident ? "var(--paper)" : "var(--ink-soft)", border: "1px solid var(--brick)" }}
-        >
-          {confident ? "☑" : "☐"} 💥 自信があったのに間違えた（重点復習の対象にする）
-        </button>
-        <button onClick={() => submitWrong(null)} className="w-full jp text-[11px] py-1 mt-1" style={{ background: "transparent", border: "none", color: "var(--ink-mute)", textDecoration: "underline" }}>
-          原因を選ばずに次へ
-        </button>
-        <KeyHint>1〜{ERROR_TYPES.length} で原因・0 か Enter で選ばずに次へ{pickOk !== false ? "・Esc で戻る" : ""}</KeyHint>
-      </div>
+      <button onClick={() => submitWrong(null)} className="jp btn-danger w-full py-2 mt-3 flex items-center justify-center gap-1"><XIcon size={14} /> 次へ</button>
+      <KeyHint>1 か Enter で次へ</KeyHint>
       </>
     );
   }
@@ -15838,7 +16219,7 @@ function AnswerPanel({ onAnswer: onAnswerRaw, wrongLabel = "不正解", correctL
     <>
     {info}
     <div className="grid grid-cols-3 gap-2 mt-3">
-      <button onClick={() => setStage("wrong")} className="jp btn-danger py-2 flex flex-col items-center justify-center leading-tight">
+      <button onClick={() => submitWrong(null)} className="jp btn-danger py-2 flex flex-col items-center justify-center leading-tight">
         <span className="flex items-center gap-1"><XIcon size={14} /> {pickOk ? "まぐれ" : wrongLabel}</span>
         {pv && <span className="text-[10px]" style={{ opacity: 0.9 }}>{fmtDays(pv.again)}後</span>}
       </button>
