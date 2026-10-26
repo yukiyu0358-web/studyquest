@@ -2577,7 +2577,7 @@ function StudyRPG({ user }) {
       if (won && xp) setTimeout(() => awardXp(xp), 300);
       if (won && !already) {
         const info = regionInfo(region);
-        const newAlly = ALLIES.find((a) => a.need === clearedCount(normRpg(stateRef.current.rpg)) + 1);
+        const newAlly = null; // 仲間の加入は rpg.recruit の useEffect でまとめて出す
         setTimeout(() => showEvolution({ big: "地域解放", from: null, to: region, sub: `${info.emblem.name}を手に入れた（${fxText(info.emblem.fx)}）`, stage: heroStage(stateRef.current.player.level), afterTalk: { title: `${region}　解放`, lines: [...(REGION_TALK[region] || []).map((t) => ["hero", t]), ...(newAlly ? [["hero", "……あれ？ だれか、こちらへ駆けてきます。"], ...newAlly.intro.map((t) => [newAlly.id, t]), ["hero", `${newAlly.name}さんが、仲間になってくれました！ これからよろしくお願いしますね。`]] : [])] } }), 1500);
         if (newAlly) setTimeout(() => showRpgToast(`${newAlly.name}（${newAlly.role}）が仲間になった！ ${fxText(newAlly.fx)}`, "#b08a3e"), 1800);
       }
@@ -2930,7 +2930,7 @@ function StudyRPG({ user }) {
         };
       });
       if (first) setTimeout(() => awardXp(15 + Math.floor(floor / 2)), 200);
-      const meet = first ? ALLIES.find((a) => a.towerNeed === floor) : null;
+      const meet = null; // 仲間の加入は rpg.recruit の useEffect でまとめて出す
       if (meet) setTimeout(() => { showRpgToast(`${meet.name}（${meet.role}）が仲間になった！ ${fxText(meet.fx)}`, "#4f6fa8"); setTalk({ title: `${meet.name}との出会い`, lines: ACADEMY_MEET[meet.id] || meet.intro.map((t) => [meet.id, t]) }); }, 1600);
       if (first && isCheckpoint(floor)) {
         const top = floor >= TOWER_MAX;
@@ -3110,7 +3110,7 @@ function StudyRPG({ user }) {
       });
       if (first) setTimeout(() => awardXp(30), 200);
       // ストーリーの仲間との出会い（クリアした話の数が storyNeed に届いたとき）
-      const meetS = first ? ALLIES.find((a) => a.storyNeed && a.storyNeed === storyClears(r) + 1) : null;
+      const meetS = null; // 仲間の加入は rpg.recruit の useEffect でまとめて出す
       if (meetS) setTimeout(() => { showRpgToast(`${meetS.name}（${meetS.role}）が仲間になった！ ${fxText(meetS.fx)}`, "#4f6fa8"); setTalk({ title: `${meetS.name}との出会い`, lines: [...meetS.intro.map((t) => [meetS.id, t]), ["hero", `${meetS.name}さん、よろしくお願いします！ いっしょに進みましょう。`], [meetS.id, meetS.cheer]] }); }, complete ? 4200 : 1600);
       if (complete) {
         setTimeout(() => showEvolution({ big: "地図完成", from: null, to: `${region}の地図`, sub: `すべての話をクリアしました！ 300G・賢者の結晶×1`, stage: heroStage(stateRef.current.player.level),
@@ -3472,6 +3472,23 @@ function StudyRPG({ user }) {
         afterTalk: { title: `はじまりの${TOWN_STAGES[ts.stage].name}`, lines: [["hero", `見てください！ 街が「${TOWN_STAGES[ts.stage].name}」に育ちました。`], ["hero", "毎日の勉強の積み重ねで、人が集まってくれたんです。"], ["pet", "（相棒が、新しい通りをうれしそうに走っていく）"], ["hero", "新しい建物も建てられるようになりました。街の「建物」をのぞいてみましょう。"]] } });
     }
   }, [loaded, (normRpg(state.rpg).town || {}).xp, (normRpg(state.rpg).town || {}).v]);
+  // 仲間の加入：はじめて開いたときに出発点を記録（はじめの仲間だけ加入済み）。そのあと条件に届いた仲間は、出会いの会話とともに加わる
+  useEffect(() => {
+    if (!loaded) return;
+    const r = normRpg(state.rpg);
+    if (!r.recruit) {
+      const seen = Object.fromEntries(alliesJoined(r).map((a) => [a.id, todayStr()]));
+      updateRpg((x) => (x.recruit ? x : { ...x, recruit: { base: recruitNow(normRpg(x)), seen } }));
+      return;
+    }
+    const fresh = alliesJoined(r).filter((a) => !(r.recruit.seen || {})[a.id]);
+    if (!fresh.length) return;
+    updateRpg((x) => { const rc = x.recruit || {}; return { ...x, recruit: { ...rc, seen: { ...(rc.seen || {}), ...Object.fromEntries(fresh.map((a) => [a.id, todayStr()])) } } }; });
+    fresh.forEach((a, i) => setTimeout(() => {
+      showRpgToast(`${a.name}（${a.role}）が仲間になった！ ${fxText(a.fx)}`, "#4f6fa8");
+      setTalk({ title: `${a.name}との出会い`, lines: ACADEMY_MEET[a.id] || [...(a.intro || []).map((t) => [a.id, t]), ["hero", `${a.name}さん、よろしくお願いします！ いっしょに進みましょう。`], ...(a.cheer ? [[a.id, a.cheer]] : [])] });
+    }, 1600 + i * 500));
+  }, [loaded, storyClears(normRpg(state.rpg)), (normRpg(state.rpg).tower || {}).floor, clearedCount(normRpg(state.rpg)), !!normRpg(state.rpg).recruit]);
   useEffect(() => {
     if (!loaded) return;
     const r = normRpg(state.rpg);
@@ -9317,7 +9334,7 @@ function forgeCost(it, p, forgePct = 0) {
 }
 
 // はじめからやり直す（2026年10月22日）：ゲームの進みだけを消すときに、rpg から消す項目（学習の記録＝記述式・叩き込みのカード・計算の成績・参考書・模試・合格力などは残す）
-const GAME_KEYS = ["gold", "goldEarned", "inventory", "consumables", "equipped", "bossWins", "bossLosses", "bossLog", "boosts", "restDays", "crits", "classId", "pet", "materials", "skills", "forgeLog", "daily", "weekly", "dungeon", "regions", "castle", "castleByWorld", "cats", "journey", "sq", "tower", "secBoss", "arcSeen", "conquered", "bonds", "bondSeen", "gacha", "party", "kills", "hl", "hlLog", "hlBest", "hlRec", "endless", "bounty", "errand", "studyGroup", "weekdayDone", "season"];
+const GAME_KEYS = ["gold", "goldEarned", "inventory", "consumables", "equipped", "bossWins", "bossLosses", "bossLog", "boosts", "restDays", "crits", "classId", "pet", "materials", "skills", "forgeLog", "daily", "weekly", "dungeon", "regions", "castle", "castleByWorld", "cats", "journey", "sq", "tower", "secBoss", "arcSeen", "conquered", "bonds", "bondSeen", "gacha", "party", "kills", "hl", "hlLog", "hlBest", "hlRec", "endless", "bounty", "errand", "studyGroup", "weekdayDone", "season", "recruit"];
 // parts：{ game：キャラクターと冒険, town：まちづくり, laps：周回の記録 }。学習の記憶（FSRS・回答履歴）には触れない
 function resetProgress(s, parts) {
   let rpg = { ...(s.rpg || {}) };
@@ -11071,7 +11088,23 @@ const allyById = (id) => ALLIES.find((a) => a.id === id) || null;
 // ストーリークエストでクリアした話の数（★1以上）
 const storyClears = (r) => Object.values(r.sq || {}).filter((x) => x && (x.stars || 0) >= 1).length;
 const clearedCount = (r) => Object.values(r.regions || {}).filter((x) => x && x.cleared).length;
-const alliesJoined = (r) => { const n = clearedCount(r); const fl = (r.tower && r.tower.floor) || 0; const sc = storyClears(r); return ALLIES.filter((a) => (a.towerNeed ? fl >= a.towerNeed : a.storyNeed ? sc >= a.storyNeed : n >= a.need)); };
+// 仲間の加入（2026年10月26日に作り直し）：はじめはリーネだけ。ほかの仲間は、このしくみを入れた時点（rpg.recruit.base）から
+//   ストーリーを何話・試練の塔を何階・地域の守護者を何体進めたかで、順に加わる。加入した仲間は rpg.recruit.seen に記録して出会いの会話を出す
+const ALLY_JOIN = {
+  rine: { k: "start" }, kai: { k: "story", n: 2 }, lilia: { k: "tower", n: 3 }, kaito: { k: "tower", n: 6 }, mira: { k: "story", n: 8 },
+  serena: { k: "tower", n: 12 }, ezra: { k: "story", n: 15 }, raven: { k: "tower", n: 20 }, fin: { k: "region", n: 1 }, mirei: { k: "story", n: 30 }, claude: { k: "tower", n: 35 },
+};
+const recruitNow = (r) => ({ sq: storyClears(r), fl: (r.tower && r.tower.floor) || 0, cl: clearedCount(r) });
+const recruitBase = (r) => (r.recruit && r.recruit.base) || recruitNow(r); // 記録がないあいだは「いま」が出発点（はじめの仲間だけ）
+function joinProg(a, r) {
+  const j = ALLY_JOIN[a.id] || { k: "start" };
+  if (j.k === "start") return { j, have: 0, need: 0, base: 0 };
+  const key = j.k === "story" ? "sq" : j.k === "tower" ? "fl" : "cl";
+  const base = recruitBase(r)[key] || 0;
+  const need = j.k === "tower" ? Math.min(j.n, Math.max(0, TOWER_MAX - base)) : j.n; // 塔の上に着いていたら、そこまで
+  return { j, have: Math.max(0, recruitNow(r)[key] - base), need, base };
+}
+const alliesJoined = (r) => ALLIES.filter((a) => { const p = joinProg(a, r); return p.have >= p.need; });
 // 仲間との絆：得意分野の問題に正解するたびに1つ深まる（rpg.bonds）。Lv2〜5で物語が開き、仲間の効果が強くなる
 const BOND_LV = [0, 30, 100, 250, 500];
 const bondLevel = (pts) => BOND_LV.filter((t) => (pts || 0) >= t).length;
@@ -11164,12 +11197,46 @@ function PartyEditor({ state, actions, regions }) {
             );
           })}
         </div>
+        <AllyUpcoming state={state} />
       </div>
     </Box>
   );
 }
 // 仲間がまだいないとき：だれが・何をすると仲間になるか
-const allyJoinText = (a) => (a.towerNeed ? `試練の塔 第${a.towerNeed}階に着く` : a.storyNeed ? `ストーリークエストを${a.storyNeed}話クリア` : a.need ? `地域を${a.need}つ解放（守護者を倒す）` : "");
+const allyJoinText = (a, r) => {
+  const p = joinProg(a, r);
+  if (p.j.k === "start") return "はじめから";
+  const left = Math.max(0, p.need - p.have);
+  return p.j.k === "story" ? `ストーリークエストをあと${left}話クリア` : p.j.k === "tower" ? `試練の塔をあと${left}階のぼる（第${p.base + p.need}階）` : `地域の守護者をあと${left}体倒す`;
+};
+// これから加わる仲間（パーティ編成の下）
+function AllyUpcoming({ state }) {
+  const r = normRpg(state.rpg);
+  const joined = new Set(alliesJoined(r).map((a) => a.id));
+  const list = ALLIES.filter((a) => ALLY_SKILLS[a.id] && !joined.has(a.id))
+    .sort((a, b) => { const pa = joinProg(a, r), pb = joinProg(b, r); return (pa.need - pa.have) / pa.need - (pb.need - pb.have) / pb.need; });
+  if (!list.length) return null;
+  return (
+    <div className="space-y-1">
+      <div className="text-[11px]" style={{ fontWeight: 800, color: "var(--ink)" }}>これから加わる仲間（{list.length}人）</div>
+      <div className="grid gap-1 sm:grid-cols-2">
+        {list.map((a) => {
+          const p = joinProg(a, r);
+          return (
+            <div key={a.id} className="flex items-center gap-1.5 px-2 py-1" style={{ borderRadius: 8, border: "1px dashed var(--rule-soft)", background: "var(--paper)" }}>
+              <span style={{ filter: "grayscale(1) brightness(0.55)", display: "inline-flex" }}>{CHIBI[a.id] ? <PartyFace id={a.id} size={28} /> : <span style={{ fontSize: 16 }}>👤</span>}</span>
+              <span className="flex-1 min-w-0">
+                <span className="block text-[11px]" style={{ fontWeight: 800, color: "var(--ink)" }}>{a.name}<span className="text-[10px] ml-1" style={{ color: "var(--ink-mute)", fontWeight: 500 }}>{a.role}・{ROLE_NAME[ALLY_SKILLS[a.id].kind]}</span></span>
+                <span className="block text-[10px]" style={{ color: "var(--ink-soft)" }}>{allyJoinText(a, r)}</span>
+                <span className="block" style={{ height: 3, borderRadius: 2, background: "var(--beige)", overflow: "hidden", marginTop: 2 }}><span style={{ display: "block", width: `${Math.min(100, (p.have / Math.max(1, p.need)) * 100)}%`, height: "100%", background: "#b08a3e" }} /></span>
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 function PartyNoAllies({ state }) {
   const r = normRpg(state.rpg);
   const joined = new Set(alliesJoined(r).map((a) => a.id));
@@ -11184,7 +11251,7 @@ function PartyNoAllies({ state }) {
               {CHIBI[a.id] ? <PartyFace id={a.id} size={30} /> : <span style={{ fontSize: 18 }}>👤</span>}
               <span className="flex-1 min-w-0">
                 <span className="block text-[12px]" style={{ fontWeight: 800, color: "var(--ink)" }}>{a.name}<span className="text-[10px] ml-1" style={{ color: "var(--ink-mute)", fontWeight: 500 }}>{a.role}・{ROLE_NAME[ALLY_SKILLS[a.id].kind]}</span></span>
-                <span className="block text-[10px]" style={{ color: "var(--ink-soft)" }}>{joined.has(a.id) ? "✓ 加入済み" : `加入：${allyJoinText(a)}`}</span>
+                <span className="block text-[10px]" style={{ color: "var(--ink-soft)" }}>{joined.has(a.id) ? "✓ 加入済み" : `加入：${allyJoinText(a, r)}`}</span>
               </span>
             </div>
           ))}
@@ -11252,7 +11319,7 @@ function PartyCard({ state, actions }) {
               <span style={ALLY_EVO[a.id] && on ? { width: 46, height: 46, flexShrink: 0, borderRadius: 10, border: "2px solid #b08a3e", backgroundImage: `url(${EVO_URL(ALLY_EVO[a.id], allyEvoStage(r, a, heroStage(state.player.level).idx))})`, backgroundSize: "cover", backgroundPosition: "center 18%" } : { width: 46, height: 46, flexShrink: 0, borderRadius: "50%", border: `2px solid ${on ? "#b08a3e" : "#d8c9a3"}`, backgroundColor: "#e9e4d6", backgroundImage: `url(${ART_URL}${a.img})`, backgroundSize: "300% auto", backgroundPosition: `${a.face[0]}% ${a.face[1]}%`, filter: on ? "none" : "brightness(0) opacity(0.3)" }} />
               <span className="flex-1 min-w-0">
                 <span className="block text-sm" style={{ fontWeight: 800, color: on ? "var(--ink)" : "var(--ink-mute)" }}>{on ? a.name : "？？？"}<span className="text-[10px] ml-1" style={{ color: "var(--ink-soft)", fontWeight: 500 }}>{on ? a.role : ""}</span></span>
-                <span className="block text-[10px]" style={{ color: on ? "var(--sky-deep)" : "var(--ink-mute)" }}>{on ? fxText(bondFx(a, r)) : a.towerNeed ? `試練の塔 第${a.towerNeed}階で出会う` : a.storyNeed ? `ストーリーを${a.storyNeed}話クリアで出会う（いま${storyClears(r)}話）` : `地域を${a.need}つ解放すると仲間に`}</span>
+                <span className="block text-[10px]" style={{ color: on ? "var(--sky-deep)" : "var(--ink-mute)" }}>{on ? fxText(bondFx(a, r)) : `${allyJoinText(a, r)}で仲間に`}</span>
                 {on && (() => { const pts = r.bonds[a.id] || 0, lv = bondLevel(pts), lo = BOND_LV[lv - 1], hi = BOND_LV[lv]; return (
                   <span className="block mt-0.5">
                     <span className="flex items-center gap-1 text-[10px]" style={{ color: "#c9667e", fontWeight: 800 }}>{"♥".repeat(lv)}<span style={{ color: "var(--rule-soft)" }}>{"♥".repeat(BOND_LV.length - lv)}</span><span className="ml-auto" style={{ color: "var(--ink-mute)", fontWeight: 500 }}>{hi ? `絆 ${pts}/${hi}` : "絆 MAX"}</span></span>
