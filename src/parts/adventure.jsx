@@ -23,7 +23,7 @@ import { BLOCK_DIAGRAMS } from "../data/blocks";
 import { buildDeck, choicesOf, docOptions, deckNext, DECK_FIELDS, DECK_IV, DECK_MASTER } from "../game/kjdeck";
 import { ROADMAP_2027 } from "../data/roadmap";
 import { REGION_TALK, STORY_TALKS, REGION_ARC, regionArc, TRINITY_REGIONS, TRINITY_TALK, BOND_TALKS, COUNTDOWN_TALKS, ACADEMY_MEET, STUDY_GROUP_TALK } from "../data/story";
-import { featOn, ADV_CLASSES, ADV_NEED, ALLIES, ALLY_EVO, ALLY_SKILLS, ALLY_TRIAL_N, ALLY_TRIAL_PASS, ART_URL, AWAKEN_THRESHOLDS, AnswerPanel, BASE_LINE, BATTLE, BATTLE_CSS, BATTLE_THEME, BOND_LV, BREW_RECIPES, BackRowAllies, BarCharPicker, BattleResult, BattleStage, Box, CASTLE_FLOORS, CAT_TIERS, CHIBI, CLASS_CHANGE_COST, DailyQuests, EVO_URL, FORGE_MAX, FRAG_IDS, GACHA_COST, GACHA_PITY, GACHA_RATE, HERO_FACES, HERO_NAME, HERO_STAGES, HERO_STAGE_LV, HeroPortrait, HitNumbers, JOURNEY_LEN, JOURNEY_PER, KILL_TIERS, LAW_BY_KEY, LUNA_CSS, LUNA_SKILLS, LawRefChips, LunaSprite, MASTERED_STABILITY, MON_BOSS, MON_MASK, MON_PAINTED, MON_STAND, MaterialIcon, MonPic, PASS_LINE, PET_THRESHOLDS, PET_TYPES, PartyFace, PetIcon, QuestionImages, RARITY, RARITY_RANK, RPG_ACHIEVEMENTS, RPG_BOSSES, RPG_CLASSES, RPG_CONSUMABLES, RPG_ITEMS, RPG_MATERIALS, RPG_SLOTS, RUNE_CRIT, RUNE_DMG, RUNE_FRAG, RUNE_GOLD, RUNE_SLOTS, RehearsalRun, RevealButton, RivalCard, SEASON_RANKS, SEC_PASS, SKILL_RESET_COST, SKILL_TREE, SMAP_ORDER, SQ_CLEAR, STAGE_URL, STORY_CHAPTERS, STUDY_GROUP_PASS, SkillCutIn, SkyLayer, TAME_AT, TAME_DMG, TAME_EVERY, TOWER_LAYERS, TOWER_MAX, TOWER_PASS, TreasureChest, WEEKLY_REWARD, addDays, alliesJoined, alliesReady, allyById, allyEvoStage, auraOf, backRow, battleParty, bondFx, bondLevel, bringIntoView, buildPoolFromBanks, byRegionOrder, calculateStatus, castleCtx, castleFloorOf, catCounts, chapterIndex, chipSt, classRankIndex, combatPower, curWorld, daysUntil, dexStatus, dungeonBestOf, effectiveSr, equippedWeaponId, extractLawRefs, fmtMin, forgeCost, forgedFx, fragCount, fxText, gapItems, getAwakening, getClassInfo, getFsrsScheduler, getPetInfo, getRpgBonuses, hashStr, heroEvoArt, heroStage, isCheckpoint, isQuestionWeak, joinProg, journeyEvent, loadLaw, mainQual, matById, monSpecies, monStandUrl, monsterFor, monthlyReport, normRpg, parseLocalDate, passChance, passPower, pctTxt, powerLogOf, prevMonthOf, regionCleared, regionConquest, regionInfo, regionQuests, regionRank, regionStageUrl, renderFormattedText, renderQText, rewardText, rivalPowerAt, rollChest, rollRpgItem, rpgEquippedItems, rpgInvItem, rpgItemById, runeHits, runeName, runeRegions, seasonPoints, seasonRank, seasonRewardText, setDisplay, setStatus, shuffle, shuffleArr, skillPointsTotal, skillPointsUsed, splitHits, sqOpen, sqStars, sqStarsOf, starBooks, startAllyTrial, storyClears, studyScope, themeOf, toFsrsCard, todayStr, towerLayer, uid, weekKey, weeklyReport, worldArc, worldChapters, worldOfQual, worldPassChance, ymdCode } from "../App.jsx";
+import { seasonBossNow, SEASON_BOSS_REWARD, localDateStr, daysBetween, featOn, ADV_CLASSES, ADV_NEED, ALLIES, ALLY_EVO, ALLY_SKILLS, ALLY_TRIAL_N, ALLY_TRIAL_PASS, ART_URL, AWAKEN_THRESHOLDS, AnswerPanel, BASE_LINE, BATTLE, BATTLE_CSS, BATTLE_THEME, BOND_LV, BREW_RECIPES, BackRowAllies, BarCharPicker, BattleResult, BattleStage, Box, CASTLE_FLOORS, CAT_TIERS, CHIBI, CLASS_CHANGE_COST, DailyQuests, EVO_URL, FORGE_MAX, FRAG_IDS, GACHA_COST, GACHA_PITY, GACHA_RATE, HERO_FACES, HERO_NAME, HERO_STAGES, HERO_STAGE_LV, HeroPortrait, HitNumbers, JOURNEY_LEN, JOURNEY_PER, KILL_TIERS, LAW_BY_KEY, LUNA_CSS, LUNA_SKILLS, LawRefChips, LunaSprite, MASTERED_STABILITY, MON_BOSS, MON_MASK, MON_PAINTED, MON_STAND, MaterialIcon, MonPic, PASS_LINE, PET_THRESHOLDS, PET_TYPES, PartyFace, PetIcon, QuestionImages, RARITY, RARITY_RANK, RPG_ACHIEVEMENTS, RPG_BOSSES, RPG_CLASSES, RPG_CONSUMABLES, RPG_ITEMS, RPG_MATERIALS, RPG_SLOTS, RUNE_CRIT, RUNE_DMG, RUNE_FRAG, RUNE_GOLD, RUNE_SLOTS, RehearsalRun, RevealButton, RivalCard, SEASON_RANKS, SEC_PASS, SKILL_RESET_COST, SKILL_TREE, SMAP_ORDER, SQ_CLEAR, STAGE_URL, STORY_CHAPTERS, STUDY_GROUP_PASS, SkillCutIn, SkyLayer, TAME_AT, TAME_DMG, TAME_EVERY, TOWER_LAYERS, TOWER_MAX, TOWER_PASS, TreasureChest, WEEKLY_REWARD, addDays, alliesJoined, alliesReady, allyById, allyEvoStage, auraOf, backRow, battleParty, bondFx, bondLevel, bringIntoView, buildPoolFromBanks, byRegionOrder, calculateStatus, castleCtx, castleFloorOf, catCounts, chapterIndex, chipSt, classRankIndex, combatPower, curWorld, daysUntil, dexStatus, dungeonBestOf, effectiveSr, equippedWeaponId, extractLawRefs, fmtMin, forgeCost, forgedFx, fragCount, fxText, gapItems, getAwakening, getClassInfo, getFsrsScheduler, getPetInfo, getRpgBonuses, hashStr, heroEvoArt, heroStage, isCheckpoint, isQuestionWeak, joinProg, journeyEvent, loadLaw, mainQual, matById, monSpecies, monStandUrl, monsterFor, monthlyReport, normRpg, parseLocalDate, passChance, passPower, pctTxt, powerLogOf, prevMonthOf, regionCleared, regionConquest, regionInfo, regionQuests, regionRank, regionStageUrl, renderFormattedText, renderQText, rewardText, rivalPowerAt, rollChest, rollRpgItem, rpgEquippedItems, rpgInvItem, rpgItemById, runeHits, runeName, runeRegions, seasonPoints, seasonRank, seasonRewardText, setDisplay, setStatus, shuffle, shuffleArr, skillPointsTotal, skillPointsUsed, splitHits, sqOpen, sqStars, sqStarsOf, starBooks, startAllyTrial, storyClears, studyScope, themeOf, toFsrsCard, todayStr, towerLayer, uid, weekKey, weeklyReport, worldArc, worldChapters, worldOfQual, worldPassChance, ymdCode } from "../App.jsx";
 
 
 // 次に戦うボス（倒すたびに強くなり、6体倒すと★付きで2周目へ）
@@ -2006,7 +2006,27 @@ function TrialRun({ state, run, recordAnswer, startTimer, stopTimer, onExit, onF
   );
 }
 
-function WorldView({ state, actions, todayCount, onWeekly, onDungeon, onGuardian, onStory, onTower, onSecBoss, onRehearsal, onStudyGroup, onEndless, onForest }) {
+// 季節の限定ボス（クエストの欄。週替わりボスの下）
+function SeasonBossCard({ state, onStart }) {
+  const b = seasonBossNow();
+  const done = (normRpg(state.rpg).seasonBoss || {})[b.ym];
+  const [y, mo] = b.ym.split("-").map(Number);
+  const left = daysBetween(todayStr(), localDateStr(new Date(y, mo, 0)));
+  return (
+    <Box title={`季節の限定ボス　${b.month}月`} icon={<Crown size={18} />}>
+      <div className="jp flex items-center gap-3">
+        <GameIcon ch={b.icon} id={b.id} art={b.art} size={64} boss />
+        <div className="flex-1 min-w-0">
+          <div className="text-[14px]" style={{ fontWeight: 800, color: "var(--brick)" }}>{b.icon} {b.name}</div>
+          <div className="text-[11px]" style={{ color: "var(--ink-soft)" }}>「{b.line}」</div>
+          <div className="text-[10px] mt-0.5" style={{ color: "var(--ink-mute)" }}>{done ? `✓ ${Number(done.slice(5, 7))}/${Number(done.slice(8, 10))} に討伐　称号「${b.title}」を手に入れた` : `今月いっぱい（あと${left}日）。はじめて倒すと限定の称号「${b.title}」・${SEASON_BOSS_REWARD.gold}G・装備`}</div>
+        </div>
+      </div>
+      <button onClick={() => onStart(b)} className="jp btn-danger w-full py-2 mt-2 text-sm">⚔ 挑む（12問）{done ? `　再戦は${SEASON_BOSS_REWARD.again}G` : ""}</button>
+    </Box>
+  );
+}
+function WorldView({ state, actions, todayCount, onWeekly, onDungeon, onGuardian, onStory, onTower, onSecBoss, onRehearsal, onStudyGroup, onEndless, onForest, onSeason }) {
   const qual = mainQual(state);
   const linked = qual && state.questionBanks.some((b) => b.qualId === qual.id);
   const pp = passPower(state, linked ? qual.id : null);
@@ -2049,6 +2069,7 @@ function WorldView({ state, actions, todayCount, onWeekly, onDungeon, onGuardian
         <DailyQuests state={state} actions={actions} todayCount={todayCount} />
         <CategoryQuests state={state} pp={pp} actions={actions} />
         <WeeklyBossCard state={state} pp={pp} onStart={onWeekly} />
+        {onSeason && <SeasonBossCard state={state} onStart={onSeason} />}
       </>)}
       {sec === "castle" && (<>
         <FinalBoss state={state} qual={qual} pp={pp} />
@@ -2218,7 +2239,7 @@ function AdventureTab({ state, actions, recordAnswer, startTimer, stopTimer, tod
   if (view === "skill") return <div className="space-y-4">{nav}{msgBox}<SkillPanel state={state} actions={actions} flash={flash} /></div>;
   if (view === "forge") return <div className="space-y-4">{nav}{msgBox}<ForgePanel state={state} actions={actions} />{featOn("alchemy") && <AlchemyPanel state={state} actions={actions} />}</div>;
   if (view === "dex") return <div className="space-y-4">{nav}<EvolutionRoad state={state} /><MonsterDex state={state} /></div>;
-  if (view === "world") return <div className="space-y-4">{nav}<WorldView state={state} actions={actions} todayCount={todayCount} onWeekly={(boss, pool) => { if (pool.length === 0) { flash("出題できる問題がありません"); return; } setBattle({ boss, pool }); }} onDungeon={(n, pool) => setDungeon({ pool, minutes: n })} onRehearsal={(run) => setRehearsal(run)} onEndless={() => setEndless(Date.now())} onForest={() => setForest(Date.now())} onStudyGroup={(allyId) => { const a = allyById(allyId); const pool = studyGroupPool(state, a); if (pool.length) setGroupRun({ allyId, pool }); else flash("出題できる問題がありません"); }} onStory={(run) => setStoryRun(run)} onTower={(run) => setTowerRun(run)} onSecBoss={({ bank, region }) => { const pool = buildPoolFromBanks([bank], 15); if (pool.length) setSecRun({ bank, region, pool }); }} onGuardian={(g) => { const info = regionInfo(g.name); const pool = buildPoolFromBanks(g.banks, 15); if (pool.length === 0) { flash("出題できる問題がありません"); return; } setBattle({ boss: { id: info.boss, guardian: true, region: g.name, idx: 3, loop: 0, icon: info.icon, name: info.guardian, label: `${g.name}の守護者 ${info.guardian}`, hp: 200, atk: 20 }, pool }); }} /></div>;
+  if (view === "world") return <div className="space-y-4">{nav}<WorldView state={state} actions={actions} todayCount={todayCount} onWeekly={(boss, pool) => { if (pool.length === 0) { flash("出題できる問題がありません"); return; } setBattle({ boss, pool }); }} onDungeon={(n, pool) => setDungeon({ pool, minutes: n })} onRehearsal={(run) => setRehearsal(run)} onEndless={() => setEndless(Date.now())} onForest={() => setForest(Date.now())} onSeason={(b) => { const sc = studyScope(state); const pool = buildPoolFromBanks(state.questionBanks.filter((x) => sc.inScope(x)), 12); if (!pool.length) { flash("出題できる問題がありません"); return; } setBattle({ boss: b, pool }); }} onStudyGroup={(allyId) => { const a = allyById(allyId); const pool = studyGroupPool(state, a); if (pool.length) setGroupRun({ allyId, pool }); else flash("出題できる問題がありません"); }} onStory={(run) => setStoryRun(run)} onTower={(run) => setTowerRun(run)} onSecBoss={({ bank, region }) => { const pool = buildPoolFromBanks([bank], 15); if (pool.length) setSecRun({ bank, region, pool }); }} onGuardian={(g) => { const info = regionInfo(g.name); const pool = buildPoolFromBanks(g.banks, 15); if (pool.length === 0) { flash("出題できる問題がありません"); return; } setBattle({ boss: { id: info.boss, guardian: true, region: g.name, idx: 3, loop: 0, icon: info.icon, name: info.guardian, label: `${g.name}の守護者 ${info.guardian}`, hp: 200, atk: 20 }, pool }); }} /></div>;
 
   return (
     <div className="space-y-4">
@@ -2456,6 +2477,15 @@ function BossBattle({ state, boss, pool, actions, recordAnswer, startTimer, stop
     if (finished.current) return;
     finished.current = true;
     if (timerStartedByMe.current) { stopTimer(); timerStartedByMe.current = false; }
+    // 季節の限定ボス：その月にはじめて倒したときだけ、限定の称号・300G・装備
+    if (boss.seasonal) {
+      const first = won && !((normRpg(state.rpg).seasonBoss || {})[boss.ym]);
+      const sg = won ? (first ? SEASON_BOSS_REWARD.gold : SEASON_BOSS_REWARD.again) : 10, sx = won ? (first ? SEASON_BOSS_REWARD.xp : 30) : 0;
+      const sItem = first ? rollRpgItem(SEASON_BOSS_REWARD.luck) : null;
+      actions.seasonBossFinish({ won, gold: sg, xp: sx, itemId: sItem, boss, first });
+      setResult({ won, fled, gold: sg, xp: sx, itemId: sItem });
+      return;
+    }
     const gold = boss.weekly ? (won ? WEEKLY_REWARD.gold : 15) : won ? 60 + 40 * boss.idx + 30 * boss.loop : 10;
     const xp = boss.weekly ? (won ? WEEKLY_REWARD.xp : 0) : won ? 80 + 30 * boss.idx + 20 * boss.loop : 0;
     const itemId = won ? rollRpgItem(boss.weekly ? WEEKLY_REWARD.luck : 1 + boss.idx * 0.6 + boss.loop) : null;

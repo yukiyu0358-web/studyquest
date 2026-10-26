@@ -56,6 +56,9 @@ RPG風の資格学習Webアプリ。利用者本人（Yuki）が、土地家屋�
 - 機能のオン・オフ（2026年10月26日）：⚙設定の「使う機能」`FeatureSettings`。`FEATURES`（id・名前・場所）、displaySettings.featuresOff = {id: true}、StudyRPG が描くたびに `FEATURES_OFF` へ写し、各画面は `featOn("id")` で隠す（parts からは App.jsx の export で借りる）。新しく隠せる機能を足すときは FEATURES に足して、表示のところを featOn で囲む
 - 復習の山をならす（2026年10月26日）：srSettings.dailyCap（1日の復習の上限。`LEVEL_CAPS` 0・50・80・120・200）。`levelPlan`（範囲の世界の期限が来た問題を記憶率［FSRS の get_retrievability］の低い順に上限まで今日に残し、残りを明日から `LEVEL_SPREAD`＝7日間の上限に余裕のある日へ）→ 合図 sq-sr-shift（`levelApply`）で StudyRPG が sr_nextReview だけを書きかえる（fs はそのまま）。今日タブの「今日の復習」の中に `LevelCard`（parts/today.jsx）。srSettings.autoLevel で毎朝自動（rpg.levelDay）
 - 苦手から参考書へ（2026年10月26日）：`sankoIndex`（参考書の行の ref を extractLawRefs で読んだ「法令:条」→ 章と行）`sankoChaptersFor`。条文のチップ `LawRefChips` の横に「📖 参考書：章の名前」（最大2つ）、押すとその場で `SankoPeek`（章の表、その条文の行を黄色に。解いている途中でも画面を移らない）。「図書の塔でひらく」は合図 sq-open-sanko {subj, ch} → StudyRPG の sankoReq → SankoTab の req で、その章を開く。参考書の行に ref を書くほど、つながる問題が増える
+- 季節の限定ボス（2026年10月26日）：`SEASON_BOSSES`（月ごとに1体。name・icon・art［ボスの絵］・title［限定の称号］・line）`seasonBossNow`（boss.seasonal・ym）。冒険の塔 → 世界 → クエストの週替わりボスの下 `SeasonBossCard`（parts/adventure.jsx）、12問。BossBattle の finish で boss.seasonal → rpgActions.seasonBossFinish（その月にはじめて倒すと称号［awardAchievement、id season-YYYY-MM］・`SEASON_BOSS_REWARD` 300G・EXP150・装備、2回目からは50G。rpg.seasonBoss）
+- 実績のメダル棚 `TrophyShelf`（parts/status.jsx、記録の冒険の記録書の下）：冒険の記録（称号・討伐メダル・周回スタンプ・試練の塔・迷いの森・仲間・上級職・魔物の仲間・記念の建物）と、その年の季節の限定ボス12か月。「全部見る」で称号・討伐メダル・記念の建物の一覧
+- parts に名前を足すとき：parts のファイルの `import { … } from ../App.jsx` と App.jsx のいちばん下の export の両方に足す（アイコンなど App.jsx が import しているものは、parts も同じ import を持っているので足さない）
 - **分割したら必ず `node scripts/check-names.mjs` で点検する**（定義も import もされていない名前を探す。ビルドでは見つからず、使っている途中にエラーになるため）。
 - `src/firebase.js`：Firebase初期化。`src/main.jsx`：起動。
 - `public/hero.jpg`：クラシックテーマの立ち絵（少年）。`public/sprites/tier1〜6.png`：ドット絵の主人公（以前は App.jsx に埋め込み）。

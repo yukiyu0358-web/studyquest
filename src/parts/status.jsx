@@ -23,7 +23,7 @@ import { BLOCK_DIAGRAMS } from "../data/blocks";
 import { buildDeck, choicesOf, docOptions, deckNext, DECK_FIELDS, DECK_IV, DECK_MASTER } from "../game/kjdeck";
 import { ROADMAP_2027 } from "../data/roadmap";
 import { REGION_TALK, STORY_TALKS, REGION_ARC, regionArc, TRINITY_REGIONS, TRINITY_TALK, BOND_TALKS, COUNTDOWN_TALKS, ACADEMY_MEET, STUDY_GROUP_TALK } from "../data/story";
-import { ART_URL, BACKUP_KEEP, BOND_LV, Box, DOC_LIMIT, HeroPortrait, JOB_RANKS, MON_BOSS, MON_PAINTED, PASS_LINE, RARITY, Stat, addDays, alliesJoined, backupCol, bondLevel, calculateStatus, daysBetween, fmtMin, getAwakening, getCharacterTier, getClassInfo, getLevelTitle, getPetInfo, getRpgBonuses, getTierLabel, getXpForNextLevel, healthReport, heroStage, homeCharOf, longestStudyStreak, mainQual, makeBackup, nextTitles, normRpg, parseLocalDate, passPower, pctTxt, rpgEquippedItems, subjectJobs, titleLeft, todayStr, worldOfQual } from "../App.jsx";
+import { KILL_TIERS, ALLIES, SEASON_BOSSES, monumentOf, ART_URL, BACKUP_KEEP, BOND_LV, Box, DOC_LIMIT, HeroPortrait, JOB_RANKS, MON_BOSS, MON_PAINTED, PASS_LINE, RARITY, Stat, addDays, alliesJoined, backupCol, bondLevel, calculateStatus, daysBetween, fmtMin, getAwakening, getCharacterTier, getClassInfo, getLevelTitle, getPetInfo, getRpgBonuses, getTierLabel, getXpForNextLevel, healthReport, heroStage, homeCharOf, longestStudyStreak, mainQual, makeBackup, nextTitles, normRpg, parseLocalDate, passPower, pctTxt, rpgEquippedItems, subjectJobs, titleLeft, todayStr, worldOfQual } from "../App.jsx";
 
 const kb = (n) => (n >= 1048576 ? `${(n / 1048576).toFixed(2)}MB` : `${Math.round(n / 1024)}KB`);
 function HealthPanel({ state }) {
@@ -359,6 +359,63 @@ function AdventureBook({ state, onClose }) {
   );
 }
 
+// ── 実績のメダル棚（2026年10月26日）：称号・討伐メダル・季節のボス・記念の建物・冒険の記録を1つの棚に ──
+function TrophyShelf({ state }) {
+  const r = normRpg(state.rpg);
+  const [open, setOpen] = useState(false);
+  const achs = state.player.achievements || [];
+  const kills = r.kills || {};
+  const tierOf = (n) => [...KILL_TIERS].reverse().find((t) => (n || 0) >= t.n) || null;
+  const medals = [...MON_PAINTED, ...MON_BOSS].map((x) => ({ x, t: tierOf(kills[x.img]) })).filter((m) => m.t);
+  const medalN = (nm) => medals.filter((m) => m.t.name === nm).length;
+  const year = todayStr().slice(0, 4);
+  const sb = r.seasonBoss || {};
+  const monuments = (state.qualifications || []).filter((q) => q.acquired);
+  const clears = state.questionBanks.reduce((t, b) => t + (b.clears || 0), 0);
+  const tw = r.tower || {};
+  const fr = r.forest || {};
+  const joined = alliesJoined(r).length;
+  const cls = getClassInfo(state);
+  const tile = (icon, label, value, on = true, color = "#b08a3e") => (
+    <div key={label} className="text-center px-1 py-1.5" style={{ borderRadius: 10, background: on ? "linear-gradient(180deg, #fdfbf5, #f1e4c4)" : "var(--paper)", border: `1.5px solid ${on ? color : "var(--rule-soft)"}`, opacity: on ? 1 : 0.55 }}>
+      <div style={{ fontSize: 22, lineHeight: 1.1, filter: on ? "none" : "grayscale(1)" }}>{icon}</div>
+      <div className="text-[10px] truncate" style={{ fontWeight: 800, color: "var(--ink)" }}>{label}</div>
+      <div className="text-[10px]" style={{ color: on ? "var(--gold)" : "var(--ink-mute)", fontWeight: 800 }}>{value}</div>
+    </div>
+  );
+  const shelf = (title, tiles) => (
+    <div className="mb-2">
+      <div className="text-[11px] mb-1" style={{ fontWeight: 800, color: "var(--ink)" }}>{title}</div>
+      <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5 pb-1.5" style={{ borderBottom: "5px solid #c9a46a", boxShadow: "0 3px 0 #9c7a44" }}>{tiles}</div>
+    </div>
+  );
+  return (
+    <Box title="実績のメダル棚" icon={<Award size={18} />}>
+      <div className="jp">
+        {shelf("冒険の記録", [
+          tile("🏅", "称号", `${achs.length}個`, achs.length > 0),
+          tile("🐾", "討伐メダル", `金${medalN("金")}・銀${medalN("銀")}・銅${medalN("銅")}`, medals.length > 0),
+          tile("✅", "周回スタンプ", `${clears}個`, clears > 0),
+          tile("🗼", "試練の塔", `最高${tw.floor || 0}階`, (tw.floor || 0) > 0),
+          tile("🌲", "迷いの森", `主の討伐${fr.clears || 0}回`, (fr.clears || 0) > 0),
+          tile("🤝", "仲間", `${joined}/${ALLIES.length}人`, joined > 0),
+          tile("👑", "上級職", cls && cls.adv ? cls.adv.name : "まだ", !!(cls && cls.adv)),
+          tile("🐉", "魔物の仲間", `${Object.keys(r.tamed || {}).length}体`, Object.keys(r.tamed || {}).length > 0),
+          tile("🏛", "記念の建物", `${monuments.length}つ`, monuments.length > 0),
+        ])}
+        {shelf(`季節の限定ボス（${year}年）`, SEASON_BOSSES.map((b, i) => { const ym = `${year}-${String(i + 1).padStart(2, "0")}`; return tile(b.icon, `${i + 1}月`, sb[ym] ? b.title : "？？？", !!sb[ym]); }))}
+        {open ? (
+          <>
+            {achs.length > 0 && shelf("称号", achs.slice().reverse().map((a) => tile(a.icon || "🏅", a.title, (a.earnedAt || "").slice(0, 10).replace(/-/g, "/"), true, a.color || "#b08a3e")))}
+            {medals.length > 0 && shelf("討伐メダル", medals.map((m) => tile(m.t.name === "金" ? "🥇" : m.t.name === "銀" ? "🥈" : "🥉", m.x.name, `${kills[m.x.img]}体`, true, m.t.color)))}
+            {monuments.length > 0 && shelf("記念の建物", monuments.map((q) => { const mo = monumentOf(q); return tile(mo.icon, q.name, (q.acquiredAt || "").slice(0, 7).replace("-", "/"), true); }))}
+            <button onClick={() => setOpen(false)} className="btn-ghost w-full text-[11px] py-1">▲ たたむ</button>
+          </>
+        ) : <button onClick={() => setOpen(true)} className="btn-ghost w-full text-[11px] py-1">▼ 称号・討伐メダル・記念の建物を全部見る</button>}
+      </div>
+    </Box>
+  );
+}
 function StatusTab({ state, setMainTitle, uid, onTalk }) {
   const [book, setBook] = useState(false);
   const status = calculateStatus(state);
@@ -377,6 +434,7 @@ function StatusTab({ state, setMainTitle, uid, onTalk }) {
         <span style={{ color: "#b08a3e", fontWeight: 800 }}>▶</span>
       </button>
       {book && <AdventureBook state={state} onClose={() => setBook(false)} />}
+      <TrophyShelf state={state} />
       <GrowthTimeline state={state} onTalk={onTalk} />
       <TodayHighlight state={state} />
       <SubjectJobs state={state} />
