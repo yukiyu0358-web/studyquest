@@ -59,6 +59,7 @@ RPG風の資格学習Webアプリ。利用者本人（Yuki）が、土地家屋�
 - 季節の限定ボス（2026年10月26日）：`SEASON_BOSSES`（月ごとに1体。name・icon・art［ボスの絵］・title［限定の称号］・line）`seasonBossNow`（boss.seasonal・ym）。冒険の塔 → 世界 → クエストの週替わりボスの下 `SeasonBossCard`（parts/adventure.jsx）、12問。BossBattle の finish で boss.seasonal → rpgActions.seasonBossFinish（その月にはじめて倒すと称号［awardAchievement、id season-YYYY-MM］・`SEASON_BOSS_REWARD` 300G・EXP150・装備、2回目からは50G。rpg.seasonBoss）
 - 実績のメダル棚 `TrophyShelf`（parts/status.jsx、記録の冒険の記録書の下）：冒険の記録（称号・討伐メダル・周回スタンプ・試練の塔・迷いの森・仲間・上級職・魔物の仲間・記念の建物）と、その年の季節の限定ボス12か月。「全部見る」で称号・討伐メダル・記念の建物の一覧
 - parts に名前を足すとき：parts のファイルの `import { … } from ../App.jsx` と App.jsx のいちばん下の export の両方に足す（アイコンなど App.jsx が import しているものは、parts も同じ import を持っているので足さない）
+- 問題集をまとめて削除（2026年10月29日）：問題タブ（parts/qbank.jsx の QBankTab）の「☑ まとめて選んで削除」→ selMode・sel（問題集を押す・フォルダの見出しの☑・未分類をまとめて・すべて選ぶ）→ 名前を確かめる confirm → App.jsx の `deleteBanks(ids)`（cloudLoadFailed 中は消さない、先に makeBackup で控え、1回の setState で消す）。戻すときは記録の画面のいちばん下の控え（BackupPanel）から
 - **分割したら必ず `node scripts/check-names.mjs` で点検する**（定義も import もされていない名前を探す。ビルドでは見つからず、使っている途中にエラーになるため）。
 - `src/firebase.js`：Firebase初期化。`src/main.jsx`：起動。
 - `public/hero.jpg`：クラシックテーマの立ち絵（少年）。`public/sprites/tier1〜6.png`：ドット絵の主人公（以前は App.jsx に埋め込み）。

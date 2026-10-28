@@ -3758,6 +3758,15 @@ function StudyRPG({ user }) {
 
   const addQuestionBank = (bank) => setState((s) => ({ ...s, questionBanks: [...s.questionBanks, { ...bank, clears: 0, order: s.questionBanks.length, folderId: bank.folderId || null }] }));
   const deleteBank = (id) => setState((s) => ({ ...s, questionBanks: s.questionBanks.filter((b) => b.id !== id) }));
+  // 問題集をまとめて削除（2026年10月29日）：消す前に控え（バックアップ）を取る。読み込みに失敗しているあいだは消さない
+  const deleteBanks = async (ids) => {
+    if (!ids || !ids.length) return false;
+    if (cloudLoadFailed.current) { alert("クラウドの読み込みに失敗しているあいだは削除できません。読み直してからやり直してください。"); return false; }
+    try { await makeBackup(user.uid, stateRef.current); }
+    catch (e) { if (!confirm("控え（バックアップ）を取れませんでした。それでも削除しますか？")) return false; }
+    setState((s) => ({ ...s, questionBanks: s.questionBanks.filter((b) => !ids.includes(b.id)) }));
+    return true;
+  };
 
   // ── フォルダ操作 ──
   const addFolder = (name) => setState((s) => ({
@@ -4462,7 +4471,7 @@ function StudyRPG({ user }) {
           {tab === "rules" && <RuleBook state={state} />}
           {tab === "quotes" && <MyQuotes state={state} onChange={(list) => setState((s) => ({ ...s, myQuotes: list }))} />}
           {tab === "sanko" && <SankoTab state={state} actions={rpgActions} onCreateBank={addQuestionBank} req={sankoReq} onReq={() => setSankoReq(null)} />}
-          {tab === "qbank" && <QBankTab openBankReq={openBankReq} onOpenedBank={() => setOpenBankReq(null)} onPlanWeakDone={(id) => markPlanBank(id, true)} state={state} addBank={addQuestionBank} deleteBank={deleteBank} recordAnswer={recordAnswer} recordRevengeAnswer={recordRevengeAnswer} awardXp={awardXp} startTimer={startTimer} stopTimer={stopTimer} incrementBankClears={incrementBankClears} updateBestStreak={updateBestStreak} moveBank={moveBank} addCloze={addCloze} deleteCloze={deleteCloze} recordClozeAnswer={recordClozeAnswer} recordClozeRevengeAnswer={recordClozeRevengeAnswer} toggleQuestionMark={toggleQuestionMark} toggleClozeMark={toggleClozeMark} recordClearSnapshot={recordClearSnapshot} createClozeBank={createClozeBank} updateQuestionFormats={updateQuestionFormats} addQuestionToBank={addQuestionToBank} editQuestion={editQuestion} deleteQuestion={deleteQuestion} moveQuestions={moveQuestions} editBankMeta={editBankMeta} addFolder={addFolder} deleteFolder={deleteFolder} renameFolder={renameFolder} reorderFolders={reorderFolders} addStudyNote={addStudyNote} updateStudyNote={updateStudyNote} deleteStudyNote={deleteStudyNote} moveBankToFolder={moveBankToFolder} setBanksQual={setBanksQual} saveSessionResume={saveSessionResume} clearSessionResume={clearSessionResume} editBankClears={editBankClears} updateQuestionMemo={updateQuestionMemo} toggleQuestionExclude={toggleQuestionExclude} />}
+          {tab === "qbank" && <QBankTab openBankReq={openBankReq} onOpenedBank={() => setOpenBankReq(null)} onPlanWeakDone={(id) => markPlanBank(id, true)} state={state} addBank={addQuestionBank} deleteBank={deleteBank} deleteBanks={deleteBanks} recordAnswer={recordAnswer} recordRevengeAnswer={recordRevengeAnswer} awardXp={awardXp} startTimer={startTimer} stopTimer={stopTimer} incrementBankClears={incrementBankClears} updateBestStreak={updateBestStreak} moveBank={moveBank} addCloze={addCloze} deleteCloze={deleteCloze} recordClozeAnswer={recordClozeAnswer} recordClozeRevengeAnswer={recordClozeRevengeAnswer} toggleQuestionMark={toggleQuestionMark} toggleClozeMark={toggleClozeMark} recordClearSnapshot={recordClearSnapshot} createClozeBank={createClozeBank} updateQuestionFormats={updateQuestionFormats} addQuestionToBank={addQuestionToBank} editQuestion={editQuestion} deleteQuestion={deleteQuestion} moveQuestions={moveQuestions} editBankMeta={editBankMeta} addFolder={addFolder} deleteFolder={deleteFolder} renameFolder={renameFolder} reorderFolders={reorderFolders} addStudyNote={addStudyNote} updateStudyNote={updateStudyNote} deleteStudyNote={deleteStudyNote} moveBankToFolder={moveBankToFolder} setBanksQual={setBanksQual} saveSessionResume={saveSessionResume} clearSessionResume={clearSessionResume} editBankClears={editBankClears} updateQuestionMemo={updateQuestionMemo} toggleQuestionExclude={toggleQuestionExclude} />}
         </div>
       </div>
 

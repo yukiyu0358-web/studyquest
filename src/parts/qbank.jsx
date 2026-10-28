@@ -134,6 +134,9 @@ function QBankTab(props) {
   const [crossRevengeQualId, setCrossRevengeQualId] = useState(null);
   const [sessionMode, setSessionMode] = useState("qa");
   const [movingBankId, setMovingBankId] = useState(null);        // 移動中の問題集ID
+  const [selMode, setSelMode] = useState(false);                 // まとめて選んで削除
+  const [sel, setSel] = useState([]);                            // 選んだ問題集のID
+  const [deleting, setDeleting] = useState(false);
   const [folderManagerOpen, setFolderManagerOpen] = useState(false); // フォルダ管理パネル
   const [newFolderName, setNewFolderName] = useState("");
   const [renamingFolderId, setRenamingFolderId] = useState(null);
@@ -287,6 +290,16 @@ function QBankTab(props) {
     const isFirst = idx === 0; const isLast = idx === siblings.length - 1;
     const qual = state.qualifications.find((q) => q.id === b.qualId);
     const borderColor = qual ? qual.color : "var(--slate)";
+    const picked = sel.includes(b.id);
+    if (selMode) return (
+      <button key={b.id} onClick={() => setSel(picked ? sel.filter((x) => x !== b.id) : [...sel, b.id])} className="w-full flex items-center gap-2 p-2 text-left" style={{ border: `1.5px solid ${picked ? "var(--brick)" : borderColor}`, background: picked ? "rgba(201,86,78,0.08)" : "var(--paper)", cursor: "pointer" }}>
+        <span style={{ width: 22, height: 22, flexShrink: 0, borderRadius: 5, border: `1.5px solid ${picked ? "var(--brick)" : "var(--rule-soft)"}`, background: picked ? "var(--brick)" : "var(--paper)", color: "#fff", fontWeight: 800, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>{picked ? "✓" : ""}</span>
+        <span className="flex-1 min-w-0">
+          <span className="jp block text-sm truncate" style={{ color: "var(--ink)" }}>{b.year ? `【${b.year}】` : ""}{b.name}</span>
+          <span className="pixel block text-[10px]" style={{ color: "var(--ink-soft)" }}>{b.questions.length}問 ・ 解答数 {totalAns}{clears > 0 ? ` ・ 周回×${clears}` : ""}</span>
+        </span>
+      </button>
+    );
     return (
       <div key={b.id} className="p-2" style={{ border: `1px solid ${borderColor}`, background: "var(--paper)" }}>
         <div className="flex justify-between items-start gap-2 mb-1">
@@ -507,6 +520,37 @@ function QBankTab(props) {
       ) : (
         <>
           <StudyScopeBar state={state} note={hiddenBanks ? `ほかの世界の問題集 ${hiddenBanks}冊は隠しています（「すべての世界」で全部表示）。` : null} />
+          {/* ── まとめて選んで削除（2026年10月29日）── */}
+          {!selMode ? (
+            <button onClick={() => { setSelMode(true); setSel([]); }} className="jp w-full py-1.5 text-xs" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)", color: "var(--ink-soft)" }}>☑ まとめて選んで削除</button>
+          ) : (() => {
+            const shown = state.questionBanks.filter((b) => sc.inScope(b));
+            const qn = state.questionBanks.filter((b) => sel.includes(b.id)).reduce((t2, b) => t2 + (b.questions || []).length, 0);
+            const doDelete = async () => {
+              const names = state.questionBanks.filter((b) => sel.includes(b.id)).map((b) => `・${b.name}`);
+              if (!confirm(`選んだ問題集 ${sel.length}冊（${qn}問）を削除しますか？\n\n${names.slice(0, 8).join("\n")}${names.length > 8 ? `\n…ほか${names.length - 8}冊` : ""}\n\n解いた回数・復習の予定などの学習の記録もいっしょに消えます。\n消す前に控え（バックアップ）を自動で取ります。`)) return;
+              setDeleting(true);
+              const ok = props.deleteBanks ? await props.deleteBanks(sel) : (sel.forEach((id) => deleteBank(id)), true);
+              setDeleting(false);
+              if (ok) { alert(`${sel.length}冊を削除しました。まちがえたときは、手帳の「記録」のいちばん下の「控え」から戻せます。`); setSel([]); setSelMode(false); }
+            };
+            return (
+              <div className="jp sticky top-0 z-10 p-2 space-y-1.5" style={{ background: "var(--cream)", border: "1.5px solid var(--brick)", borderRadius: 8 }}>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-[12px]" style={{ fontWeight: 800, color: "var(--ink)" }}>🗑 削除する問題集を選ぶ</span>
+                  <span className="text-[11px]" style={{ color: "var(--brick)", fontWeight: 800 }}>{sel.length}冊（{qn}問）</span>
+                  <span className="flex-1" />
+                  <button onClick={() => setSel(shown.map((b) => b.id))} className="btn-ghost text-[11px] px-2 py-0.5">すべて選ぶ</button>
+                  <button onClick={() => setSel([])} className="btn-ghost text-[11px] px-2 py-0.5">選択をはずす</button>
+                </div>
+                <div className="grid grid-cols-2 gap-1.5">
+                  <button onClick={() => { setSelMode(false); setSel([]); }} className="btn-ghost py-1.5 text-xs">やめる</button>
+                  <button disabled={!sel.length || deleting} onClick={doDelete} className="btn-danger py-1.5 text-xs" style={{ opacity: sel.length && !deleting ? 1 : 0.5 }}>{deleting ? "控えを取っています…" : `🗑 ${sel.length}冊を削除`}</button>
+                </div>
+                <div className="text-[10px]" style={{ color: "var(--ink-mute)" }}>問題集を押すと☑が付きます。フォルダの見出しの☑で、フォルダの中をまとめて選べます。</div>
+              </div>
+            );
+          })()}
           {/* ── フォルダ一括開閉 ── */}
           {folders.length > 0 && (
             <div className="flex gap-2 mb-1">
@@ -575,6 +619,10 @@ function QBankTab(props) {
                     >▼</button>
                   </div>
                   {/* クリックでアコーディオン開閉 */}
+                  {selMode && banks.length > 0 && (() => {
+                    const ids = banks.map((b) => b.id), all = ids.every((id) => sel.includes(id)), some = ids.some((id) => sel.includes(id));
+                    return <button onClick={() => setSel(all ? sel.filter((x) => !ids.includes(x)) : [...new Set([...sel, ...ids])])} aria-label={`${folder.name}の問題集をまとめて選ぶ`} style={{ width: 22, height: 22, flexShrink: 0, borderRadius: 5, border: `1.5px solid ${some ? "var(--brick)" : "var(--rule-soft)"}`, background: all ? "var(--brick)" : some ? "rgba(201,86,78,0.15)" : "var(--paper)", color: all ? "#fff" : "var(--brick)", fontWeight: 800, cursor: "pointer" }}>{all ? "✓" : some ? "－" : ""}</button>;
+                  })()}
                   <button onClick={() => toggleCollapse(folder.id)} className="flex items-center gap-2 flex-1 text-left" style={{ background: "none", border: "none", padding: 0 }}>
                     <span className="text-base">{collapsed ? "📁" : "📂"}</span>
                     <span className="jp text-sm font-bold flex-1 text-left" style={{ color: "var(--ink)" }}>{folder.name}</span>
@@ -603,6 +651,10 @@ function QBankTab(props) {
           {/* ── 未分類（フォルダなし）── */}
           {(unfoldered.length > 0 || folders.length === 0) && (
             <div style={{ border: "1px solid var(--rule)", borderRadius: "2px" }}>
+              {selMode && unfoldered.length > 0 && (() => {
+                const ids = unfoldered.map((b) => b.id), all = ids.every((id) => sel.includes(id));
+                return <button onClick={() => setSel(all ? sel.filter((x) => !ids.includes(x)) : [...new Set([...sel, ...ids])])} className="jp w-full text-left px-3 py-1 text-[11px]" style={{ background: "var(--cream)", border: "none", borderBottom: "1px solid var(--rule-soft)", color: "var(--brick)", fontWeight: 800, cursor: "pointer" }}>{all ? "☑ 未分類をまとめてはずす" : "☐ 未分類をまとめて選ぶ"}</button>;
+              })()}
               <button onClick={() => toggleCollapse("_none_")} className="w-full flex items-center gap-2 px-3 py-2" style={{ background: "var(--paper)", border: "none" }}>
                 <span className="text-base">{collapsedFolders["_none_"] ? "📁" : "📂"}</span>
                 <span className="jp text-sm flex-1 text-left" style={{ color: "var(--ink-soft)" }}>未分類</span>
