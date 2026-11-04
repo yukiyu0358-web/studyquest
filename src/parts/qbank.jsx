@@ -23,7 +23,7 @@ import { BLOCK_DIAGRAMS } from "../data/blocks";
 import { buildDeck, choicesOf, docOptions, deckNext, DECK_FIELDS, DECK_IV, DECK_MASTER } from "../game/kjdeck";
 import { ROADMAP_2027 } from "../data/roadmap";
 import { REGION_TALK, STORY_TALKS, REGION_ARC, regionArc, TRINITY_REGIONS, TRINITY_TALK, BOND_TALKS, COUNTDOWN_TALKS, ACADEMY_MEET, STUDY_GROUP_TALK } from "../data/story";
-import { QuestFailGate, AnswerHistory, AnswerPanel, BattleResult, BattleStage, Box, ConfigToggle, ERROR_TYPES, LapRecordsPanel, LawRefChips, QuestionImages, RevealButton, Stat, StudyScopeBar, XP_QA_REVENGE, chosenQual, effectiveSr, formatErrTypes, healthReport, isQuestionAutoWeak, isQuestionWeak, mainQual, renderFormattedText, renderQText, shuffle, studyScope, todayStr, uid, worldOfQual } from "../App.jsx";
+import { looksRadioBank, radioQualTarget, QuestFailGate, AnswerHistory, AnswerPanel, BattleResult, BattleStage, Box, ConfigToggle, ERROR_TYPES, LapRecordsPanel, LawRefChips, QuestionImages, RevealButton, Stat, StudyScopeBar, XP_QA_REVENGE, chosenQual, effectiveSr, formatErrTypes, healthReport, isQuestionAutoWeak, isQuestionWeak, mainQual, renderFormattedText, renderQText, shuffle, studyScope, todayStr, uid, worldOfQual } from "../App.jsx";
 
 const XP_QA_AT_5 = 10;
 const XP_QA_AT_10 = 20;
@@ -1884,6 +1884,14 @@ function ImportPanel({ state, onCancel, onImport }) {
     setParsed(qs);
   };
   const editQ = (id, k, v) => setParsed((ps) => ps.map((x) => (x.id === id ? { ...x, [k]: v } : x)));
+  // 無線らしい問題（名前か中身）なのに、資格の欄が調査士の側なら、無線の資格に切り替える
+  const autoRadio = (items) => {
+    const rq = radioQualTarget(state);
+    if (!rq) return;
+    const cur = (state.qualifications || []).find((q) => q.id === qualId);
+    if (worldOfQual(cur).id !== "home") return;
+    if (items.some((x) => looksRadioBank({ name: x.name, questions: x.questions }))) setQualId(rq.id);
+  };
   const handleFile = async (file) => {
     setErr(""); setBulk(null);
     const questions = await parseCsvFile(file);
@@ -1891,6 +1899,7 @@ function ImportPanel({ state, onCancel, onImport }) {
     if (questions.length === 0) { setErr("有効な問題が見つかりませんでした。1列目=問題、2列目=答えを確認してください。"); return; }
     setParsed(questions);
     if (!name) { const fname = file.name.replace(/\.csv$/i, ""); if (!year) setYear(yearFromFileName(fname)); setName(fname); }
+    autoRadio([{ name: `${name} ${file.name}`, questions }]);
   };
   // 複数のファイル：ファイル名の順に並べ、それぞれ問題集にする。同じ名前の問題集がすでにあるものは、最初は外しておく（二重に取り込まないように）
   const handleFiles = async (files) => {
@@ -1905,6 +1914,7 @@ function ImportPanel({ state, onCancel, onImport }) {
       out.push({ key: f.name, name: nm, year: yearFromFileName(nm), questions: questions || [], bad: !questions || !questions.length, on: !!(questions && questions.length) && !dup, dup });
     }
     setBulk(out);
+    autoRadio(out);
   };
   const editBulk = (key, patch) => setBulk((bs) => bs.map((b) => (b.key === key ? { ...b, ...patch } : b)));
   const bulkOn = (bulk || []).filter((b) => b.on && !b.bad && b.name.trim());

@@ -2017,6 +2017,21 @@ function StudyRPG({ user }) {
     window.addEventListener("sq-display-set", on);
     return () => window.removeEventListener("sq-display-set", on);
   }, []);
+  // 問題集の資格をまとめて付け替える合図（無線の問題集が調査士の側に入っているとき。own＝その資格を「自分の世界」に）
+  useEffect(() => {
+    const on = (e) => {
+      const d = e.detail || {};
+      if (!d.ids || !d.ids.length || !d.qualId) return;
+      if (cloudLoadFailed.current) { alert("クラウドの読み込みに失敗しているあいだは変更できません。読み直してからやり直してください。"); return; }
+      setState((s) => ({
+        ...s,
+        qualifications: d.own ? (s.qualifications || []).map((q) => (q.id === d.qualId ? { ...q, world: "own" } : q)) : s.qualifications,
+        questionBanks: s.questionBanks.map((b) => (d.ids.includes(b.id) ? { ...b, qualId: d.qualId } : b)),
+      }));
+    };
+    window.addEventListener("sq-banks-qual", on);
+    return () => window.removeEventListener("sq-banks-qual", on);
+  }, []);
   // 条文の画面などの「この問題を解く」：sq-study-items の合図で、今日タブですぐ始める
   useEffect(() => {
     const on = (e) => { const d = e.detail; const n = Array.isArray(d) ? d.length : d && d.items ? d.items.length : 0; if (n) { setQuickPreset(d); setTab("today"); } };
@@ -6719,6 +6734,68 @@ function studyScope(state) {
   const on = sv === "world" || (sv !== "all" && chosenQual(state));
   return { on, world, inScope: (b) => !on || !b || bankWorldId(state, b) === world.id };
 }
+// 無線の問題集らしいか（2026年11月4日）：名前・フォルダ名に無線の言葉、または問題の3割以上（2問以上）に無線の言葉
+const RADIO_NAME_RE = /無線|陸特|海特|航特|電波|二陸|一陸|三陸/;
+const RADIO_TEXT_RE = /電波法|無線局|無線設備|無線従事者|無線通信|無線工学|空中線|変調|復調|受信機|送信機|ヘテロダイン|アンテナ|周波数|デシベル|\d\s*dB/;
+const radioLikeCache = new WeakMap();
+function looksRadioBank(b, folderName) {
+  if (!b) return false;
+  if (RADIO_NAME_RE.test(`${folderName || ""} ${b.name || ""}`)) return true;
+  if (radioLikeCache.has(b)) return radioLikeCache.get(b);
+  const qs = b.questions || [];
+  const hit = qs.filter((q) => RADIO_TEXT_RE.test(`${q.q || ""} ${q.a || ""}`)).length;
+  const r = hit >= 2 && hit >= qs.length * 0.3;
+  radioLikeCache.set(b, r);
+  return r;
+}
+// 無線の問題集の行き先の資格（まだ取っていない無線の資格を先に）
+function radioQualTarget(state) {
+  const rq = (state.qualifications || []).filter(isRadioQual);
+  return rq.find((q) => !q.acquired) || rq[0] || null;
+}
+// 調査士の側（王都の世界）に入っている、無線らしい問題集。displaySettings.radioOk は「調査士のままでよい」と選んだ問題集
+function radioMisplaced(state) {
+  const fm = new Map((state.folders || []).map((f) => [f.id, f.name]));
+  const ok = new Set((state.displaySettings || {}).radioOk || []);
+  const banks = state.questionBanks.filter((b) => (b.questions || []).length && !ok.has(b.id) && bankWorldId(state, b) === "home" && looksRadioBank(b, fm.get(b.folderId)));
+  if (!banks.length) return null;
+  const target = radioQualTarget(state);
+  return { banks, target, qualHome: !!target && worldOfQual(target).id === "home" };
+}
+function RadioMisplacedWarn({ state }) {
+  const [open, setOpen] = useState(false);
+  const m = radioMisplaced(state);
+  if (!m) return null;
+  const qn = m.banks.reduce((t, b) => t + (b.questions || []).length, 0);
+  const move = () => {
+    const names = m.banks.map((b) => `・${b.name}`);
+    if (!confirm(`次の問題集 ${m.banks.length}冊（${qn}問）を「${m.target.name}」へ移しますか？\n\n${names.slice(0, 10).join("\n")}${names.length > 10 ? `\n…ほか${names.length - 10}冊` : ""}\n\n解いた回数・復習の予定などの記録はそのまま残ります。\n（あとから問題タブの 📁 で、1冊ずつ付け替えることもできます）`)) return;
+    window.dispatchEvent(new CustomEvent("sq-banks-qual", { detail: { ids: m.banks.map((b) => b.id), qualId: m.target.id, own: m.qualHome } }));
+  };
+  const keep = (b) => setDisplay({ radioOk: [...((state.displaySettings || {}).radioOk || []), b.id] });
+  return (
+    <div className="jp px-2.5 py-2" style={{ background: "rgba(201,86,78,0.08)", border: "1.5px solid #c9564e", borderRadius: 10 }}>
+      <div className="text-[12px]" style={{ fontWeight: 800, color: "#a24a45" }}>⚠ 無線の問題集が、土地家屋調査士の側に {m.banks.length}冊（{qn}問）入っています</div>
+      <div className="text-[11px] mt-0.5" style={{ color: "var(--ink-soft)", lineHeight: 1.6 }}>
+        {m.target ? <>「{m.target.name}」へ移すと、調査士の復習・周回・計画にまざらなくなります。</> : <>手帳の「資格」で無線の資格（例：第二級陸上特殊無線技士）を登録すると、そこへ移せます。</>}
+      </div>
+      <div className="flex gap-1.5 mt-1.5 flex-wrap">
+        {m.target && <button onClick={move} className="btn-primary text-[12px] px-3 py-1">📡 {m.target.name}へ移す（{m.banks.length}冊）</button>}
+        <button onClick={() => setOpen(!open)} className="btn-ghost text-[11px] px-2 py-1">{open ? "一覧をとじる" : "どの問題集か見る"}</button>
+      </div>
+      {open && (
+        <div className="mt-1.5 space-y-1">
+          {m.banks.map((b) => (
+            <div key={b.id} className="flex items-center gap-2 text-[11px]" style={{ color: "var(--ink)" }}>
+              <span className="flex-1 min-w-0 truncate">・{b.name}（{(b.questions || []).length}問）</span>
+              <button onClick={() => keep(b)} className="btn-ghost text-[10px] px-1.5 py-0.5" title="この問題集は調査士の問題集として扱い、案内に出さない">調査士のまま</button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 // 問題集のある世界（王都の世界を先に）
 function worldsInUse(state) {
   const qm = new Map((state.qualifications || []).map((q) => [q.id, q]));
@@ -6744,10 +6821,12 @@ const setDisplay = (patch) => window.dispatchEvent(new CustomEvent("sq-display-s
 // 勉強の範囲の帯（今日・問題・周回の部屋の上）。問題集のある世界が2つ以上のときだけ出す
 function StudyScopeBar({ state, note }) {
   const ws = worldsInUse(state);
-  if (ws.length < 2) return null;
+  const warn = <RadioMisplacedWarn state={state} />;
+  if (ws.length < 2) return warn;
   const sc = studyScope(state);
   const chip = (on) => ({ borderRadius: 999, border: `1px solid ${on ? "var(--gold)" : "var(--rule-soft)"}`, background: on ? "var(--cream)" : "var(--paper)", color: "var(--ink)", fontWeight: on ? 800 : 500, cursor: "pointer" });
-  return (
+  return (<>
+    {warn}
     <div className="jp px-2.5 py-2" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)", borderRadius: 10 }}>
       <div className="flex items-center gap-1.5 flex-wrap">
         <span className="text-[10px]" style={{ color: "var(--ink-mute)", fontWeight: 700 }}>📚 勉強の範囲</span>
@@ -6760,7 +6839,7 @@ function StudyScopeBar({ state, note }) {
       </div>
       {note && <div className="text-[10px] mt-1" style={{ color: "var(--ink-mute)" }}>{note}</div>}
     </div>
-  );
+  </>);
 }
 const worldChapters = (w) => (w.id === "home" ? STORY_CHAPTERS : w.chapters);
 // 世界ごとの記録：王都の世界は今までの場所、資格の世界は ...ByWorld[世界id]
@@ -10516,4 +10595,4 @@ export default App;
 export { GameIcon, Ico, RPG_ITEMS, RPG_CONSUMABLES, RPG_BOSSES, DIFFICULTIES, WHITE_CSS };
 
 // src/parts/*.jsx（切り出した画面）が使う名前
-export { QuestFailGate, QuestFailBox, useBattleDown, SEASON_BOSSES, monumentOf, seasonBossNow, SEASON_BOSS_REWARD, localDateStr, levelPlan, levelApply, LEVEL_CAPS, LEVEL_SPREAD, featOn, ADV_CLASSES, ADV_NEED, ALLIES, ALLY_EVO, ALLY_SKILLS, ALLY_TRIAL_N, ALLY_TRIAL_PASS, ART_URL, AWAKEN_THRESHOLDS, AnswerHistory, AnswerPanel, BACKUP_KEEP, BASE_LINE, BATTLE, BATTLE_CSS, BATTLE_THEME, BOND_LV, BREW_RECIPES, BackRowAllies, BarCharPicker, BattleResult, BattleStage, Box, CASTLE_FLOORS, CAT_TIERS, CHIBI, CLASS_CHANGE_COST, ConfigToggle, DOC_LIMIT, DailyQuests, ERROR_TYPES, EVO_URL, FINISH_RETENTION, FORGE_MAX, FRAG_IDS, GACHA_COST, GACHA_PITY, GACHA_RATE, HERO_FACES, HERO_NAME, HERO_STAGES, HERO_STAGE_LV, HeroPortrait, HitNumbers, HyojiGrid, JOB_RANKS, JOURNEY_LEN, JOURNEY_PER, KEYCAP, KILL_TIERS, KJ_MARKS, KeySeq, KijutsuRun, KjFieldInput, KjSection, LAWS, LAW_BY_KEY, LUNA_CSS, LUNA_SKILLS, LapRecordsPanel, LawArticleModal, LawRefChips, LunaSprite, MASTERED_STABILITY, MON_BOSS, MON_MASK, MON_PAINTED, MON_STAND, MaterialIcon, Mini, MonPic, PASS_LINE, PAST_TOTAL, PET_THRESHOLDS, PET_TYPES, PartyFace, PastSection, PetIcon, QuestionImages, RARITY, RARITY_RANK, REHEARSAL_DEFAULT, RPG_ACHIEVEMENTS, RPG_CLASSES, RPG_MATERIALS, RPG_SLOTS, RUNE_CRIT, RUNE_DMG, RUNE_FRAG, RUNE_GOLD, RUNE_SLOTS, RehearsalRun, RevealButton, RivalCard, RoadmapBanner, SEASON_RANKS, SEC_PASS, SKILL_RESET_COST, SKILL_TREE, SMAP_ORDER, SQ_CLEAR, SR_DEFAULTS, STAGE_URL, STORY_CHAPTERS, STUDY_GROUP_PASS, STUDY_PREFS, SkillCutIn, SkyLayer, Stat, StudyScopeBar, TAME_AT, TAME_DMG, TAME_EVERY, TOWER_LAYERS, TOWER_MAX, TOWER_PASS, TRAP_MARK, TrainingRoom, TreasureChest, WEAK_GRAD, WEEKLY_REWARD, XP_QA_REVENGE, YearFigures, addDays, alliesJoined, alliesReady, allyById, allyEvoStage, auraOf, backRow, backupCol, bankWorldId, battleParty, bondFx, bondLevel, bounties, bringIntoView, buildPoolFromBanks, byRegionOrder, calcDueList, calculateStatus, castleCtx, castleFloorOf, catCounts, chapterIndex, chipSt, choiceOf, chosenQual, classRankIndex, combatPower, correctDayStreak, curWorld, daysBetween, daysUntil, dexStatus, dungeonBestOf, effectiveSr, equippedWeaponId, eraLabel, estimateMinutes, examPlan, extractLawRefs, finishInfo, fmtEst, fmtMin, forgeCost, forgedFx, forgettingItems, formatErrTypes, fragCount, fxText, gapItems, getAwakening, getCharacterTier, getClassInfo, getFsrsScheduler, getLevelTitle, getPetInfo, getRpgBonuses, getTierLabel, getXpForNextLevel, hashStr, healthReport, heroEvoArt, heroStage, homeCharOf, homeSide, isCheckpoint, isQuestionAutoWeak, isQuestionWeak, isRadioQual, joinProg, journeyEvent, kjAutoHint, lawChangeOf, lawIndex, lawRefCounts, lawsInScope, loadLaw, longestStudyStreak, mainQual, makeBackup, markTraps, matById, monSpecies, monStandUrl, monsterFor, monthlyReport, nextTitles, normRpg, parseLocalDate, passChance, passPower, pastInp, pctTxt, planBankName, planBankOf, planToday, planTotal, powerLogOf, prevMonthOf, refsOfQ, regionCleared, regionConquest, regionInfo, regionQuests, regionRank, regionStageUrl, rehearsalCfg, renderFormattedText, renderQText, rewardText, rivalPowerAt, rollChest, rollRpgItem, rpgEquippedItems, rpgInvItem, rpgItemById, runeHits, runeName, runeRegions, scopedPlans, seasonPoints, seasonRank, seasonRewardText, setDisplay, setStatus, shuffle, shuffleArr, skillPointsTotal, skillPointsUsed, splitHits, sqOpen, sqStars, sqStarsOf, starBooks, startAllyTrial, storyClears, studyScope, subjectJobs, tatakiToday, themeOf, titleLeft, toFsrsCard, todayStr, towerLayer, uid, useLawChanges, usePastData, weekKey, weeklyReport, worldArc, worldChapters, worldOfQual, worldPassChance, worldsInUse, ymdCode };
+export { looksRadioBank, radioQualTarget, QuestFailGate, QuestFailBox, useBattleDown, SEASON_BOSSES, monumentOf, seasonBossNow, SEASON_BOSS_REWARD, localDateStr, levelPlan, levelApply, LEVEL_CAPS, LEVEL_SPREAD, featOn, ADV_CLASSES, ADV_NEED, ALLIES, ALLY_EVO, ALLY_SKILLS, ALLY_TRIAL_N, ALLY_TRIAL_PASS, ART_URL, AWAKEN_THRESHOLDS, AnswerHistory, AnswerPanel, BACKUP_KEEP, BASE_LINE, BATTLE, BATTLE_CSS, BATTLE_THEME, BOND_LV, BREW_RECIPES, BackRowAllies, BarCharPicker, BattleResult, BattleStage, Box, CASTLE_FLOORS, CAT_TIERS, CHIBI, CLASS_CHANGE_COST, ConfigToggle, DOC_LIMIT, DailyQuests, ERROR_TYPES, EVO_URL, FINISH_RETENTION, FORGE_MAX, FRAG_IDS, GACHA_COST, GACHA_PITY, GACHA_RATE, HERO_FACES, HERO_NAME, HERO_STAGES, HERO_STAGE_LV, HeroPortrait, HitNumbers, HyojiGrid, JOB_RANKS, JOURNEY_LEN, JOURNEY_PER, KEYCAP, KILL_TIERS, KJ_MARKS, KeySeq, KijutsuRun, KjFieldInput, KjSection, LAWS, LAW_BY_KEY, LUNA_CSS, LUNA_SKILLS, LapRecordsPanel, LawArticleModal, LawRefChips, LunaSprite, MASTERED_STABILITY, MON_BOSS, MON_MASK, MON_PAINTED, MON_STAND, MaterialIcon, Mini, MonPic, PASS_LINE, PAST_TOTAL, PET_THRESHOLDS, PET_TYPES, PartyFace, PastSection, PetIcon, QuestionImages, RARITY, RARITY_RANK, REHEARSAL_DEFAULT, RPG_ACHIEVEMENTS, RPG_CLASSES, RPG_MATERIALS, RPG_SLOTS, RUNE_CRIT, RUNE_DMG, RUNE_FRAG, RUNE_GOLD, RUNE_SLOTS, RehearsalRun, RevealButton, RivalCard, RoadmapBanner, SEASON_RANKS, SEC_PASS, SKILL_RESET_COST, SKILL_TREE, SMAP_ORDER, SQ_CLEAR, SR_DEFAULTS, STAGE_URL, STORY_CHAPTERS, STUDY_GROUP_PASS, STUDY_PREFS, SkillCutIn, SkyLayer, Stat, StudyScopeBar, TAME_AT, TAME_DMG, TAME_EVERY, TOWER_LAYERS, TOWER_MAX, TOWER_PASS, TRAP_MARK, TrainingRoom, TreasureChest, WEAK_GRAD, WEEKLY_REWARD, XP_QA_REVENGE, YearFigures, addDays, alliesJoined, alliesReady, allyById, allyEvoStage, auraOf, backRow, backupCol, bankWorldId, battleParty, bondFx, bondLevel, bounties, bringIntoView, buildPoolFromBanks, byRegionOrder, calcDueList, calculateStatus, castleCtx, castleFloorOf, catCounts, chapterIndex, chipSt, choiceOf, chosenQual, classRankIndex, combatPower, correctDayStreak, curWorld, daysBetween, daysUntil, dexStatus, dungeonBestOf, effectiveSr, equippedWeaponId, eraLabel, estimateMinutes, examPlan, extractLawRefs, finishInfo, fmtEst, fmtMin, forgeCost, forgedFx, forgettingItems, formatErrTypes, fragCount, fxText, gapItems, getAwakening, getCharacterTier, getClassInfo, getFsrsScheduler, getLevelTitle, getPetInfo, getRpgBonuses, getTierLabel, getXpForNextLevel, hashStr, healthReport, heroEvoArt, heroStage, homeCharOf, homeSide, isCheckpoint, isQuestionAutoWeak, isQuestionWeak, isRadioQual, joinProg, journeyEvent, kjAutoHint, lawChangeOf, lawIndex, lawRefCounts, lawsInScope, loadLaw, longestStudyStreak, mainQual, makeBackup, markTraps, matById, monSpecies, monStandUrl, monsterFor, monthlyReport, nextTitles, normRpg, parseLocalDate, passChance, passPower, pastInp, pctTxt, planBankName, planBankOf, planToday, planTotal, powerLogOf, prevMonthOf, refsOfQ, regionCleared, regionConquest, regionInfo, regionQuests, regionRank, regionStageUrl, rehearsalCfg, renderFormattedText, renderQText, rewardText, rivalPowerAt, rollChest, rollRpgItem, rpgEquippedItems, rpgInvItem, rpgItemById, runeHits, runeName, runeRegions, scopedPlans, seasonPoints, seasonRank, seasonRewardText, setDisplay, setStatus, shuffle, shuffleArr, skillPointsTotal, skillPointsUsed, splitHits, sqOpen, sqStars, sqStarsOf, starBooks, startAllyTrial, storyClears, studyScope, subjectJobs, tatakiToday, themeOf, titleLeft, toFsrsCard, todayStr, towerLayer, uid, useLawChanges, usePastData, weekKey, weeklyReport, worldArc, worldChapters, worldOfQual, worldPassChance, worldsInUse, ymdCode };
