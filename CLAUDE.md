@@ -60,6 +60,8 @@ RPG風の資格学習Webアプリ。利用者本人（Yuki）が、土地家屋�
 - 実績のメダル棚 `TrophyShelf`（parts/status.jsx、記録の冒険の記録書の下）：冒険の記録（称号・討伐メダル・周回スタンプ・試練の塔・迷いの森・仲間・上級職・魔物の仲間・記念の建物）と、その年の季節の限定ボス12か月。「全部見る」で称号・討伐メダル・記念の建物の一覧
 - parts に名前を足すとき：parts のファイルの `import { … } from ../App.jsx` と App.jsx のいちばん下の export の両方に足す（アイコンなど App.jsx が import しているものは、parts も同じ import を持っているので足さない）
 - 問題集をまとめて削除（2026年10月29日）：問題タブ（parts/qbank.jsx の QBankTab）の「☑ まとめて選んで削除」→ selMode・sel（問題集を押す・フォルダの見出しの☑・未分類をまとめて・すべて選ぶ）→ 名前を確かめる confirm → App.jsx の `deleteBanks(ids)`（cloudLoadFailed 中は消さない、先に makeBackup で控え、1回の setState で消す）。戻すときは記録の画面のいちばん下の控え（BackupPanel）から
+- クエスト失敗（2026年11月4日）：冒険の戦い（TrialRun＝試練の塔・節の守護者・仲間の勉強会・仲間の試練・迷いの森の戦闘、DungeonRun＝模試の塔）と問題集の周回（QStudySession・MixedStudySession・RevengeSession・CrossYearRevengeSession）は、HPが0でクエスト失敗（ふんばり無し）。`useBattleDown`（開いているあいだ `NO_REVIVE`.n を増やす）→ BattleStage が HP0 で BATTLE.down と合図 sq-battle-down → `QuestFailBox`（「問題選択にもどる」「もどる」）。問題集は qbank.jsx の呼び出しを `QuestFailGate` で包み、onFail で自動で始めた時間の記録（autoMode qa）を止め、QStudySession は途中再開のデータも消す。今日タブの復習はふんばりのまま（NO_REVIVE が0）。ストーリークエスト・無限回廊は前から BATTLE.noRevive
+- 戦いの立ち位置（2026年11月4日）：キャラの体の真ん中を上下の真ん中に。問題の戦い（高さ232）はルナ bottom 26・魔物 bottom 20・控えの魔物 50〜62、ボス戦（高さ310）はルナ・ボス bottom 48・手下 45%・50%。後ろの仲間は `backRow(party, size, stageH)` が高さから計算（真ん中より少し上＝奥）、メダルだけの仲間は 48%
 - **分割したら必ず `node scripts/check-names.mjs` で点検する**（定義も import もされていない名前を探す。ビルドでは見つからず、使っている途中にエラーになるため）。
 - `src/firebase.js`：Firebase初期化。`src/main.jsx`：起動。
 - `public/hero.jpg`：クラシックテーマの立ち絵（少年）。`public/sprites/tier1〜6.png`：ドット絵の主人公（以前は App.jsx に埋め込み）。

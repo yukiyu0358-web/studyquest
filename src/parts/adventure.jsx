@@ -23,7 +23,7 @@ import { BLOCK_DIAGRAMS } from "../data/blocks";
 import { buildDeck, choicesOf, docOptions, deckNext, DECK_FIELDS, DECK_IV, DECK_MASTER } from "../game/kjdeck";
 import { ROADMAP_2027 } from "../data/roadmap";
 import { REGION_TALK, STORY_TALKS, REGION_ARC, regionArc, TRINITY_REGIONS, TRINITY_TALK, BOND_TALKS, COUNTDOWN_TALKS, ACADEMY_MEET, STUDY_GROUP_TALK } from "../data/story";
-import { seasonBossNow, SEASON_BOSS_REWARD, localDateStr, daysBetween, featOn, ADV_CLASSES, ADV_NEED, ALLIES, ALLY_EVO, ALLY_SKILLS, ALLY_TRIAL_N, ALLY_TRIAL_PASS, ART_URL, AWAKEN_THRESHOLDS, AnswerPanel, BASE_LINE, BATTLE, BATTLE_CSS, BATTLE_THEME, BOND_LV, BREW_RECIPES, BackRowAllies, BarCharPicker, BattleResult, BattleStage, Box, CASTLE_FLOORS, CAT_TIERS, CHIBI, CLASS_CHANGE_COST, DailyQuests, EVO_URL, FORGE_MAX, FRAG_IDS, GACHA_COST, GACHA_PITY, GACHA_RATE, HERO_FACES, HERO_NAME, HERO_STAGES, HERO_STAGE_LV, HeroPortrait, HitNumbers, JOURNEY_LEN, JOURNEY_PER, KILL_TIERS, LAW_BY_KEY, LUNA_CSS, LUNA_SKILLS, LawRefChips, LunaSprite, MASTERED_STABILITY, MON_BOSS, MON_MASK, MON_PAINTED, MON_STAND, MaterialIcon, MonPic, PASS_LINE, PET_THRESHOLDS, PET_TYPES, PartyFace, PetIcon, QuestionImages, RARITY, RARITY_RANK, RPG_ACHIEVEMENTS, RPG_BOSSES, RPG_CLASSES, RPG_CONSUMABLES, RPG_ITEMS, RPG_MATERIALS, RPG_SLOTS, RUNE_CRIT, RUNE_DMG, RUNE_FRAG, RUNE_GOLD, RUNE_SLOTS, RehearsalRun, RevealButton, RivalCard, SEASON_RANKS, SEC_PASS, SKILL_RESET_COST, SKILL_TREE, SMAP_ORDER, SQ_CLEAR, STAGE_URL, STORY_CHAPTERS, STUDY_GROUP_PASS, SkillCutIn, SkyLayer, TAME_AT, TAME_DMG, TAME_EVERY, TOWER_LAYERS, TOWER_MAX, TOWER_PASS, TreasureChest, WEEKLY_REWARD, addDays, alliesJoined, alliesReady, allyById, allyEvoStage, auraOf, backRow, battleParty, bondFx, bondLevel, bringIntoView, buildPoolFromBanks, byRegionOrder, calculateStatus, castleCtx, castleFloorOf, catCounts, chapterIndex, chipSt, classRankIndex, combatPower, curWorld, daysUntil, dexStatus, dungeonBestOf, effectiveSr, equippedWeaponId, extractLawRefs, fmtMin, forgeCost, forgedFx, fragCount, fxText, gapItems, getAwakening, getClassInfo, getFsrsScheduler, getPetInfo, getRpgBonuses, hashStr, heroEvoArt, heroStage, isCheckpoint, isQuestionWeak, joinProg, journeyEvent, loadLaw, mainQual, matById, monSpecies, monStandUrl, monsterFor, monthlyReport, normRpg, parseLocalDate, passChance, passPower, pctTxt, powerLogOf, prevMonthOf, regionCleared, regionConquest, regionInfo, regionQuests, regionRank, regionStageUrl, renderFormattedText, renderQText, rewardText, rivalPowerAt, rollChest, rollRpgItem, rpgEquippedItems, rpgInvItem, rpgItemById, runeHits, runeName, runeRegions, seasonPoints, seasonRank, seasonRewardText, setDisplay, setStatus, shuffle, shuffleArr, skillPointsTotal, skillPointsUsed, splitHits, sqOpen, sqStars, sqStarsOf, starBooks, startAllyTrial, storyClears, studyScope, themeOf, toFsrsCard, todayStr, towerLayer, uid, weekKey, weeklyReport, worldArc, worldChapters, worldOfQual, worldPassChance, ymdCode } from "../App.jsx";
+import { QuestFailBox, useBattleDown, seasonBossNow, SEASON_BOSS_REWARD, localDateStr, daysBetween, featOn, ADV_CLASSES, ADV_NEED, ALLIES, ALLY_EVO, ALLY_SKILLS, ALLY_TRIAL_N, ALLY_TRIAL_PASS, ART_URL, AWAKEN_THRESHOLDS, AnswerPanel, BASE_LINE, BATTLE, BATTLE_CSS, BATTLE_THEME, BOND_LV, BREW_RECIPES, BackRowAllies, BarCharPicker, BattleResult, BattleStage, Box, CASTLE_FLOORS, CAT_TIERS, CHIBI, CLASS_CHANGE_COST, DailyQuests, EVO_URL, FORGE_MAX, FRAG_IDS, GACHA_COST, GACHA_PITY, GACHA_RATE, HERO_FACES, HERO_NAME, HERO_STAGES, HERO_STAGE_LV, HeroPortrait, HitNumbers, JOURNEY_LEN, JOURNEY_PER, KILL_TIERS, LAW_BY_KEY, LUNA_CSS, LUNA_SKILLS, LawRefChips, LunaSprite, MASTERED_STABILITY, MON_BOSS, MON_MASK, MON_PAINTED, MON_STAND, MaterialIcon, MonPic, PASS_LINE, PET_THRESHOLDS, PET_TYPES, PartyFace, PetIcon, QuestionImages, RARITY, RARITY_RANK, RPG_ACHIEVEMENTS, RPG_BOSSES, RPG_CLASSES, RPG_CONSUMABLES, RPG_ITEMS, RPG_MATERIALS, RPG_SLOTS, RUNE_CRIT, RUNE_DMG, RUNE_FRAG, RUNE_GOLD, RUNE_SLOTS, RehearsalRun, RevealButton, RivalCard, SEASON_RANKS, SEC_PASS, SKILL_RESET_COST, SKILL_TREE, SMAP_ORDER, SQ_CLEAR, STAGE_URL, STORY_CHAPTERS, STUDY_GROUP_PASS, SkillCutIn, SkyLayer, TAME_AT, TAME_DMG, TAME_EVERY, TOWER_LAYERS, TOWER_MAX, TOWER_PASS, TreasureChest, WEEKLY_REWARD, addDays, alliesJoined, alliesReady, allyById, allyEvoStage, auraOf, backRow, battleParty, bondFx, bondLevel, bringIntoView, buildPoolFromBanks, byRegionOrder, calculateStatus, castleCtx, castleFloorOf, catCounts, chapterIndex, chipSt, classRankIndex, combatPower, curWorld, daysUntil, dexStatus, dungeonBestOf, effectiveSr, equippedWeaponId, extractLawRefs, fmtMin, forgeCost, forgedFx, fragCount, fxText, gapItems, getAwakening, getClassInfo, getFsrsScheduler, getPetInfo, getRpgBonuses, hashStr, heroEvoArt, heroStage, isCheckpoint, isQuestionWeak, joinProg, journeyEvent, loadLaw, mainQual, matById, monSpecies, monStandUrl, monsterFor, monthlyReport, normRpg, parseLocalDate, passChance, passPower, pctTxt, powerLogOf, prevMonthOf, regionCleared, regionConquest, regionInfo, regionQuests, regionRank, regionStageUrl, renderFormattedText, renderQText, rewardText, rivalPowerAt, rollChest, rollRpgItem, rpgEquippedItems, rpgInvItem, rpgItemById, runeHits, runeName, runeRegions, seasonPoints, seasonRank, seasonRewardText, setDisplay, setStatus, shuffle, shuffleArr, skillPointsTotal, skillPointsUsed, splitHits, sqOpen, sqStars, sqStarsOf, starBooks, startAllyTrial, storyClears, studyScope, themeOf, toFsrsCard, todayStr, towerLayer, uid, weekKey, weeklyReport, worldArc, worldChapters, worldOfQual, worldPassChance, ymdCode } from "../App.jsx";
 
 
 // 次に戦うボス（倒すたびに強くなり、6体倒すと★付きで2周目へ）
@@ -657,6 +657,7 @@ function DungeonCard({ state, pp, onStart }) {
 }
 function DungeonRun({ state, pool, minutes, actions, recordAnswer, startTimer, stopTimer, onExit }) {
   const [battleKey] = useState(() => uid());
+  const down = useBattleDown(); // HPが0でクエスト失敗
   const [idx, setIdx] = useState(0);
   const [showAnswer, setShowAnswer] = useState(false);
   const [res, setRes] = useState([]); // {bankId, qId, correct}
@@ -696,6 +697,7 @@ function DungeonRun({ state, pool, minutes, actions, recordAnswer, startTimer, s
   };
   const mmss = (ms) => `${Math.floor(ms / 60000)}:${String(Math.floor((ms % 60000) / 1000)).padStart(2, "0")}`;
 
+  if (down && !done) return <QuestFailBox onExit={() => { if (timerStartedByMe.current) { stopTimer(); timerStartedByMe.current = false; } onExit(); }} exitLabel="塔をおりる" title="模試の塔" />;
   if (done) {
     const verdict = done.acc >= PASS_LINE ? ["合格圏！ 塔を踏破しました", "var(--gold)"] : done.acc >= BASE_LINE ? ["基準点クリア。合格ラインまであと少し", "var(--sage)"] : ["基準点に届かず。手強い魔物を鍛え直そう", "var(--brick)"];
     const byRegion = {};
@@ -1922,6 +1924,7 @@ function TowerView({ state, pp, onStart }) {
 function TrialRun({ state, run, recordAnswer, startTimer, stopTimer, onExit, onFinish, onNext, nextLabel }) {
   const pool = run.pool;
   const [battleKey] = useState(() => uid());
+  const down = useBattleDown(); // HPが0でクエスト失敗
   const [idx, setIdx] = useState(0);
   const [showAnswer, setShowAnswer] = useState(false);
   const [res, setRes] = useState([]);
@@ -1940,6 +1943,7 @@ function TrialRun({ state, run, recordAnswer, startTimer, stopTimer, onExit, onF
     const out = onFinish(acc) || {};
     setDone({ acc, passed: acc >= run.pass, ...out });
   };
+  useEffect(() => { if (down && timerStartedByMe.current) { stopTimer(); timerStartedByMe.current = false; } }, [down]);
   const item = pool[idx];
   const bank = item ? state.questionBanks.find((b) => b.id === item.bankId) : null;
   const q = bank ? (bank.questions || []).find((x) => x.id === item.qId) : null;
@@ -1952,6 +1956,7 @@ function TrialRun({ state, run, recordAnswer, startTimer, stopTimer, onExit, onF
     setShowAnswer(false);
     if (idx + 1 >= pool.length) finish(list); else setIdx(idx + 1);
   };
+  if (down && !done) return <QuestFailBox onExit={onExit} exitLabel="もどる" title={run.title} />;
   if (done) {
     return (
       <Box title={done.passed ? `${run.kind}突破！` : "あと一歩……"} icon={<Award size={18} />}>
@@ -3016,7 +3021,7 @@ function BossArena({ state, boss, bossHp, hp, maxHp, fx, combo, dying, party = [
   const H = ["40%", "calc(100% - 96px)"], M = ["calc(92% - 108px)", "calc(94% - 108px)"];
   const cp = combatPower(state);
   // 味方の後衛（仲間）と、敵の後衛（ボスの手下。見た目だけ）
-  const slots = backRow(party, 128);
+  const slots = backRow(party, 128, 310);
   const originOf = (id) => slotOrigin(slots, id);
   const minions = [0, 1].map((k) => MON_PAINTED[(hashStr(String(boss.id) + (boss.art || "")) + k * 7) % MON_PAINTED.length]);
   // 主人公の表情（白金テーマ）：ふだんは真剣、会心で笑顔、攻撃を受けると驚き
@@ -3049,11 +3054,11 @@ function BossArena({ state, boss, bossHp, hp, maxHp, fx, combo, dying, party = [
       {/* ボス */}
       {/* 敵の後衛（手下） */}
       {minions.map((mn, k) => (
-        <div key={mn.img + k} style={{ position: "absolute", right: k ? "2%" : "44%", bottom: k ? "58%" : "52%", width: 74, height: 74, zIndex: 0, filter: "brightness(0.85) saturate(0.9)", animation: dying === "boss" ? "sqyDie 1.2s ease-in forwards" : fx && fx.side === "hero" && fx.crit ? `sqxKnock .3s ease-out ${t}s` : `sqyFloat ${2.6 + k * 0.5}s ease-in-out infinite` }}>
+        <div key={mn.img + k} style={{ position: "absolute", right: k ? "2%" : "44%", bottom: k ? "50%" : "45%", width: 74, height: 74, zIndex: 0, filter: "brightness(0.85) saturate(0.9)", animation: dying === "boss" ? "sqyDie 1.2s ease-in forwards" : fx && fx.side === "hero" && fx.crit ? `sqxKnock .3s ease-out ${t}s` : `sqyFloat ${2.6 + k * 0.5}s ease-in-out infinite` }}>
           <MonPic m={{ sp: mn }} size={74} />
         </div>
       ))}
-      <div style={{ position: "absolute", right: "8%", bottom: "6%", width: 214, height: 214, zIndex: 1 }}>
+      <div style={{ position: "absolute", right: "8%", bottom: 48, width: 214, height: 214, zIndex: 1 }}>
         <div style={{ position: "absolute", inset: phase2 ? -24 : -14, borderRadius: "50%", background: `radial-gradient(circle, ${enraged ? "rgba(220,50,50,0.6)" : phase2 ? "rgba(150,60,200,0.5)" : "rgba(255,236,190,0.35)"} 0%, transparent 68%)`, animation: "sqyAura 2s ease-in-out infinite" }} />
         {shield && !dying && <div aria-hidden="true" style={{ position: "absolute", inset: -18, borderRadius: "50%", zIndex: 3, background: "radial-gradient(circle, rgba(140,200,255,0.05) 45%, rgba(140,200,255,0.35) 62%, rgba(200,230,255,0.75) 70%, transparent 72%)", border: "2px solid rgba(200,230,255,0.7)", boxShadow: "0 0 18px rgba(140,200,255,0.8), inset 0 0 22px rgba(140,200,255,0.5)", animation: "sqcShield 1.6s ease-in-out infinite", pointerEvents: "none" }} />}
         {shield && !dying && <div className="jp" style={{ position: "absolute", left: "50%", top: -6, transform: "translateX(-50%)", zIndex: 4, fontSize: 11, fontWeight: 900, color: "#0f2a4a", background: "rgba(220,238,255,0.95)", border: "1px solid #8fc8ff", borderRadius: 999, padding: "1px 9px", whiteSpace: "nowrap" }}>🔮 障壁　あと◎{shield.left}回</div>}
@@ -3068,7 +3073,7 @@ function BossArena({ state, boss, bossHp, hp, maxHp, fx, combo, dying, party = [
       {/* ボスの挑発（はじめの数秒） */}
       {taunt && !dying && <div className="jp" style={{ position: "absolute", right: "6%", top: 46, maxWidth: "52%", zIndex: 6, fontSize: 11, fontWeight: 800, color: "#fdfbf5", background: "rgba(60,14,30,0.9)", border: "1px solid #e0948a", borderRadius: 10, padding: "4px 9px", lineHeight: 1.5, animation: "sqcTaunt 5.5s ease-out both", pointerEvents: "none" }}>{taunt.line}<div style={{ fontSize: 9, color: "#ffc2bc", fontWeight: 600 }}>この地域の問題に正解すると、言い返して1.5倍</div></div>}
       {/* 主人公（前衛） */}
-      <div style={{ position: "absolute", left: "calc(40% - 86px)", bottom: -18, width: 214, height: 214, zIndex: 2 }}>
+      <div style={{ position: "absolute", left: "calc(40% - 86px)", bottom: 48, width: 214, height: 214, zIndex: 2 }}>
         <LunaSprite size={214} pose={dying === "me" ? "down" : dying === "boss" ? "win" : fx ? (fx.side === "hero" ? (fx.cut ? (fx.cut.ult ? "ult" : "skill") : "attack") : "hurt") : "idle"} delay={fx && fx.side === "mon" ? t : fx && fx.cut ? 0.6 : 0} k={fx ? fx.n : dying ? 999 : 0} aura={auraOf(state)} />
         {(() => { const pt = getPetInfo(state); return pt ? <span style={{ position: "absolute", left: 18, bottom: 22 }}><PetIcon pet={pt} size={26} /></span> : null; })()}
       </div>

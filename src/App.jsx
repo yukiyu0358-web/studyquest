@@ -7944,11 +7944,13 @@ function CharSpriteLayer({ who = "luna", size = 120, pose = "idle", delay = 0, k
   );
 }
 // 味方の後衛の立ち位置：動く絵は左から順に（奥ほど上）、顔の丸はその後ろに浮かべる
-function backRow(party, size) {
+// 後ろの列の仲間（stageH＝戦いの画面の高さ。体の真ん中が上下の真ん中より少しだけ上＝奥に見えるように）
+function backRow(party, size, stageH = 232) {
   let k = 0;
+  const mid = Math.round(((stageH / 2 - size / 2) / stageH) * 100) + 4;
   return party.map((p) => {
     const i = k++;
-    return p.sprite || p.chibi ? { p, l: 6 + i * 16, b: 40 + (i % 2) * 5, size } : { p, l: 8 + i * 16, b: 66, size: 34 };
+    return p.sprite || p.chibi ? { p, l: 6 + i * 16, b: mid + (i % 2) * 4, size } : { p, l: 8 + i * 16, b: 48, size: 34 };
   });
 }
 function BackRowAllies({ slots, actingId, actN, win }) {
@@ -8135,6 +8137,38 @@ function makePack(state, mon) {
   return { list, target: list[list.length - 1].id };
 }
 const xpTotalOf = (p) => { let t = p.xp || 0; for (let l = 1; l < (p.level || 1); l++) t += getXpForNextLevel(l); return t; };
+// クエスト失敗（2026年11月4日）：冒険の戦いと問題集の周回は、HPが0になったらクエスト失敗（ふんばり無し）。
+//   useBattleDown を使う画面が開いているあいだは NO_REVIVE.n > 0。BattleStage が HP0 を合図 sq-battle-down で知らせる
+const NO_REVIVE = { n: 0 };
+function useBattleDown() {
+  const [down, setDown] = useState(false);
+  useEffect(() => {
+    NO_REVIVE.n++;
+    const f = () => setDown(true);
+    window.addEventListener("sq-battle-down", f);
+    return () => { NO_REVIVE.n = Math.max(0, NO_REVIVE.n - 1); window.removeEventListener("sq-battle-down", f); };
+  }, []);
+  return down;
+}
+function QuestFailBox({ onExit, exitLabel = "問題選択にもどる", title }) {
+  return (
+    <Box title="クエスト失敗……" icon={<Skull size={18} />}>
+      <div className="jp text-center py-3 space-y-1.5">
+        {title && <div className="text-[11px]" style={{ color: "var(--ink-mute)" }}>{title}</div>}
+        <div style={{ fontFamily: "'Shippori Mincho B1', serif", fontWeight: 900, fontSize: 22, color: "var(--brick)" }}>{HERO_NAME}は力尽きた……</div>
+        <div className="text-[12px]" style={{ color: "var(--ink-soft)", lineHeight: 1.7 }}>HPが0になったので、このクエストは失敗です。<br />ここまでに答えた問題は、復習の記録に残っています。</div>
+      </div>
+      <button onClick={onExit} className="jp btn-primary w-full py-2">{exitLabel}</button>
+    </Box>
+  );
+}
+// 問題集の周回などを包む：HPが0になったら、中の画面を閉じて（時間の記録も止まる）失敗の画面に
+function QuestFailGate({ children, onExit, onFail, exitLabel }) {
+  const down = useBattleDown();
+  useEffect(() => { if (down && onFail) onFail(); }, [down]);
+  if (down) return <QuestFailBox onExit={onExit} exitLabel={exitLabel} />;
+  return children;
+}
 function resetBattle(state) {
   const b = getRpgBonuses(state);
   Object.assign(BATTLE, { status: null, gauge: 0, ultArmed: false, chest: null, dmgMul: 1, noRevive: false, down: false, pack: null, packWait: 0, packs: 0, hp: b.maxHp, maxHp: b.maxHp, combo: 0, maxCombo: 0, defeated: 0, crits: 0, escaped: 0, faints: 0, mats: {}, start: { xp: xpTotalOf(state.player), level: state.player.level, gold: normRpg(state.rpg).gold } });
@@ -8587,13 +8621,14 @@ function BattleStage({ state, q, bankName, battleKey, boss = false, scene: scene
         if (sk) BATTLE.status = { k: sk, n: STATUS[sk].turns };
         let faint = false;
         // ストーリークエスト・無限回廊はふんばり無し：HPが0で力尽きる（クエスト失敗）
-        if (BATTLE.hp <= 0 && BATTLE.noRevive) { BATTLE.hp = 0; BATTLE.down = true; }
+        if (BATTLE.hp <= 0 && (BATTLE.noRevive || NO_REVIVE.n > 0)) { BATTLE.hp = 0; BATTLE.down = true; }
         else if (BATTLE.hp <= 0) { BATTLE.faints++; BATTLE.hp = Math.ceil(BATTLE.maxHp * (0.3 + (b.revivePct || 0) / 100)); faint = true; }
         // 魔物の反撃：種族ごとの技（ひっかき・かみつき・炎の息・魔弾など）
         const atk = monAttackFor(m.sp && m.sp.img);
         const t = impactOf(atk);
         hold += Math.round(t * 1000);
         setFx({ n, ok: false, taken, faint, down: BATTLE.down, mon: m, side: "mon", atk, t, packAtk: packAlive, warned, statusNew, poisonDmg });
+        if (BATTLE.down && NO_REVIVE.n > 0) setTimeout(() => window.dispatchEvent(new CustomEvent("sq-battle-down")), Math.round(t * 1000) + 1500); // 力尽きる演出のあとでクエスト失敗
         SFX.play(["claw", "bite", "gust"].includes(atk.kind) ? "claw" : atk.kind === "tackle" || atk.kind === "rock" ? "roar" : "fire");
         setTimeout(() => SFX.play("miss"), t * 1000);
       }
@@ -8646,7 +8681,7 @@ function BattleStage({ state, q, bankName, battleKey, boss = false, scene: scene
       )}
       {/* 味方：後衛（仲間）と前衛（ルナ） */}
       <BackRowAllies slots={backRow(battleParty(state, mon.th && mon.th.region), 104)} actingId={fx && fx.cameo && !fx.cut ? fx.cameo.a.id : null} actN={fx ? fx.n : 0} />
-      <div style={{ position: "absolute", left: "calc(40% - 74px)", bottom: -16, width: 180, height: 180, zIndex: 2 }}>
+      <div style={{ position: "absolute", left: "calc(40% - 74px)", bottom: 26, width: 180, height: 180, zIndex: 2 }}>
         <LunaSprite size={180} pose={BATTLE.down ? "down" : fx ? (fx.ok ? (fx.cut ? (fx.cut.ult ? "ult" : "skill") : "attack") : "hurt") : "idle"} delay={fx && !fx.ok ? fx.t || 0 : fx && fx.cut ? 0.6 : 0} k={fx ? fx.n : 0} aura={auraOf(state)} />
       </div>
       {/* ルナの HP（左下） */}
@@ -8694,7 +8729,7 @@ function BattleStage({ state, q, bankName, battleKey, boss = false, scene: scene
         const down = x.hp === 0;
         if (down && !hit && !(fx && fx.packHit && fx.packHit.leaderDown)) return null;
         const on = pack.target === x.id && !down;
-        const pos = pack.list.length === 1 ? { right: "30%", bottom: 34 } : i === 0 ? { right: "31%", bottom: 40 } : { right: "-1%", bottom: 46 };
+        const pos = pack.list.length === 1 ? { right: "30%", bottom: 50 } : i === 0 ? { right: "31%", bottom: 56 } : { right: "-1%", bottom: 62 };
         return (
           <div key={x.id} onClick={() => { if (!down) { pack.target = x.id; setTick((v) => v + 1); } }} title="タップで狙う" style={{ position: "absolute", ...pos, width: x.leader ? 120 : 104, height: x.leader ? 140 : 120, zIndex: 0, cursor: down ? "default" : "pointer", filter: on ? "drop-shadow(0 0 6px rgba(242,193,78,0.9))" : "brightness(0.85)" }}>
             {down ? <MonsterView key={`pkd${x.id}${fx ? fx.n : 0}`} m={x.m} anim={x.fled ? "escape" : "defeat"} hitAt={fx ? fx.t || 0 : 0} size={x.leader ? 112 : 96} />
@@ -8718,7 +8753,7 @@ function BattleStage({ state, q, bankName, battleKey, boss = false, scene: scene
       {pack && pack.list.some((x) => x.hp > 0) && !fx && <div className="jp" style={{ position: "absolute", right: 8, top: 8, fontSize: 9, color: "#fdfbf5", background: "rgba(20,28,50,0.5)", padding: "1px 6px", borderRadius: 999, zIndex: 3 }}>群れ {pack.list.filter((x) => x.hp > 0).length}体　タップで狙う</div>}
       {fx && !fx.ok && fx.packAtk > 0 && <div key={`pa${fx.n}`} className="jp" style={{ position: "absolute", right: "28%", top: 40, fontSize: 11, fontWeight: 800, color: "#ffc2bc", textShadow: "0 1px 3px rgba(0,0,0,0.8)", animation: `sqbRed .9s ease-out ${(fx.t || 0) + 0.2}s both`, pointerEvents: "none", zIndex: 4 }}>群れの追い打ち！</div>}
       {/* 魔物 */}
-      <div style={{ position: "absolute", right: "10%", bottom: 4, width: 170, height: 214, zIndex: 1 }}>
+      <div style={{ position: "absolute", right: "10%", bottom: 20, width: 170, height: 214, zIndex: 1 }}>
         {fx && <MonsterView key={`leave${fx.n}`} m={fx.mon} anim={fx.ok ? "defeat" : "escape"} hitAt={fx.t || 0} lunge={!fx.ok && fx.atk && ["tackle", "bite", "claw"].includes(fx.atk.kind)} size={152} />}
         {showCur && <MonsterView key={`m${mon.key}`} m={mon} anim="enter" delay={fx ? 0.45 + (fx.t || 0) : 0} size={152} />}
         {fx && fx.ok && (
@@ -10481,4 +10516,4 @@ export default App;
 export { GameIcon, Ico, RPG_ITEMS, RPG_CONSUMABLES, RPG_BOSSES, DIFFICULTIES, WHITE_CSS };
 
 // src/parts/*.jsx（切り出した画面）が使う名前
-export { SEASON_BOSSES, monumentOf, seasonBossNow, SEASON_BOSS_REWARD, localDateStr, levelPlan, levelApply, LEVEL_CAPS, LEVEL_SPREAD, featOn, ADV_CLASSES, ADV_NEED, ALLIES, ALLY_EVO, ALLY_SKILLS, ALLY_TRIAL_N, ALLY_TRIAL_PASS, ART_URL, AWAKEN_THRESHOLDS, AnswerHistory, AnswerPanel, BACKUP_KEEP, BASE_LINE, BATTLE, BATTLE_CSS, BATTLE_THEME, BOND_LV, BREW_RECIPES, BackRowAllies, BarCharPicker, BattleResult, BattleStage, Box, CASTLE_FLOORS, CAT_TIERS, CHIBI, CLASS_CHANGE_COST, ConfigToggle, DOC_LIMIT, DailyQuests, ERROR_TYPES, EVO_URL, FINISH_RETENTION, FORGE_MAX, FRAG_IDS, GACHA_COST, GACHA_PITY, GACHA_RATE, HERO_FACES, HERO_NAME, HERO_STAGES, HERO_STAGE_LV, HeroPortrait, HitNumbers, HyojiGrid, JOB_RANKS, JOURNEY_LEN, JOURNEY_PER, KEYCAP, KILL_TIERS, KJ_MARKS, KeySeq, KijutsuRun, KjFieldInput, KjSection, LAWS, LAW_BY_KEY, LUNA_CSS, LUNA_SKILLS, LapRecordsPanel, LawArticleModal, LawRefChips, LunaSprite, MASTERED_STABILITY, MON_BOSS, MON_MASK, MON_PAINTED, MON_STAND, MaterialIcon, Mini, MonPic, PASS_LINE, PAST_TOTAL, PET_THRESHOLDS, PET_TYPES, PartyFace, PastSection, PetIcon, QuestionImages, RARITY, RARITY_RANK, REHEARSAL_DEFAULT, RPG_ACHIEVEMENTS, RPG_CLASSES, RPG_MATERIALS, RPG_SLOTS, RUNE_CRIT, RUNE_DMG, RUNE_FRAG, RUNE_GOLD, RUNE_SLOTS, RehearsalRun, RevealButton, RivalCard, RoadmapBanner, SEASON_RANKS, SEC_PASS, SKILL_RESET_COST, SKILL_TREE, SMAP_ORDER, SQ_CLEAR, SR_DEFAULTS, STAGE_URL, STORY_CHAPTERS, STUDY_GROUP_PASS, STUDY_PREFS, SkillCutIn, SkyLayer, Stat, StudyScopeBar, TAME_AT, TAME_DMG, TAME_EVERY, TOWER_LAYERS, TOWER_MAX, TOWER_PASS, TRAP_MARK, TrainingRoom, TreasureChest, WEAK_GRAD, WEEKLY_REWARD, XP_QA_REVENGE, YearFigures, addDays, alliesJoined, alliesReady, allyById, allyEvoStage, auraOf, backRow, backupCol, bankWorldId, battleParty, bondFx, bondLevel, bounties, bringIntoView, buildPoolFromBanks, byRegionOrder, calcDueList, calculateStatus, castleCtx, castleFloorOf, catCounts, chapterIndex, chipSt, choiceOf, chosenQual, classRankIndex, combatPower, correctDayStreak, curWorld, daysBetween, daysUntil, dexStatus, dungeonBestOf, effectiveSr, equippedWeaponId, eraLabel, estimateMinutes, examPlan, extractLawRefs, finishInfo, fmtEst, fmtMin, forgeCost, forgedFx, forgettingItems, formatErrTypes, fragCount, fxText, gapItems, getAwakening, getCharacterTier, getClassInfo, getFsrsScheduler, getLevelTitle, getPetInfo, getRpgBonuses, getTierLabel, getXpForNextLevel, hashStr, healthReport, heroEvoArt, heroStage, homeCharOf, homeSide, isCheckpoint, isQuestionAutoWeak, isQuestionWeak, isRadioQual, joinProg, journeyEvent, kjAutoHint, lawChangeOf, lawIndex, lawRefCounts, lawsInScope, loadLaw, longestStudyStreak, mainQual, makeBackup, markTraps, matById, monSpecies, monStandUrl, monsterFor, monthlyReport, nextTitles, normRpg, parseLocalDate, passChance, passPower, pastInp, pctTxt, planBankName, planBankOf, planToday, planTotal, powerLogOf, prevMonthOf, refsOfQ, regionCleared, regionConquest, regionInfo, regionQuests, regionRank, regionStageUrl, rehearsalCfg, renderFormattedText, renderQText, rewardText, rivalPowerAt, rollChest, rollRpgItem, rpgEquippedItems, rpgInvItem, rpgItemById, runeHits, runeName, runeRegions, scopedPlans, seasonPoints, seasonRank, seasonRewardText, setDisplay, setStatus, shuffle, shuffleArr, skillPointsTotal, skillPointsUsed, splitHits, sqOpen, sqStars, sqStarsOf, starBooks, startAllyTrial, storyClears, studyScope, subjectJobs, tatakiToday, themeOf, titleLeft, toFsrsCard, todayStr, towerLayer, uid, useLawChanges, usePastData, weekKey, weeklyReport, worldArc, worldChapters, worldOfQual, worldPassChance, worldsInUse, ymdCode };
+export { QuestFailGate, QuestFailBox, useBattleDown, SEASON_BOSSES, monumentOf, seasonBossNow, SEASON_BOSS_REWARD, localDateStr, levelPlan, levelApply, LEVEL_CAPS, LEVEL_SPREAD, featOn, ADV_CLASSES, ADV_NEED, ALLIES, ALLY_EVO, ALLY_SKILLS, ALLY_TRIAL_N, ALLY_TRIAL_PASS, ART_URL, AWAKEN_THRESHOLDS, AnswerHistory, AnswerPanel, BACKUP_KEEP, BASE_LINE, BATTLE, BATTLE_CSS, BATTLE_THEME, BOND_LV, BREW_RECIPES, BackRowAllies, BarCharPicker, BattleResult, BattleStage, Box, CASTLE_FLOORS, CAT_TIERS, CHIBI, CLASS_CHANGE_COST, ConfigToggle, DOC_LIMIT, DailyQuests, ERROR_TYPES, EVO_URL, FINISH_RETENTION, FORGE_MAX, FRAG_IDS, GACHA_COST, GACHA_PITY, GACHA_RATE, HERO_FACES, HERO_NAME, HERO_STAGES, HERO_STAGE_LV, HeroPortrait, HitNumbers, HyojiGrid, JOB_RANKS, JOURNEY_LEN, JOURNEY_PER, KEYCAP, KILL_TIERS, KJ_MARKS, KeySeq, KijutsuRun, KjFieldInput, KjSection, LAWS, LAW_BY_KEY, LUNA_CSS, LUNA_SKILLS, LapRecordsPanel, LawArticleModal, LawRefChips, LunaSprite, MASTERED_STABILITY, MON_BOSS, MON_MASK, MON_PAINTED, MON_STAND, MaterialIcon, Mini, MonPic, PASS_LINE, PAST_TOTAL, PET_THRESHOLDS, PET_TYPES, PartyFace, PastSection, PetIcon, QuestionImages, RARITY, RARITY_RANK, REHEARSAL_DEFAULT, RPG_ACHIEVEMENTS, RPG_CLASSES, RPG_MATERIALS, RPG_SLOTS, RUNE_CRIT, RUNE_DMG, RUNE_FRAG, RUNE_GOLD, RUNE_SLOTS, RehearsalRun, RevealButton, RivalCard, RoadmapBanner, SEASON_RANKS, SEC_PASS, SKILL_RESET_COST, SKILL_TREE, SMAP_ORDER, SQ_CLEAR, SR_DEFAULTS, STAGE_URL, STORY_CHAPTERS, STUDY_GROUP_PASS, STUDY_PREFS, SkillCutIn, SkyLayer, Stat, StudyScopeBar, TAME_AT, TAME_DMG, TAME_EVERY, TOWER_LAYERS, TOWER_MAX, TOWER_PASS, TRAP_MARK, TrainingRoom, TreasureChest, WEAK_GRAD, WEEKLY_REWARD, XP_QA_REVENGE, YearFigures, addDays, alliesJoined, alliesReady, allyById, allyEvoStage, auraOf, backRow, backupCol, bankWorldId, battleParty, bondFx, bondLevel, bounties, bringIntoView, buildPoolFromBanks, byRegionOrder, calcDueList, calculateStatus, castleCtx, castleFloorOf, catCounts, chapterIndex, chipSt, choiceOf, chosenQual, classRankIndex, combatPower, correctDayStreak, curWorld, daysBetween, daysUntil, dexStatus, dungeonBestOf, effectiveSr, equippedWeaponId, eraLabel, estimateMinutes, examPlan, extractLawRefs, finishInfo, fmtEst, fmtMin, forgeCost, forgedFx, forgettingItems, formatErrTypes, fragCount, fxText, gapItems, getAwakening, getCharacterTier, getClassInfo, getFsrsScheduler, getLevelTitle, getPetInfo, getRpgBonuses, getTierLabel, getXpForNextLevel, hashStr, healthReport, heroEvoArt, heroStage, homeCharOf, homeSide, isCheckpoint, isQuestionAutoWeak, isQuestionWeak, isRadioQual, joinProg, journeyEvent, kjAutoHint, lawChangeOf, lawIndex, lawRefCounts, lawsInScope, loadLaw, longestStudyStreak, mainQual, makeBackup, markTraps, matById, monSpecies, monStandUrl, monsterFor, monthlyReport, nextTitles, normRpg, parseLocalDate, passChance, passPower, pastInp, pctTxt, planBankName, planBankOf, planToday, planTotal, powerLogOf, prevMonthOf, refsOfQ, regionCleared, regionConquest, regionInfo, regionQuests, regionRank, regionStageUrl, rehearsalCfg, renderFormattedText, renderQText, rewardText, rivalPowerAt, rollChest, rollRpgItem, rpgEquippedItems, rpgInvItem, rpgItemById, runeHits, runeName, runeRegions, scopedPlans, seasonPoints, seasonRank, seasonRewardText, setDisplay, setStatus, shuffle, shuffleArr, skillPointsTotal, skillPointsUsed, splitHits, sqOpen, sqStars, sqStarsOf, starBooks, startAllyTrial, storyClears, studyScope, subjectJobs, tatakiToday, themeOf, titleLeft, toFsrsCard, todayStr, towerLayer, uid, useLawChanges, usePastData, weekKey, weeklyReport, worldArc, worldChapters, worldOfQual, worldPassChance, worldsInUse, ymdCode };
