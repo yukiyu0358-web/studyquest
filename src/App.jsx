@@ -8588,10 +8588,34 @@ function hlMerge(x, hl) {
   if (hl.dmg && hl.dmg > (best.dmg || 0)) best.dmg = hl.dmg;
   return { ...x, hl: cur, hlLog: log, hlBest: best, hlRec: rec };
 }
+// 戦いの画面の横幅（2026年11月22日）：iPhone など幅が狭いと、ルナと敵が真ん中で重なるため、
+//   幅を測って、狭いときはキャラを小さくし、ルナを左・敵を右へ離す。戻り値 [幅, ref に渡す関数]
+function useWidthRef(ref) {
+  const [w, setW] = useState(0);
+  const ro = useRef(null);
+  const setRef = useRef(null);
+  if (!setRef.current) setRef.current = (el) => {
+    ref.current = el;
+    if (ro.current) { ro.current.disconnect(); ro.current = null; }
+    if (!el) return;
+    setW(el.clientWidth || 0);
+    if (typeof ResizeObserver !== "undefined") { ro.current = new ResizeObserver(() => setW(el.clientWidth || 0)); ro.current.observe(el); }
+  };
+  useEffect(() => () => { if (ro.current) ro.current.disconnect(); }, []);
+  return [w, setRef.current];
+}
+// 狭い画面の並べ方：base＝この幅より狭いと縮める、min＝いちばん小さい倍率、hx・mx＝ルナと敵の体の真ん中（幅の割合）
+function narrowLayout(w, base, min, hx, mx) {
+  if (!w || w >= base) return null;
+  return { s: Math.max(min, w / base), hx: Math.round(w * hx), mx: Math.round(w * mx), w };
+}
 // battleKey：1回の学習（セット）ごとに変わる値。変わったときだけ HP・コンボを最初からにする
 function BattleStage({ state, q, bankName, battleKey, boss = false, scene: sceneProp = null }) {
   if (BATTLE.key !== battleKey) { resetBattle(state); BATTLE.key = battleKey; }
   const stageRef = useRef(null);
+  const [stageW, setStageRef] = useWidthRef(stageRef);
+  const nl = narrowLayout(stageW, 600, 0.68, 0.27, 0.76); // 狭いとき：ルナは幅の27%、魔物は76%の位置に
+  const sc = nl ? nl.s : 1;
   const ds = state.displaySettings || {};
   const theme = ds.theme || "white";
   const P = BATTLE_THEME[theme] || BATTLE_THEME.white;
@@ -8731,7 +8755,7 @@ function BattleStage({ state, q, bankName, battleKey, boss = false, scene: scene
   const hpPct = Math.max(0, Math.min(100, (BATTLE.hp / BATTLE.maxHp) * 100));
   const kind = mon.rank === "unknown" ? ["初見の魔物", "#5b6b8c"] : mon.rank === "elite" ? ["手強い魔物", "#a24a45"] : ["復習の魔物", "#4f8a72"];
   return (
-    <div ref={stageRef} className="relative overflow-hidden select-none" style={{ height: 232, borderRadius: 8, background: scene ? `${theme === "classic" ? "linear-gradient(0deg, rgba(10,18,38,0.7) 0%, rgba(10,18,38,0.15) 40%, rgba(10,18,38,0.05) 100%)" : "linear-gradient(0deg, rgba(253,251,245,0.55) 0%, rgba(253,251,245,0.08) 30%, rgba(253,251,245,0) 60%)"}, url(${scene}) center 68%/cover no-repeat` : P.bg, border: P.border, color: P.text, boxShadow: "0 6px 18px rgba(40,50,80,0.12)", animation: fx ? (!fx.ok ? `sqbShake .38s ease-in-out ${fx.t || 0}s` : fx.crit ? `sqxPunch .3s ease-out ${fx.t || 0}s` : undefined) : undefined }}>
+    <div ref={setStageRef} className="relative overflow-hidden select-none" style={{ height: 232, borderRadius: 8, background: scene ? `${theme === "classic" ? "linear-gradient(0deg, rgba(10,18,38,0.7) 0%, rgba(10,18,38,0.15) 40%, rgba(10,18,38,0.05) 100%)" : "linear-gradient(0deg, rgba(253,251,245,0.55) 0%, rgba(253,251,245,0.08) 30%, rgba(253,251,245,0) 60%)"}, url(${scene}) center 68%/cover no-repeat` : P.bg, border: P.border, color: P.text, boxShadow: "0 6px 18px rgba(40,50,80,0.12)", animation: fx ? (!fx.ok ? `sqbShake .38s ease-in-out ${fx.t || 0}s` : fx.crit ? `sqxPunch .3s ease-out ${fx.t || 0}s` : undefined) : undefined }}>
       <style>{BATTLE_CSS + BATTLE_FX_CSS + LUNA_CSS}</style>
       <div style={{ position: "absolute", inset: 0, background: "inherit", transformOrigin: "72% 66%", animation: fx && fx.ok && fx.big ? `sqxCam ${fx.cut ? 1.5 : 1}s ease-out ${fx.t || 0}s` : fx && !fx.ok ? `sqbShake ${fx.warned ? 0.6 : 0.45}s ease-out ${fx.t || 0}s` : undefined }}>
       {/* 体力が3割を切ると、画面のふちが赤く脈打つ */}
@@ -8759,9 +8783,9 @@ function BattleStage({ state, q, bankName, battleKey, boss = false, scene: scene
         </div>
       )}
       {/* 味方：後衛（仲間）と前衛（ルナ） */}
-      <BackRowAllies slots={backRow(battleParty(state, mon.th && mon.th.region), 104)} actingId={fx && fx.cameo && !fx.cut ? fx.cameo.a.id : null} actN={fx ? fx.n : 0} />
-      <div style={{ position: "absolute", left: "calc(40% - 74px)", bottom: 26, width: 180, height: 180, zIndex: 2 }}>
-        <LunaSprite size={180} pose={BATTLE.down ? "down" : fx ? (fx.ok ? (fx.cut ? (fx.cut.ult ? "ult" : "skill") : "attack") : "hurt") : "idle"} delay={fx && !fx.ok ? fx.t || 0 : fx && fx.cut ? 0.6 : 0} k={fx ? fx.n : 0} aura={auraOf(state)} />
+      <BackRowAllies slots={backRow(battleParty(state, mon.th && mon.th.region), Math.round(104 * sc))} actingId={fx && fx.cameo && !fx.cut ? fx.cameo.a.id : null} actN={fx ? fx.n : 0} />
+      <div style={nl ? { position: "absolute", left: nl.hx - Math.round(90 * sc), bottom: Math.round(116 - 90 * sc), width: Math.round(180 * sc), height: Math.round(180 * sc), zIndex: 2 } : { position: "absolute", left: "calc(40% - 74px)", bottom: 26, width: 180, height: 180, zIndex: 2 }}>
+        <LunaSprite size={Math.round(180 * sc)} pose={BATTLE.down ? "down" : fx ? (fx.ok ? (fx.cut ? (fx.cut.ult ? "ult" : "skill") : "attack") : "hurt") : "idle"} delay={fx && !fx.ok ? fx.t || 0 : fx && fx.cut ? 0.6 : 0} k={fx ? fx.n : 0} aura={auraOf(state)} />
       </div>
       {/* ルナの HP（左下） */}
       <div style={{ position: "absolute", left: 6, bottom: 6, width: 108, zIndex: 3, padding: "2px 6px 4px", borderRadius: 6, background: "rgba(20,28,50,0.55)" }}>
@@ -8808,11 +8832,12 @@ function BattleStage({ state, q, bankName, battleKey, boss = false, scene: scene
         const down = x.hp === 0;
         if (down && !hit && !(fx && fx.packHit && fx.packHit.leaderDown)) return null;
         const on = pack.target === x.id && !down;
-        const pos = pack.list.length === 1 ? { right: "30%", bottom: 50 } : i === 0 ? { right: "31%", bottom: 56 } : { right: "-1%", bottom: 62 };
+        const pos = nl ? (pack.list.length === 1 || i === 0 ? { right: "24%", bottom: 60 } : { right: "-3%", bottom: 66 })
+          : pack.list.length === 1 ? { right: "30%", bottom: 50 } : i === 0 ? { right: "31%", bottom: 56 } : { right: "-1%", bottom: 62 };
         return (
-          <div key={x.id} onClick={() => { if (!down) { pack.target = x.id; setTick((v) => v + 1); } }} title="タップで狙う" style={{ position: "absolute", ...pos, width: x.leader ? 120 : 104, height: x.leader ? 140 : 120, zIndex: 0, cursor: down ? "default" : "pointer", filter: on ? "drop-shadow(0 0 6px rgba(242,193,78,0.9))" : "brightness(0.85)" }}>
-            {down ? <MonsterView key={`pkd${x.id}${fx ? fx.n : 0}`} m={x.m} anim={x.fled ? "escape" : "defeat"} hitAt={fx ? fx.t || 0 : 0} size={x.leader ? 112 : 96} />
-              : <div style={{ animation: hit ? `sqbHurt .45s ease-out ${(fx.t || 0) + 0.1}s` : undefined }}><MonsterView key={`pk${x.id}`} m={x.m} anim="enter" size={x.leader ? 112 : 96} /></div>}
+          <div key={x.id} onClick={() => { if (!down) { pack.target = x.id; setTick((v) => v + 1); } }} title="タップで狙う" style={{ position: "absolute", ...pos, width: Math.round((x.leader ? 120 : 104) * sc), height: Math.round((x.leader ? 140 : 120) * sc), zIndex: 0, cursor: down ? "default" : "pointer", filter: on ? "drop-shadow(0 0 6px rgba(242,193,78,0.9))" : "brightness(0.85)" }}>
+            {down ? <MonsterView key={`pkd${x.id}${fx ? fx.n : 0}`} m={x.m} anim={x.fled ? "escape" : "defeat"} hitAt={fx ? fx.t || 0 : 0} size={Math.round((x.leader ? 112 : 96) * sc)} />
+              : <div style={{ animation: hit ? `sqbHurt .45s ease-out ${(fx.t || 0) + 0.1}s` : undefined }}><MonsterView key={`pk${x.id}`} m={x.m} anim="enter" size={Math.round((x.leader ? 112 : 96) * sc)} /></div>}
             {!down && (
               <div style={{ position: "absolute", left: "50%", top: -18, transform: "translateX(-50%)", display: "flex", gap: 2, alignItems: "center", zIndex: 2 }}>
                 {x.leader && <span style={{ fontSize: 11 }}>👑</span>}
@@ -8832,9 +8857,9 @@ function BattleStage({ state, q, bankName, battleKey, boss = false, scene: scene
       {pack && pack.list.some((x) => x.hp > 0) && !fx && <div className="jp" style={{ position: "absolute", right: 8, top: 8, fontSize: 9, color: "#fdfbf5", background: "rgba(20,28,50,0.5)", padding: "1px 6px", borderRadius: 999, zIndex: 3 }}>群れ {pack.list.filter((x) => x.hp > 0).length}体　タップで狙う</div>}
       {fx && !fx.ok && fx.packAtk > 0 && <div key={`pa${fx.n}`} className="jp" style={{ position: "absolute", right: "28%", top: 40, fontSize: 11, fontWeight: 800, color: "#ffc2bc", textShadow: "0 1px 3px rgba(0,0,0,0.8)", animation: `sqbRed .9s ease-out ${(fx.t || 0) + 0.2}s both`, pointerEvents: "none", zIndex: 4 }}>群れの追い打ち！</div>}
       {/* 魔物 */}
-      <div style={{ position: "absolute", right: "10%", bottom: 20, width: 170, height: 214, zIndex: 1 }}>
-        {fx && <MonsterView key={`leave${fx.n}`} m={fx.mon} anim={fx.ok ? "defeat" : "escape"} hitAt={fx.t || 0} lunge={!fx.ok && fx.atk && ["tackle", "bite", "claw"].includes(fx.atk.kind)} size={152} />}
-        {showCur && <MonsterView key={`m${mon.key}`} m={mon} anim="enter" delay={fx ? 0.45 + (fx.t || 0) : 0} size={152} />}
+      <div style={nl ? { position: "absolute", right: nl.w - nl.mx - Math.round(85 * sc), bottom: Math.round(20 + 76 * (1 - sc)), width: Math.round(170 * sc), height: Math.round(214 * sc), zIndex: 1 } : { position: "absolute", right: "10%", bottom: 20, width: 170, height: 214, zIndex: 1 }}>
+        {fx && <MonsterView key={`leave${fx.n}`} m={fx.mon} anim={fx.ok ? "defeat" : "escape"} hitAt={fx.t || 0} lunge={!fx.ok && fx.atk && ["tackle", "bite", "claw"].includes(fx.atk.kind)} size={Math.round(152 * sc)} />}
+        {showCur && <MonsterView key={`m${mon.key}`} m={mon} anim="enter" delay={fx ? 0.45 + (fx.t || 0) : 0} size={Math.round(152 * sc)} />}
         {fx && fx.ok && (
           <>
             <HitNumbers fx={fx} left="50%" top="24%" />
@@ -8859,7 +8884,7 @@ function BattleStage({ state, q, bankName, battleKey, boss = false, scene: scene
         </div>
       )}
       {/* 技の演出と名前 */}
-      {fx && <AttackFx key={`fx${fx.n}`} fx={fx} H={["40%", "calc(100% - 80px)"]} M={["calc(90% - 85px)", "calc(100% - 100px)"]} />}
+      {fx && <AttackFx key={`fx${fx.n}`} fx={fx} H={nl ? [`${nl.hx}px`, "calc(100% - 116px)"] : ["40%", "calc(100% - 80px)"]} M={nl ? [`${nl.mx}px`, "calc(100% - 110px)"] : ["calc(90% - 85px)", "calc(100% - 100px)"]} />}
       {fx && <SkillBanner fx={fx} />}
       {/* 被ダメージの赤いふち */}
       {fx && !fx.ok && <div key={`r${fx.n}`} style={{ position: "absolute", inset: 0, pointerEvents: "none", boxShadow: "inset 0 0 40px rgba(201,74,74,0.55)", animation: `sqbRed .5s ease-out ${fx.t || 0}s both` }} />}
@@ -10595,4 +10620,4 @@ export default App;
 export { GameIcon, Ico, RPG_ITEMS, RPG_CONSUMABLES, RPG_BOSSES, DIFFICULTIES, WHITE_CSS };
 
 // src/parts/*.jsx（切り出した画面）が使う名前
-export { looksRadioBank, radioQualTarget, QuestFailGate, QuestFailBox, useBattleDown, SEASON_BOSSES, monumentOf, seasonBossNow, SEASON_BOSS_REWARD, localDateStr, levelPlan, levelApply, LEVEL_CAPS, LEVEL_SPREAD, featOn, ADV_CLASSES, ADV_NEED, ALLIES, ALLY_EVO, ALLY_SKILLS, ALLY_TRIAL_N, ALLY_TRIAL_PASS, ART_URL, AWAKEN_THRESHOLDS, AnswerHistory, AnswerPanel, BACKUP_KEEP, BASE_LINE, BATTLE, BATTLE_CSS, BATTLE_THEME, BOND_LV, BREW_RECIPES, BackRowAllies, BarCharPicker, BattleResult, BattleStage, Box, CASTLE_FLOORS, CAT_TIERS, CHIBI, CLASS_CHANGE_COST, ConfigToggle, DOC_LIMIT, DailyQuests, ERROR_TYPES, EVO_URL, FINISH_RETENTION, FORGE_MAX, FRAG_IDS, GACHA_COST, GACHA_PITY, GACHA_RATE, HERO_FACES, HERO_NAME, HERO_STAGES, HERO_STAGE_LV, HeroPortrait, HitNumbers, HyojiGrid, JOB_RANKS, JOURNEY_LEN, JOURNEY_PER, KEYCAP, KILL_TIERS, KJ_MARKS, KeySeq, KijutsuRun, KjFieldInput, KjSection, LAWS, LAW_BY_KEY, LUNA_CSS, LUNA_SKILLS, LapRecordsPanel, LawArticleModal, LawRefChips, LunaSprite, MASTERED_STABILITY, MON_BOSS, MON_MASK, MON_PAINTED, MON_STAND, MaterialIcon, Mini, MonPic, PASS_LINE, PAST_TOTAL, PET_THRESHOLDS, PET_TYPES, PartyFace, PastSection, PetIcon, QuestionImages, RARITY, RARITY_RANK, REHEARSAL_DEFAULT, RPG_ACHIEVEMENTS, RPG_CLASSES, RPG_MATERIALS, RPG_SLOTS, RUNE_CRIT, RUNE_DMG, RUNE_FRAG, RUNE_GOLD, RUNE_SLOTS, RehearsalRun, RevealButton, RivalCard, RoadmapBanner, SEASON_RANKS, SEC_PASS, SKILL_RESET_COST, SKILL_TREE, SMAP_ORDER, SQ_CLEAR, SR_DEFAULTS, STAGE_URL, STORY_CHAPTERS, STUDY_GROUP_PASS, STUDY_PREFS, SkillCutIn, SkyLayer, Stat, StudyScopeBar, TAME_AT, TAME_DMG, TAME_EVERY, TOWER_LAYERS, TOWER_MAX, TOWER_PASS, TRAP_MARK, TrainingRoom, TreasureChest, WEAK_GRAD, WEEKLY_REWARD, XP_QA_REVENGE, YearFigures, addDays, alliesJoined, alliesReady, allyById, allyEvoStage, auraOf, backRow, backupCol, bankWorldId, battleParty, bondFx, bondLevel, bounties, bringIntoView, buildPoolFromBanks, byRegionOrder, calcDueList, calculateStatus, castleCtx, castleFloorOf, catCounts, chapterIndex, chipSt, choiceOf, chosenQual, classRankIndex, combatPower, correctDayStreak, curWorld, daysBetween, daysUntil, dexStatus, dungeonBestOf, effectiveSr, equippedWeaponId, eraLabel, estimateMinutes, examPlan, extractLawRefs, finishInfo, fmtEst, fmtMin, forgeCost, forgedFx, forgettingItems, formatErrTypes, fragCount, fxText, gapItems, getAwakening, getCharacterTier, getClassInfo, getFsrsScheduler, getLevelTitle, getPetInfo, getRpgBonuses, getTierLabel, getXpForNextLevel, hashStr, healthReport, heroEvoArt, heroStage, homeCharOf, homeSide, isCheckpoint, isQuestionAutoWeak, isQuestionWeak, isRadioQual, joinProg, journeyEvent, kjAutoHint, lawChangeOf, lawIndex, lawRefCounts, lawsInScope, loadLaw, longestStudyStreak, mainQual, makeBackup, markTraps, matById, monSpecies, monStandUrl, monsterFor, monthlyReport, nextTitles, normRpg, parseLocalDate, passChance, passPower, pastInp, pctTxt, planBankName, planBankOf, planToday, planTotal, powerLogOf, prevMonthOf, refsOfQ, regionCleared, regionConquest, regionInfo, regionQuests, regionRank, regionStageUrl, rehearsalCfg, renderFormattedText, renderQText, rewardText, rivalPowerAt, rollChest, rollRpgItem, rpgEquippedItems, rpgInvItem, rpgItemById, runeHits, runeName, runeRegions, scopedPlans, seasonPoints, seasonRank, seasonRewardText, setDisplay, setStatus, shuffle, shuffleArr, skillPointsTotal, skillPointsUsed, splitHits, sqOpen, sqStars, sqStarsOf, starBooks, startAllyTrial, storyClears, studyScope, subjectJobs, tatakiToday, themeOf, titleLeft, toFsrsCard, todayStr, towerLayer, uid, useLawChanges, usePastData, weekKey, weeklyReport, worldArc, worldChapters, worldOfQual, worldPassChance, worldsInUse, ymdCode };
+export { useWidthRef, narrowLayout, looksRadioBank, radioQualTarget, QuestFailGate, QuestFailBox, useBattleDown, SEASON_BOSSES, monumentOf, seasonBossNow, SEASON_BOSS_REWARD, localDateStr, levelPlan, levelApply, LEVEL_CAPS, LEVEL_SPREAD, featOn, ADV_CLASSES, ADV_NEED, ALLIES, ALLY_EVO, ALLY_SKILLS, ALLY_TRIAL_N, ALLY_TRIAL_PASS, ART_URL, AWAKEN_THRESHOLDS, AnswerHistory, AnswerPanel, BACKUP_KEEP, BASE_LINE, BATTLE, BATTLE_CSS, BATTLE_THEME, BOND_LV, BREW_RECIPES, BackRowAllies, BarCharPicker, BattleResult, BattleStage, Box, CASTLE_FLOORS, CAT_TIERS, CHIBI, CLASS_CHANGE_COST, ConfigToggle, DOC_LIMIT, DailyQuests, ERROR_TYPES, EVO_URL, FINISH_RETENTION, FORGE_MAX, FRAG_IDS, GACHA_COST, GACHA_PITY, GACHA_RATE, HERO_FACES, HERO_NAME, HERO_STAGES, HERO_STAGE_LV, HeroPortrait, HitNumbers, HyojiGrid, JOB_RANKS, JOURNEY_LEN, JOURNEY_PER, KEYCAP, KILL_TIERS, KJ_MARKS, KeySeq, KijutsuRun, KjFieldInput, KjSection, LAWS, LAW_BY_KEY, LUNA_CSS, LUNA_SKILLS, LapRecordsPanel, LawArticleModal, LawRefChips, LunaSprite, MASTERED_STABILITY, MON_BOSS, MON_MASK, MON_PAINTED, MON_STAND, MaterialIcon, Mini, MonPic, PASS_LINE, PAST_TOTAL, PET_THRESHOLDS, PET_TYPES, PartyFace, PastSection, PetIcon, QuestionImages, RARITY, RARITY_RANK, REHEARSAL_DEFAULT, RPG_ACHIEVEMENTS, RPG_CLASSES, RPG_MATERIALS, RPG_SLOTS, RUNE_CRIT, RUNE_DMG, RUNE_FRAG, RUNE_GOLD, RUNE_SLOTS, RehearsalRun, RevealButton, RivalCard, RoadmapBanner, SEASON_RANKS, SEC_PASS, SKILL_RESET_COST, SKILL_TREE, SMAP_ORDER, SQ_CLEAR, SR_DEFAULTS, STAGE_URL, STORY_CHAPTERS, STUDY_GROUP_PASS, STUDY_PREFS, SkillCutIn, SkyLayer, Stat, StudyScopeBar, TAME_AT, TAME_DMG, TAME_EVERY, TOWER_LAYERS, TOWER_MAX, TOWER_PASS, TRAP_MARK, TrainingRoom, TreasureChest, WEAK_GRAD, WEEKLY_REWARD, XP_QA_REVENGE, YearFigures, addDays, alliesJoined, alliesReady, allyById, allyEvoStage, auraOf, backRow, backupCol, bankWorldId, battleParty, bondFx, bondLevel, bounties, bringIntoView, buildPoolFromBanks, byRegionOrder, calcDueList, calculateStatus, castleCtx, castleFloorOf, catCounts, chapterIndex, chipSt, choiceOf, chosenQual, classRankIndex, combatPower, correctDayStreak, curWorld, daysBetween, daysUntil, dexStatus, dungeonBestOf, effectiveSr, equippedWeaponId, eraLabel, estimateMinutes, examPlan, extractLawRefs, finishInfo, fmtEst, fmtMin, forgeCost, forgedFx, forgettingItems, formatErrTypes, fragCount, fxText, gapItems, getAwakening, getCharacterTier, getClassInfo, getFsrsScheduler, getLevelTitle, getPetInfo, getRpgBonuses, getTierLabel, getXpForNextLevel, hashStr, healthReport, heroEvoArt, heroStage, homeCharOf, homeSide, isCheckpoint, isQuestionAutoWeak, isQuestionWeak, isRadioQual, joinProg, journeyEvent, kjAutoHint, lawChangeOf, lawIndex, lawRefCounts, lawsInScope, loadLaw, longestStudyStreak, mainQual, makeBackup, markTraps, matById, monSpecies, monStandUrl, monsterFor, monthlyReport, nextTitles, normRpg, parseLocalDate, passChance, passPower, pastInp, pctTxt, planBankName, planBankOf, planToday, planTotal, powerLogOf, prevMonthOf, refsOfQ, regionCleared, regionConquest, regionInfo, regionQuests, regionRank, regionStageUrl, rehearsalCfg, renderFormattedText, renderQText, rewardText, rivalPowerAt, rollChest, rollRpgItem, rpgEquippedItems, rpgInvItem, rpgItemById, runeHits, runeName, runeRegions, scopedPlans, seasonPoints, seasonRank, seasonRewardText, setDisplay, setStatus, shuffle, shuffleArr, skillPointsTotal, skillPointsUsed, splitHits, sqOpen, sqStars, sqStarsOf, starBooks, startAllyTrial, storyClears, studyScope, subjectJobs, tatakiToday, themeOf, titleLeft, toFsrsCard, todayStr, towerLayer, uid, useLawChanges, usePastData, weekKey, weeklyReport, worldArc, worldChapters, worldOfQual, worldPassChance, worldsInUse, ymdCode };
