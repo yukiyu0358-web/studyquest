@@ -8460,14 +8460,14 @@ const BATTLE_CSS = `
 @keyframes sqfPulse{0%,100%{box-shadow:0 0 0 0 rgba(214,181,106,0.55)}50%{box-shadow:0 0 0 6px rgba(214,181,106,0)}}
 `;
 
-function MonsterView({ m, anim, delay = 0, size = 92, hitAt = 0, lunge = false }) {
+function MonsterView({ m, anim, delay = 0, size = 92, hitAt = 0, lunge = false, labelW = 0 }) {
   const c = m.rank === "unknown" ? MON_UNKNOWN : m.th;
   const a = anim === "defeat" ? `sqxKnock .26s ease-out ${hitAt}s, sqbDefeat .6s ease-in ${hitAt + 0.2}s forwards`
     : anim === "escape" ? `${lunge ? "sqxLungeL .32s ease-in-out, " : ""}sqbEscape .75s ease-in-out ${lunge ? hitAt + 0.15 : hitAt + 0.1}s forwards`
     : `sqbEnter .35s ease-out ${delay}s both`;
   return (
     <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", animation: a }}>
-      <div className="jp" style={{ fontSize: 11, fontWeight: 700, color: m.rank === "elite" ? "#ffc2bc" : "#fdfbf5", background: "rgba(20,28,50,0.62)", padding: "0 8px", borderRadius: 999, whiteSpace: "nowrap", marginBottom: 3 }}>{m.rank === "unknown" ? "？？？" : m.name}</div>
+      <div className="jp" style={{ fontSize: labelW ? 9 : 11, fontWeight: 700, color: m.rank === "elite" ? "#ffc2bc" : "#fdfbf5", background: "rgba(20,28,50,0.62)", padding: labelW ? "0 5px" : "0 8px", borderRadius: 999, whiteSpace: "nowrap", marginBottom: 3, ...(labelW ? { maxWidth: labelW, overflow: "hidden", textOverflow: "ellipsis" } : {}) }}>{m.rank === "unknown" ? "？？？" : m.name}</div>
       <div style={{ width: 74, height: 5, borderRadius: 3, background: "rgba(0,0,0,0.15)", overflow: "hidden", marginBottom: 2 }}>
         <div style={{ height: "100%", width: "100%", background: m.rank === "elite" ? "linear-gradient(90deg,#a24a45,#e0948a)" : "linear-gradient(90deg,#c9564e,#e6a35c)", animation: anim === "defeat" ? "sqbHp .3s ease-out forwards" : undefined }} />
       </div>
@@ -8752,6 +8752,10 @@ function BattleStage({ state, q, bankName, battleKey, boss = false, scene: scene
     else BATTLE.pack = makePack(state, mon);
   }
   const pack = BATTLE.pack;
+  // 狭い画面で群れがいるとき：前の魔物を右へ寄せ（82%）、控えはルナと前の魔物のあいだに上下2段で並べる
+  const packN = !!(nl && pack && pack.list.length);
+  const monX = nl ? (packN ? Math.round(nl.w * 0.82) : nl.mx) : 0;
+  const pkS = sc * 0.85; // 狭い画面の控えの魔物の大きさ
   const hpPct = Math.max(0, Math.min(100, (BATTLE.hp / BATTLE.maxHp) * 100));
   const kind = mon.rank === "unknown" ? ["初見の魔物", "#5b6b8c"] : mon.rank === "elite" ? ["手強い魔物", "#a24a45"] : ["復習の魔物", "#4f8a72"];
   return (
@@ -8832,12 +8836,13 @@ function BattleStage({ state, q, bankName, battleKey, boss = false, scene: scene
         const down = x.hp === 0;
         if (down && !hit && !(fx && fx.packHit && fx.packHit.leaderDown)) return null;
         const on = pack.target === x.id && !down;
-        const pos = nl ? (pack.list.length === 1 || i === 0 ? { right: "24%", bottom: 60 } : { right: "-3%", bottom: 66 })
+        const pkW = Math.round((x.leader ? 120 : 104) * (nl ? pkS : 1));
+        const pos = nl ? { left: Math.round((nl.hx + monX) / 2) - Math.round(pkW / 2), bottom: pack.list.length === 1 ? 56 : i === 0 ? 18 : 95 }
           : pack.list.length === 1 ? { right: "30%", bottom: 50 } : i === 0 ? { right: "31%", bottom: 56 } : { right: "-1%", bottom: 62 };
         return (
-          <div key={x.id} onClick={() => { if (!down) { pack.target = x.id; setTick((v) => v + 1); } }} title="タップで狙う" style={{ position: "absolute", ...pos, width: Math.round((x.leader ? 120 : 104) * sc), height: Math.round((x.leader ? 140 : 120) * sc), zIndex: 0, cursor: down ? "default" : "pointer", filter: on ? "drop-shadow(0 0 6px rgba(242,193,78,0.9))" : "brightness(0.85)" }}>
-            {down ? <MonsterView key={`pkd${x.id}${fx ? fx.n : 0}`} m={x.m} anim={x.fled ? "escape" : "defeat"} hitAt={fx ? fx.t || 0 : 0} size={Math.round((x.leader ? 112 : 96) * sc)} />
-              : <div style={{ animation: hit ? `sqbHurt .45s ease-out ${(fx.t || 0) + 0.1}s` : undefined }}><MonsterView key={`pk${x.id}`} m={x.m} anim="enter" size={Math.round((x.leader ? 112 : 96) * sc)} /></div>}
+          <div key={x.id} onClick={() => { if (!down) { pack.target = x.id; setTick((v) => v + 1); } }} title="タップで狙う" style={{ position: "absolute", ...pos, width: pkW, height: Math.round((x.leader ? 140 : 120) * (nl ? pkS : 1)), zIndex: 0, cursor: down ? "default" : "pointer", filter: on ? "drop-shadow(0 0 6px rgba(242,193,78,0.9))" : "brightness(0.85)" }}>
+            {down ? <MonsterView key={`pkd${x.id}${fx ? fx.n : 0}`} m={x.m} anim={x.fled ? "escape" : "defeat"} hitAt={fx ? fx.t || 0 : 0} size={Math.round((x.leader ? 112 : 96) * (nl ? pkS : 1))} labelW={nl ? 64 : 0} />
+              : <div style={{ animation: hit ? `sqbHurt .45s ease-out ${(fx.t || 0) + 0.1}s` : undefined }}><MonsterView key={`pk${x.id}`} m={x.m} anim="enter" size={Math.round((x.leader ? 112 : 96) * (nl ? pkS : 1))} labelW={nl ? 64 : 0} /></div>}
             {!down && (
               <div style={{ position: "absolute", left: "50%", top: -18, transform: "translateX(-50%)", display: "flex", gap: 2, alignItems: "center", zIndex: 2 }}>
                 {x.leader && <span style={{ fontSize: 11 }}>👑</span>}
@@ -8857,9 +8862,9 @@ function BattleStage({ state, q, bankName, battleKey, boss = false, scene: scene
       {pack && pack.list.some((x) => x.hp > 0) && !fx && <div className="jp" style={{ position: "absolute", right: 8, top: 8, fontSize: 9, color: "#fdfbf5", background: "rgba(20,28,50,0.5)", padding: "1px 6px", borderRadius: 999, zIndex: 3 }}>群れ {pack.list.filter((x) => x.hp > 0).length}体　タップで狙う</div>}
       {fx && !fx.ok && fx.packAtk > 0 && <div key={`pa${fx.n}`} className="jp" style={{ position: "absolute", right: "28%", top: 40, fontSize: 11, fontWeight: 800, color: "#ffc2bc", textShadow: "0 1px 3px rgba(0,0,0,0.8)", animation: `sqbRed .9s ease-out ${(fx.t || 0) + 0.2}s both`, pointerEvents: "none", zIndex: 4 }}>群れの追い打ち！</div>}
       {/* 魔物 */}
-      <div style={nl ? { position: "absolute", right: nl.w - nl.mx - Math.round(85 * sc), bottom: Math.round(20 + 76 * (1 - sc)), width: Math.round(170 * sc), height: Math.round(214 * sc), zIndex: 1 } : { position: "absolute", right: "10%", bottom: 20, width: 170, height: 214, zIndex: 1 }}>
-        {fx && <MonsterView key={`leave${fx.n}`} m={fx.mon} anim={fx.ok ? "defeat" : "escape"} hitAt={fx.t || 0} lunge={!fx.ok && fx.atk && ["tackle", "bite", "claw"].includes(fx.atk.kind)} size={Math.round(152 * sc)} />}
-        {showCur && <MonsterView key={`m${mon.key}`} m={mon} anim="enter" delay={fx ? 0.45 + (fx.t || 0) : 0} size={Math.round(152 * sc)} />}
+      <div style={nl ? { position: "absolute", right: nl.w - monX - Math.round(85 * sc), bottom: Math.round(20 + 76 * (1 - sc)), width: Math.round(170 * sc), height: Math.round(214 * sc), zIndex: 1 } : { position: "absolute", right: "10%", bottom: 20, width: 170, height: 214, zIndex: 1 }}>
+        {fx && <MonsterView key={`leave${fx.n}`} m={fx.mon} anim={fx.ok ? "defeat" : "escape"} hitAt={fx.t || 0} lunge={!fx.ok && fx.atk && ["tackle", "bite", "claw"].includes(fx.atk.kind)} size={Math.round(152 * sc)} labelW={nl ? (packN ? 120 : 150) : 0} />}
+        {showCur && <MonsterView key={`m${mon.key}`} m={mon} anim="enter" delay={fx ? 0.45 + (fx.t || 0) : 0} size={Math.round(152 * sc)} labelW={nl ? (packN ? 120 : 150) : 0} />}
         {fx && fx.ok && (
           <>
             <HitNumbers fx={fx} left="50%" top="24%" />
@@ -8884,7 +8889,7 @@ function BattleStage({ state, q, bankName, battleKey, boss = false, scene: scene
         </div>
       )}
       {/* 技の演出と名前 */}
-      {fx && <AttackFx key={`fx${fx.n}`} fx={fx} H={nl ? [`${nl.hx}px`, "calc(100% - 116px)"] : ["40%", "calc(100% - 80px)"]} M={nl ? [`${nl.mx}px`, "calc(100% - 110px)"] : ["calc(90% - 85px)", "calc(100% - 100px)"]} />}
+      {fx && <AttackFx key={`fx${fx.n}`} fx={fx} H={nl ? [`${nl.hx}px`, "calc(100% - 116px)"] : ["40%", "calc(100% - 80px)"]} M={nl ? [`${monX}px`, "calc(100% - 110px)"] : ["calc(90% - 85px)", "calc(100% - 100px)"]} />}
       {fx && <SkillBanner fx={fx} />}
       {/* 被ダメージの赤いふち */}
       {fx && !fx.ok && <div key={`r${fx.n}`} style={{ position: "absolute", inset: 0, pointerEvents: "none", boxShadow: "inset 0 0 40px rgba(201,74,74,0.55)", animation: `sqbRed .5s ease-out ${fx.t || 0}s both` }} />}

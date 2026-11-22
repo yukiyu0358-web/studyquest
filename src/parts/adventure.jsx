@@ -3056,8 +3056,8 @@ function BossArena({ state, boss, bossHp, hp, maxHp, fx, combo, dying, party = [
       </div>
       {/* ボス */}
       {/* 敵の後衛（手下） */}
-      {minions.map((mn, k) => (
-        <div key={mn.img + k} style={{ position: "absolute", right: k ? "2%" : nl ? "36%" : "44%", bottom: k ? "50%" : "45%", width: Math.round(74 * sc), height: Math.round(74 * sc), zIndex: 0, filter: "brightness(0.85) saturate(0.9)", animation: dying === "boss" ? "sqyDie 1.2s ease-in forwards" : fx && fx.side === "hero" && fx.crit ? `sqxKnock .3s ease-out ${t}s` : `sqyFloat ${2.6 + k * 0.5}s ease-in-out infinite` }}>
+      {(nl ? minions.slice(0, 1) : minions).map((mn, k) => (
+        <div key={mn.img + k} style={{ position: "absolute", ...(nl ? { left: Math.round((nl.hx + nl.mx) / 2 - nl.w * 0.04) - Math.round(37 * sc), bottom: 150 } : { right: k ? "2%" : "44%", bottom: k ? "50%" : "45%" }), width: Math.round(74 * sc), height: Math.round(74 * sc), zIndex: 0, filter: "brightness(0.85) saturate(0.9)", animation: dying === "boss" ? "sqyDie 1.2s ease-in forwards" : fx && fx.side === "hero" && fx.crit ? `sqxKnock .3s ease-out ${t}s` : `sqyFloat ${2.6 + k * 0.5}s ease-in-out infinite` }}>
           <MonPic m={{ sp: mn }} size={Math.round(74 * sc)} />
         </div>
       ))}
