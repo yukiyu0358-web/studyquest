@@ -1242,7 +1242,10 @@ function PushSettings({ uid: userId }) {
   );
 }
 
-function DisplaySettingsPanel({ settings, onChange, onClose, uid: userId, onReset }) {
+// 記録（ステータス）を隠したときは、控えと健康診断を⚙設定に出す（parts/status.jsx から借りる）
+const HealthPanelLazy = lazyPart(() => import("./parts/status.jsx"), "HealthPanel");
+const BackupPanelLazy = lazyPart(() => import("./parts/status.jsx"), "BackupPanel");
+function DisplaySettingsPanel({ settings, onChange, onClose, uid: userId, onReset, state }) {
   const ds = { ...DISPLAY_DEFAULTS, ...(settings || {}) };
   return (
     <div className="rpg-box mb-4 p-1">
@@ -1312,6 +1315,13 @@ function DisplaySettingsPanel({ settings, onChange, onClose, uid: userId, onRese
           甲建物の附属建物を分割して乙建物の附属建物に合併する建物の分割の登記及び建物の合併の登記の申請は、一の申請情報によってすることができる。
         </div>
         <p className="jp text-[10px] mt-2" style={{ color: "var(--ink-mute)" }}>フォントと大きさは問題文と答えの表示に使われます。設定はほかの端末にも同期されます。</p>
+        {state && userId && featOffIn(ds.featuresOff, "noteStatus") && (
+          <div className="mt-3">
+            <div className="jp text-xs mb-1" style={{ color: "var(--ink-soft)" }}>データの健康診断・学習記録の控え（手帳の「記録」を隠しているあいだはここに）</div>
+            <HealthPanelLazy state={state} />
+            <BackupPanelLazy state={state} uid={userId} />
+          </div>
+        )}
         {onReset && <ResetPanel uid={userId} onReset={onReset} />}
       </div>
     </div>
@@ -1521,22 +1531,33 @@ const FEATURES = [
   { id: "studyGroup", name: "仲間の勉強会", where: "冒険の塔" },
   { id: "forest", name: "迷いの森", where: "冒険の塔" },
   { id: "endless", name: "無限回廊", where: "冒険の塔" },
+  // 手帳の画面（2026年11月24日。はじめは隠す＝defOff。記録を隠すと、控えと健康診断は⚙設定の中に出る）
+  { id: "noteStatus", name: "記録（ステータス）", where: "はじまりの街の手帳", defOff: true },
+  { id: "noteTask", name: "タスク", where: "はじまりの街の手帳", defOff: true },
+  { id: "noteTimer", name: "時間", where: "はじまりの街の手帳", defOff: true },
+  { id: "noteMemo", name: "メモ", where: "はじまりの街の手帳", defOff: true },
+  { id: "noteRules", name: "ルール帳", where: "はじまりの街の手帳", defOff: true },
 ];
 const FEATURES_OFF = {};
-const featOn = (id) => !FEATURES_OFF[id];
+const FEAT_DEF_OFF = new Set(FEATURES.filter((f) => f.defOff).map((f) => f.id));
+// featuresOff の値：true＝隠す・false＝出す（defOff の機能を出すとき）・なし＝既定
+const featOffIn = (off, id) => (off && id in off ? !!off[id] : FEAT_DEF_OFF.has(id));
+const featOn = (id) => !featOffIn(FEATURES_OFF, id);
 function FeatureSettings({ ds, onChange }) {
   const off = ds.featuresOff || {};
   const groups = [...new Set(FEATURES.map((f) => f.where))];
-  const toggle = (id) => { const nx = { ...off }; if (nx[id]) delete nx[id]; else nx[id] = true; onChange({ featuresOff: nx }); };
+  const isOff = (id) => featOffIn(off, id);
+  const toggle = (id) => { const nx = { ...off }; const v = !isOff(id); if (v === FEAT_DEF_OFF.has(id)) delete nx[id]; else nx[id] = v; onChange({ featuresOff: nx }); };
+  const anyOff = FEATURES.some((f) => isOff(f.id));
   return (
     <div className="mb-3">
-      <div className="jp text-xs mb-1 flex items-center" style={{ color: "var(--ink-soft)" }}><span className="flex-1">使う機能（☐ にした機能は画面から隠れます。記録は消えません）</span>{Object.keys(off).length > 0 && <button onClick={() => onChange({ featuresOff: {} })} className="text-[10px] underline" style={{ background: "none", border: "none", color: "var(--sky-deep)", cursor: "pointer" }}>すべて表示にもどす</button>}</div>
+      <div className="jp text-xs mb-1 flex items-center" style={{ color: "var(--ink-soft)" }}><span className="flex-1">使う機能（☐ にした機能は画面から隠れます。記録は消えません）</span>{anyOff && <button onClick={() => onChange({ featuresOff: Object.fromEntries(FEATURES.map((f) => [f.id, false])) })} className="text-[10px] underline" style={{ background: "none", border: "none", color: "var(--sky-deep)", cursor: "pointer" }}>すべて表示にもどす</button>}</div>
       {groups.map((g) => (
         <div key={g} className="mb-1.5">
           <div className="jp text-[10px] mb-0.5" style={{ color: "var(--ink-mute)", fontWeight: 700 }}>{g}</div>
           <div className="grid grid-cols-2 gap-1">
             {FEATURES.filter((f) => f.where === g).map((f) => (
-              <button key={f.id} onClick={() => toggle(f.id)} className="jp text-left text-[11px] px-2 py-1" style={{ background: "var(--paper)", color: off[f.id] ? "var(--ink-mute)" : "var(--ink)", border: "1px solid var(--rule-soft)", borderRadius: 6 }}>{off[f.id] ? "☐" : "☑"} {f.name}</button>
+              <button key={f.id} onClick={() => toggle(f.id)} className="jp text-left text-[11px] px-2 py-1" style={{ background: "var(--paper)", color: isOff(f.id) ? "var(--ink-mute)" : "var(--ink)", border: "1px solid var(--rule-soft)", borderRadius: 6 }}>{isOff(f.id) ? "☐" : "☑"} {f.name}</button>
             ))}
           </div>
         </div>
@@ -1960,6 +1981,10 @@ function App() {
 // ============ Main StudyRPG ============
 const MAX_TIMER_MS = 6 * 60 * 60 * 1000; // 6時間（異常タイマー検知の閾値）
 const NOTE_TABS = ["status", "task", "timer", "memo", "rules", "quotes", "qual"]; // 下のタブ「手帳」にまとめた画面（記録＝ステータスもここに）
+const NOTE_LABEL = { status: "記録", task: "タスク", timer: "時間", memo: "メモ", rules: "ルール帳", quotes: "名言", qual: "資格" };
+const NOTE_FEAT = { status: "noteStatus", task: "noteTask", timer: "noteTimer", memo: "noteMemo", rules: "noteRules" }; // 使う機能で隠せる手帳の画面
+const noteTabOn = (t) => !NOTE_FEAT[t] || featOn(NOTE_FEAT[t]);
+const noteTabsOn = () => NOTE_TABS.filter(noteTabOn);
 // 下のタブ「周回」にまとめた画面（2026年10月22日）：問題集・計画と記録・記述式・計算・弱点と分析。laps は中の画面 lapView で分ける
 const LAP_TABS = [["qbank", null, "問題集"], ["laps", "plan", "計画・記録"], ["laps", "kijutsu", "記述式"], ["laps", "weak", "弱点・分析"]];
 // 学びの地図（2026年10月22日）：タイトル画面で試験を選んだあとの画面。塔をタップすると、その画面へ（下のタブは 地図・今日・手帳 だけ）
@@ -1987,6 +2012,9 @@ function StudyRPG({ user }) {
   const [lapView, setLapView] = useState("plan"); // 「周回」タブの中の画面（plan・kijutsu・weak）
   const lastLap = useRef(["laps", "plan"]); // 「周回」タブで最後に開いていた画面
   useEffect(() => { if (NOTE_TABS.includes(tab)) lastNoteTab.current = tab; }, [tab]);
+  // 使う機能で隠した手帳の画面は開かない（ステータスへのリンクなどからはホームへ）
+  const noteOffKey = JSON.stringify((state && state.displaySettings && state.displaySettings.featuresOff) || {});
+  useEffect(() => { if (NOTE_TABS.includes(tab) && !noteTabOn(tab)) setTab("home"); }, [tab, noteOffKey]);
   Object.assign(STUDY_PREFS, STUDY_DEFAULTS, (state.displaySettings && state.displaySettings.study) || {});
   Object.keys(FEATURES_OFF).forEach((k) => { delete FEATURES_OFF[k]; }); Object.assign(FEATURES_OFF, (state.displaySettings && state.displaySettings.featuresOff) || {});
   // 問題を id で書きかえる（自分ルール・メモへの追記）。patch は値か、問題を受け取って値を返す関数
@@ -4425,7 +4453,7 @@ function StudyRPG({ user }) {
         </div>
 
         <QTextStyle settings={state.displaySettings} />
-        {showDisplaySettings && <DisplaySettingsPanel settings={state.displaySettings} onChange={updateDisplaySettings} onClose={() => setShowDisplaySettings(false)} uid={user.uid} onReset={async (parts) => { if (cloudLoadFailed.current) throw new Error("クラウドの記録を読めていません"); await makeBackup(user.uid, stateRef.current); setState((s) => resetProgress(s, parts)); setTab("map"); }} />}
+        {showDisplaySettings && <DisplaySettingsPanel state={state} settings={state.displaySettings} onChange={updateDisplaySettings} onClose={() => setShowDisplaySettings(false)} uid={user.uid} onReset={async (parts) => { if (cloudLoadFailed.current) throw new Error("クラウドの記録を読めていません"); await makeBackup(user.uid, stateRef.current); setState((s) => resetProgress(s, parts)); setTab("map"); }} />}
         {showLawSearch && <LawSearchPanel banks={state.questionBanks} onClose={() => setShowLawSearch(false)} />}
         {showRoadmap && <RoadmapModal state={state} updateRoadmap={updateRoadmap} onClose={() => setShowRoadmap(false)} />}
 
@@ -4464,7 +4492,7 @@ function StudyRPG({ user }) {
           {TOWN_OF_TAB[tab] === "home" && (
             <div className="grid grid-cols-3 gap-1 p-1 mb-3" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)", borderRadius: 999 }}>
               {TOWN_TABS.map(([id, label]) => { const on = id === "notebook" ? NOTE_TABS.includes(tab) : tab === id; const n = id === "today" ? getTodayReviewItems().length : 0; return (
-                <button key={id} onClick={() => { setTab(id === "notebook" ? lastNoteTab.current : id); window.scrollTo(0, 0); }} className="jp py-1.5 text-xs relative" style={{ borderRadius: 999, border: "none", fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap", background: on ? "linear-gradient(180deg, #cfae62, #a8833a)" : "transparent", color: on ? "#fffdf6" : "var(--ink-soft)" }}>
+                <button key={id} onClick={() => { setTab(id === "notebook" ? (noteTabOn(lastNoteTab.current) ? lastNoteTab.current : noteTabsOn()[0] || "qual") : id); window.scrollTo(0, 0); }} className="jp py-1.5 text-xs relative" style={{ borderRadius: 999, border: "none", fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap", background: on ? "linear-gradient(180deg, #cfae62, #a8833a)" : "transparent", color: on ? "#fffdf6" : "var(--ink-soft)" }}>
                   {label}{n > 0 && <span className="ml-1 px-1.5 text-[10px]" style={{ background: "var(--brick)", color: "#fff", borderRadius: 999 }}>{n}</span>}
                 </button>
               ); })}
@@ -4498,8 +4526,8 @@ function StudyRPG({ user }) {
           {tab === "today" && <TodayTab header={<>{rmShow(state) && <TodayThree state={state} actions={rpgActions} />}{state.questionBanks.length > 0 && featOn("gap") && <GapTime state={state} />}</>} state={state} recordSRAnswer={recordSRAnswer} updateSrSettings={updateSrSettings} startTimer={startTimer} stopTimer={stopTimer} toggleQuestionMark={toggleQuestionMark} rpgActionsForPairs={rpgActions} preset={quickPreset} onPresetUsed={() => setQuickPreset(null)} planActions={planActions} />}
           {tab === "adventure" && <AdventureTab state={state} actions={rpgActions} recordAnswer={recordAnswer} startTimer={startTimer} stopTimer={stopTimer} todayCount={getTodayReviewItems().length} />}
           {NOTE_TABS.includes(tab) && (
-            <div className="grid grid-cols-7 gap-1 p-1 mb-3" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)", borderRadius: 999 }}>
-              {[["status", "記録"], ["task", "タスク"], ["timer", "時間"], ["memo", "メモ"], ["rules", "ルール帳"], ["quotes", "名言"], ["qual", "資格"]].map(([id, label]) => (
+            <div className="grid gap-1 p-1 mb-3" style={{ gridTemplateColumns: `repeat(${noteTabsOn().length}, minmax(0, 1fr))`, background: "var(--paper)", border: "1px solid var(--rule-soft)", borderRadius: 999 }}>
+              {noteTabsOn().map((id) => [id, NOTE_LABEL[id]]).map(([id, label]) => (
                 <button key={id} onClick={() => { lastNoteTab.current = id; setTab(id); }} className="jp py-1.5 text-[10px] md:text-xs" style={{ whiteSpace: "nowrap", borderRadius: 999, border: "none", fontWeight: 700, cursor: "pointer", background: tab === id ? "linear-gradient(180deg, #cfae62, #a8833a)" : "transparent", color: tab === id ? "#fffdf6" : "var(--ink-soft)" }}>{label}</button>
               ))}
             </div>

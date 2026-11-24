@@ -687,4 +687,4 @@ function getJobAccent(job) {
   return "#5d7894";
 }
 
-export { StatusTab };
+export { StatusTab, HealthPanel, BackupPanel };
