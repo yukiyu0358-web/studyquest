@@ -9965,6 +9965,24 @@ function TownImage({ stage, height = 220 }) {
 // 取った資格を本のように並べる。アプリで「取得済み」にした資格（qualifications の acquired）と、
 // アプリの外で取った資格（state.qualShelf.items = [{id, name, date, memo, img, color}]）。
 // アプリの資格の写真・ひとことは state.qualShelf.meta[資格id] = {img, memo}。写真は問題の画像と同じ userdata/{uid}/images に圧縮して入れる
+// 資格の本の絵（2026年11月24日。利用者の「資格の本棚」フォルダの12資格の表紙・背表紙 → public/art/shelf/{key}-spine.webp・-cover.webp）
+// 名前で合わせる（技術士補を技術士より先に）。絵のない資格は今までどおり色の背表紙
+const SHELF_ART = [
+  { key: "chosashi", name: "土地家屋調査士", re: /土地家屋調査士/ },
+  { key: "rikutoku2", name: "第二級陸上特殊無線技士", re: /[二2２]級陸上特殊無線|二陸特/ },
+  { key: "ama4", name: "第四級アマチュア無線技士", re: /[四4４]級アマチュア無線|[4４四]アマ/ },
+  { key: "gyosei", name: "行政書士", re: /行政書士/ },
+  { key: "takken", name: "宅地建物取引士", re: /宅地建物取引|宅建/ },
+  { key: "gishiho", name: "技術士補", re: /技術士補/ },
+  { key: "gishi", name: "技術士", re: /技術士(?!補)/ },
+  { key: "kenchiku2", name: "２級建築士", re: /[二2２]級建築士/ },
+  { key: "kenchiku1", name: "１級建築士", re: /[一1１]級建築士/ },
+  { key: "doboku2", name: "２級土木施工管理技士", re: /[二2２]級土木施工管理/ },
+  { key: "doboku1", name: "１級土木施工管理技士", re: /[一1１]級土木施工管理/ },
+  { key: "shiho", name: "司法書士", re: /司法書士/ },
+];
+const shelfArtOf = (name) => SHELF_ART.find((a) => a.re.test(String(name || ""))) || null;
+const shelfArtUrl = (a, kind) => `${ART_URL}shelf/${a.key}-${kind}.webp`;
 function shelfBooks(state) {
   const sh = state.qualShelf || {};
   const meta = sh.meta || {};
@@ -9980,8 +9998,8 @@ function shelfBooks(state) {
       icon: worldOfQual(q).icon || "📜", img: (meta[q.id] || {}).img || null, memo: (meta[q.id] || {}).memo || "" };
   });
   const ext = (sh.items || []).map((x) => ({ key: "x:" + x.id, src: "ext", id: x.id, name: x.name, date: x.date || "", color: x.color || QUAL_COLORS[1], icon: "📜", img: x.img || null, memo: x.memo || "" }));
-  // 取った日の古い順（日付のないものは最後）
-  return [...app, ...ext].sort((a, b) => (a.date || "9999") < (b.date || "9999") ? -1 : (a.date || "9999") > (b.date || "9999") ? 1 : 0);
+  // 取った日の古い順（日付のないものは最後）。絵のある資格は art
+  return [...app, ...ext].map((b) => ({ ...b, art: shelfArtOf(b.name) })).sort((a, b) => (a.date || "9999") < (b.date || "9999") ? -1 : (a.date || "9999") > (b.date || "9999") ? 1 : 0);
 }
 const shelfDate = (d) => (d ? d.replace(/-/g, "/") : "日付なし");
 // 本の背表紙（縦書きの名前）
@@ -9990,6 +10008,13 @@ function ShelfSpine({ b, onOpen }) {
   const hv = hashStr(b.key);
   const h = 118 + (hv % 4) * 6;
   const w = 34 + (hv % 3) * 4;
+  if (b.art) return (
+    <button onClick={() => onOpen(b.key)} title={`${b.name}（${shelfDate(b.date)}）`} className="flex-shrink-0 relative"
+      style={{ height: 184, padding: 0, border: "none", background: "none", cursor: "pointer", filter: "drop-shadow(1px 2px 2px rgba(0,0,0,0.3))" }}>
+      <img src={shelfArtUrl(b.art, "spine")} alt={b.name} draggable={false} style={{ height: 184, width: "auto", display: "block" }} />
+      {b.src === "app" && <span style={{ position: "absolute", left: "50%", top: 1, transform: "translateX(-50%)", fontSize: 9, color: "#f2c14e", textShadow: "0 1px 2px rgba(0,0,0,0.6)" }}>★</span>}
+    </button>
+  );
   return (
     <button onClick={() => onOpen(b.key)} title={`${b.name}（${shelfDate(b.date)}）`} className="flex-shrink-0 flex flex-col items-center justify-between py-1.5"
       style={{ width: w, height: h, border: "none", borderRadius: "3px 3px 1px 1px", cursor: "pointer", color: "#fffdf6",
@@ -10001,17 +10026,20 @@ function ShelfSpine({ b, onOpen }) {
     </button>
   );
 }
+// コレクション：絵のある12資格のうち、本棚に並んだもの
+const shelfGot = (books) => new Set(books.filter((b) => b.art).map((b) => b.art.key));
 function QualShelf({ state, onUpdate }) {
   const books = shelfBooks(state);
+  const got = shelfGot(books);
   const [open, setOpen] = useState(null); // null＝閉じている、"all"＝本棚の全体、"q:…"／"x:…"＝その本
   return (
     <div className="mb-4 p-3" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)", borderRadius: 12 }}>
       <div className="flex items-center justify-between gap-2 mb-2">
-        <div className="jp" style={{ fontWeight: 800, color: "var(--ink)" }}>📚 資格の本棚 <span className="text-[11px]" style={{ color: "var(--ink-mute)", fontWeight: 600 }}>{books.length ? `${books.length}冊` : ""}</span></div>
+        <div className="jp" style={{ fontWeight: 800, color: "var(--ink)" }}>📚 資格の本棚 <span className="text-[11px]" style={{ color: "var(--ink-mute)", fontWeight: 600 }}>{books.length ? `${books.length}冊` : ""}</span><span className="text-[10px] ml-2 px-1.5" style={{ borderRadius: 999, background: "rgba(176,138,62,0.15)", color: "#8a6a2a", fontWeight: 700 }}>コレクション {got.size} / {SHELF_ART.length}</span></div>
         <button onClick={() => setOpen("all")} className="btn-ghost px-2 py-0.5 text-[11px]">{books.length ? "本棚をひらく" : "＋ 資格を加える"}</button>
       </div>
       <div className="relative" style={{ borderRadius: 6, padding: "10px 10px 0", background: "linear-gradient(180deg, rgba(120,84,40,0.16), rgba(120,84,40,0.06))" }}>
-        <div className="flex items-end gap-[3px] overflow-x-auto" style={{ minHeight: 136 }}>
+        <div className="flex items-end gap-[3px] overflow-x-auto" style={{ minHeight: books.some((b) => b.art) ? 190 : 136, overflowY: "hidden" }}>
           {books.map((b) => <ShelfSpine key={b.key} b={b} onOpen={setOpen} />)}
           {books.length === 0 && <div className="jp text-[11px] self-center py-6 px-2" style={{ color: "var(--ink-mute)" }}>取った資格が、ここに本のように並びます。手帳の資格で「取得済み」にするか、前に取った資格を加えてください。</div>}
         </div>
@@ -10032,6 +10060,7 @@ function QualShelfModal({ state, books, open, setOpen, onUpdate }) {
   const photoFor = useRef(null);
   const one = open !== "all" ? books.find((b) => b.key === open) : null;
   const list = one ? [one] : books;
+  const got = shelfGot(books);
   // 本の情報を書きかえる（アプリの資格は meta、自分で加えた資格は items）
   const patch = (b, p) => onUpdate((sh) => b.src === "app"
     ? { ...sh, meta: { ...(sh.meta || {}), [b.id]: { ...((sh.meta || {})[b.id] || {}), ...p } } }
@@ -10085,11 +10114,26 @@ function QualShelfModal({ state, books, open, setOpen, onUpdate }) {
             <button onClick={() => setOpen(null)} className="btn-ghost px-2 py-0.5 text-[11px]">✕ 閉じる</button>
           </div>
         </div>
+        {!one && (
+          // 資格のコレクション：取った資格は表紙の絵、まだの資格は影。まだの資格を押すと「前に取った資格」として加えられる
+          <div className="p-2" style={{ border: "1px solid var(--rule-soft)", borderRadius: 10, background: "linear-gradient(180deg, rgba(120,84,40,0.10), rgba(120,84,40,0.03))" }}>
+            <div className="flex items-baseline gap-2 mb-1.5"><span className="jp text-[13px]" style={{ fontWeight: 800 }}>📖 資格のコレクション</span><span className="text-[11px]" style={{ color: "var(--ink-soft)" }}>{got.size} / {SHELF_ART.length}</span><span className="flex-1" /><span className="text-[10px]" style={{ color: "var(--ink-mute)" }}>取得済みにすると本が届きます</span></div>
+            <div className="grid grid-cols-4 sm:grid-cols-6 gap-1.5">
+              {SHELF_ART.map((a) => { const has = got.has(a.key); const b = has ? books.find((x) => x.art && x.art.key === a.key) : null; return (
+                <button key={a.key} onClick={() => { if (b) setOpen(b.key); else { setForm({ name: a.name, date: "", memo: "" }); setAdding(true); setMsg(""); } }} title={has ? a.name : `${a.name}（まだ）`}
+                  className="flex flex-col items-center gap-0.5 p-0.5" style={{ border: "none", background: "none", cursor: "pointer" }}>
+                  <img src={shelfArtUrl(a, "cover")} alt={a.name} loading="lazy" draggable={false} style={{ width: "100%", aspectRatio: "450 / 560", objectFit: "contain", filter: has ? "drop-shadow(0 2px 3px rgba(0,0,0,0.3))" : "grayscale(1) brightness(0.55) opacity(0.35)" }} />
+                  <span className="jp text-[9px] leading-tight text-center" style={{ color: has ? "var(--ink)" : "var(--ink-mute)", fontWeight: has ? 700 : 400 }}>{has ? (b.src === "app" ? "★ " : "") : ""}{a.name}</span>
+                </button>
+              ); })}
+            </div>
+          </div>
+        )}
         {!one && books.length > 0 && <p className="text-[11px]" style={{ color: "var(--ink-mute)" }}>取った日の古い順に並んでいます。★ はこのアプリで勉強して取った資格です。押すと、写真やひとことを付けられます。</p>}
         {!one && list.map((b) => (
           // 本棚の全体：1冊を1行で。押すとその本（書きかえはそこで）
           <div key={b.key} role="button" tabIndex={0} onClick={() => setOpen(b.key)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setOpen(b.key); } }} className="w-full text-left flex items-center gap-3 p-2" style={{ border: "1px solid var(--rule-soft)", borderRadius: 10, background: "var(--cream)", cursor: "pointer", color: "var(--ink)" }}>
-            <span className="flex-shrink-0 self-stretch" style={{ width: 8, borderRadius: 3, background: b.color }} />
+            {b.art ? <img src={shelfArtUrl(b.art, "cover")} alt="" className="flex-shrink-0" style={{ height: 48, width: "auto" }} /> : <span className="flex-shrink-0 self-stretch" style={{ width: 8, borderRadius: 3, background: b.color }} />}
             <span className="flex-1 min-w-0">
               <span className="jp block" style={{ fontWeight: 800, wordBreak: "break-all" }}>{b.src === "app" ? `★ ${b.icon} ` : "📜 "}{b.name}</span>
               <span className="block text-[11px]" style={{ color: "var(--ink-soft)" }}>{shelfDate(b.date)}{b.memo ? `・${b.memo}` : ""}</span>
@@ -10100,7 +10144,7 @@ function QualShelfModal({ state, books, open, setOpen, onUpdate }) {
         ))}
         {one && list.map((b) => (
           <div key={b.key} className="flex gap-3 p-2" style={{ border: "1px solid var(--rule-soft)", borderRadius: 10, background: "var(--cream)" }}>
-            <div className="flex-shrink-0" style={{ width: 10, borderRadius: 3, background: b.color }} />
+            {b.art ? <img src={shelfArtUrl(b.art, "cover")} alt={b.name} className="flex-shrink-0 self-start" style={{ width: 96, height: "auto", filter: "drop-shadow(0 3px 4px rgba(0,0,0,0.3))" }} /> : <div className="flex-shrink-0" style={{ width: 10, borderRadius: 3, background: b.color }} />}
             <div className="flex-1 min-w-0 space-y-1">
               <div className="flex items-start justify-between gap-2">
                 <div className="jp" style={{ fontWeight: 800, wordBreak: "break-all" }}>{b.src === "app" ? `${b.icon} ` : "📜 "}{b.name}</div>
