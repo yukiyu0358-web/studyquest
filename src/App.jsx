@@ -990,6 +990,7 @@ const HOME_BLOCKS = [
   { id: "events", name: "開催中のイベント" },
   { id: "guide", name: "今日の道しるべ" },
   { id: "quest", name: "今日のクエスト" },
+  { id: "shelf", name: "資格の本棚" },
   { id: "quals", name: "資格の進捗" },
 ];
 const HOME_TOP_PARTS = [{ id: "hero", name: "主人公の立ち絵とステータス" }, { id: "menu", name: "道しるべ（メニュー）" }, { id: "mentor", name: "吹き出し（名言）" }];
@@ -3763,6 +3764,8 @@ function StudyRPG({ user }) {
   const updatePreset = (id, patch) => setState((s) => ({ ...s, taskPresets: s.taskPresets.map((p) => p.id === id ? { ...p, ...patch } : p) }));
 
   const addQual = (q) => setState((s) => ({ ...s, qualifications: [...s.qualifications, { id: uid(), name: q.name, examDate: q.examDate, targetHours: Number(q.targetHours) || 0, color: QUAL_COLORS[s.qualifications.length % QUAL_COLORS.length], acquired: false, world: q.world || "own" }] }));
+  // 資格の本棚（state.qualShelf = {items, meta}）
+  const updateQualShelf = (fn) => setState((s) => ({ ...s, qualShelf: fn(s.qualShelf || {}) }));
   const deleteQual = (id) => setState((s) => ({ ...s, qualifications: s.qualifications.filter((q) => q.id !== id), tasks: s.tasks.map((t) => t.qualId === id ? { ...t, qualId: null } : t), taskPresets: s.taskPresets.map((p) => p.qualId === id ? { ...p, qualId: null } : p), questionBanks: s.questionBanks.map((b) => b.qualId === id ? { ...b, qualId: null } : b), studyLog: s.studyLog.filter((l) => l.qualId !== id) }));
   const updateQual = (id, patch) => setState((s) => ({ ...s, qualifications: s.qualifications.map((q) => q.id === id ? { ...q, ...patch } : q) }));
   const acquireQual = (qual) => {
@@ -4480,6 +4483,7 @@ function StudyRPG({ user }) {
               else if (id === "guide" && vis[i + 1] === "quest") { out.push(dash("guide+quest")); i++; }
               else if (id === "quest" && vis[i + 1] === "guide") { out.push(<div key="qg" className="grid gap-3 md:grid-cols-2 items-start mb-4">{dash("quest")}{dash("guide")}</div>); i++; }
               else if (id === "events" || id === "guide" || id === "quest") out.push(dash(id));
+              else if (id === "shelf") out.push(<QualShelf key="shelf" state={state} onUpdate={updateQualShelf} />);
               else if (id === "quals") out.push(<div key="quals"><HomeTab state={state} liveSeconds={liveSeconds} setMainTitle={setMainTitle} setTab={setTab} todayCount={getTodayReviewItems().length} hideBanner dashboard /></div>);
             }
             out.unshift(<AllyOmen key="omen" state={state} onTrial={(id) => { setTab("adventure"); setTimeout(() => startAllyTrial(id), 500); }} />);
@@ -9899,6 +9903,192 @@ function TownImage({ stage, height = 220 }) {
   );
   // 段階の絵（16:9）は横長のまま、上下を少しだけ切って見せる（下の文字の帯と重ならないよう、少し下寄せ）
   return <img src={townArt(stage)} alt={`はじまりの${TOWN_STAGES[stage].name}`} onError={() => setBad(true)} style={{ display: "block", width: "100%", aspectRatio: "16 / 8", maxHeight: 380, objectFit: "cover", objectPosition: "center 55%" }} />;
+}
+// ── 資格の本棚（2026年11月24日。ホームのカード）──────────────────────────
+// 取った資格を本のように並べる。アプリで「取得済み」にした資格（qualifications の acquired）と、
+// アプリの外で取った資格（state.qualShelf.items = [{id, name, date, memo, img, color}]）。
+// アプリの資格の写真・ひとことは state.qualShelf.meta[資格id] = {img, memo}。写真は問題の画像と同じ userdata/{uid}/images に圧縮して入れる
+function shelfBooks(state) {
+  const sh = state.qualShelf || {};
+  const meta = sh.meta || {};
+  const app = (state.qualifications || []).filter((q) => q.acquired).map((q) => {
+    const logs = (state.studyLog || []).filter((l) => l.qualId === q.id);
+    const dates = logs.map((l) => l.date).filter(Boolean).sort();
+    const banks = (state.questionBanks || []).filter((b) => b.qualId === q.id);
+    let solved = 0;
+    banks.forEach((b) => (b.questions || []).forEach((x) => { if ((x.correct || 0) + (x.wrong || 0) > 0) solved++; }));
+    const at = q.acquiredAt ? localDateStr(new Date(q.acquiredAt)) : "";
+    return { key: "q:" + q.id, src: "app", id: q.id, name: q.name, date: at, color: q.color || QUAL_COLORS[0],
+      min: logs.reduce((a, l) => a + (Number(l.minutes) || 0), 0), from: dates[0] || "", banks: banks.length, solved,
+      icon: worldOfQual(q).icon || "📜", img: (meta[q.id] || {}).img || null, memo: (meta[q.id] || {}).memo || "" };
+  });
+  const ext = (sh.items || []).map((x) => ({ key: "x:" + x.id, src: "ext", id: x.id, name: x.name, date: x.date || "", color: x.color || QUAL_COLORS[1], icon: "📜", img: x.img || null, memo: x.memo || "" }));
+  // 取った日の古い順（日付のないものは最後）
+  return [...app, ...ext].sort((a, b) => (a.date || "9999") < (b.date || "9999") ? -1 : (a.date || "9999") > (b.date || "9999") ? 1 : 0);
+}
+const shelfDate = (d) => (d ? d.replace(/-/g, "/") : "日付なし");
+// 本の背表紙（縦書きの名前）
+function ShelfSpine({ b, onOpen }) {
+  // 本ごとに少しずつ高さと太さを変える（名前から決まるので、いつも同じ形）
+  const hv = hashStr(b.key);
+  const h = 118 + (hv % 4) * 6;
+  const w = 34 + (hv % 3) * 4;
+  return (
+    <button onClick={() => onOpen(b.key)} title={`${b.name}（${shelfDate(b.date)}）`} className="flex-shrink-0 flex flex-col items-center justify-between py-1.5"
+      style={{ width: w, height: h, border: "none", borderRadius: "3px 3px 1px 1px", cursor: "pointer", color: "#fffdf6",
+        background: `linear-gradient(90deg, rgba(0,0,0,0.22), rgba(255,255,255,0.12) 18%, rgba(0,0,0,0) 40%, rgba(0,0,0,0.18)), ${b.color}`,
+        boxShadow: "inset 0 0 0 1px rgba(0,0,0,0.12), 1px 0 0 rgba(0,0,0,0.15)" }}>
+      <span style={{ width: "70%", height: 2, background: "rgba(255,236,180,0.85)" }} />
+      <span className="jp" style={{ writingMode: "vertical-rl", fontSize: 12, fontWeight: 700, letterSpacing: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxHeight: h - 30, lineHeight: 1.1, textShadow: "0 1px 1px rgba(0,0,0,0.35)" }}>{b.name}</span>
+      <span style={{ fontSize: 10, lineHeight: 1 }}>{b.src === "app" ? "★" : "・"}</span>
+    </button>
+  );
+}
+function QualShelf({ state, onUpdate }) {
+  const books = shelfBooks(state);
+  const [open, setOpen] = useState(null); // null＝閉じている、"all"＝本棚の全体、"q:…"／"x:…"＝その本
+  return (
+    <div className="mb-4 p-3" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)", borderRadius: 12 }}>
+      <div className="flex items-center justify-between gap-2 mb-2">
+        <div className="jp" style={{ fontWeight: 800, color: "var(--ink)" }}>📚 資格の本棚 <span className="text-[11px]" style={{ color: "var(--ink-mute)", fontWeight: 600 }}>{books.length ? `${books.length}冊` : ""}</span></div>
+        <button onClick={() => setOpen("all")} className="btn-ghost px-2 py-0.5 text-[11px]">{books.length ? "本棚をひらく" : "＋ 資格を加える"}</button>
+      </div>
+      <div className="relative" style={{ borderRadius: 6, padding: "10px 10px 0", background: "linear-gradient(180deg, rgba(120,84,40,0.16), rgba(120,84,40,0.06))" }}>
+        <div className="flex items-end gap-[3px] overflow-x-auto" style={{ minHeight: 136 }}>
+          {books.map((b) => <ShelfSpine key={b.key} b={b} onOpen={setOpen} />)}
+          {books.length === 0 && <div className="jp text-[11px] self-center py-6 px-2" style={{ color: "var(--ink-mute)" }}>取った資格が、ここに本のように並びます。手帳の資格で「取得済み」にするか、前に取った資格を加えてください。</div>}
+        </div>
+        <div style={{ height: 9, margin: "0 -10px", background: "linear-gradient(180deg, #a77b45, #7a5428)", borderRadius: "0 0 6px 6px", boxShadow: "0 2px 3px rgba(0,0,0,0.15)" }} />
+      </div>
+      {open && <QualShelfModal state={state} books={books} open={open} setOpen={setOpen} onUpdate={onUpdate} />}
+    </div>
+  );
+}
+function QualShelfModal({ state, books, open, setOpen, onUpdate }) {
+  const ctx = useContext(QImageContext);
+  const [adding, setAdding] = useState(false);
+  const [form, setForm] = useState({ name: "", date: "", memo: "" });
+  const [busy, setBusy] = useState("");
+  const [msg, setMsg] = useState("");
+  const [viewId, setViewId] = useState(null);
+  const fileRef = useRef(null);
+  const photoFor = useRef(null);
+  const one = open !== "all" ? books.find((b) => b.key === open) : null;
+  const list = one ? [one] : books;
+  // 本の情報を書きかえる（アプリの資格は meta、自分で加えた資格は items）
+  const patch = (b, p) => onUpdate((sh) => b.src === "app"
+    ? { ...sh, meta: { ...(sh.meta || {}), [b.id]: { ...((sh.meta || {})[b.id] || {}), ...p } } }
+    : { ...sh, items: (sh.items || []).map((x) => (x.id === b.id ? { ...x, ...p } : x)) });
+  const addBook = () => {
+    const name = form.name.trim();
+    if (!name) { setMsg("資格の名前を入れてください"); return; }
+    const n = ((state.qualShelf || {}).items || []).length + (state.qualifications || []).length;
+    onUpdate((sh) => ({ ...sh, items: [...(sh.items || []), { id: uid(), name, date: form.date || "", memo: form.memo.trim(), img: null, color: QUAL_COLORS[n % QUAL_COLORS.length] }] }));
+    setForm({ name: "", date: "", memo: "" }); setAdding(false); setMsg(`📚「${name}」を本棚に加えました`);
+  };
+  const removeBook = (b) => {
+    if (!confirm(`「${b.name}」を本棚から外しますか？`)) return;
+    if (b.img && ctx) { qImageCol(ctx.uid).doc(b.img).delete().catch((e) => console.warn("Shelf image delete:", e)); qImageCache.delete(b.img); }
+    onUpdate((sh) => ({ ...sh, items: (sh.items || []).filter((x) => x.id !== b.id) }));
+    if (one) setOpen("all");
+  };
+  const pickPhoto = (b) => { photoFor.current = b; if (fileRef.current) fileRef.current.click(); };
+  const addPhoto = async (files) => {
+    const b = photoFor.current;
+    const f = Array.from(files || []).find((x) => x && x.type && x.type.startsWith("image/"));
+    if (!b || !f || !ctx) return;
+    setBusy(b.key); setMsg("");
+    try {
+      const { data, w, h } = await compressImageFile(f);
+      const id = uid();
+      const write = qImageCol(ctx.uid).doc(id).set({ data, w, h, createdAt: new Date().toISOString(), shelf: b.key });
+      await Promise.race([write, new Promise((r) => setTimeout(r, 8000))]);
+      qImageCache.set(id, data);
+      if (b.img) { qImageCol(ctx.uid).doc(b.img).delete().catch(() => {}); qImageCache.delete(b.img); }
+      patch(b, { img: id });
+      setMsg("🖼 写真を付けました");
+    } catch (e) { setMsg("写真を付けられませんでした：" + e.message); }
+    setBusy("");
+  };
+  const removePhoto = (id) => {
+    const b = books.find((x) => x.img === id);
+    if (!b || !confirm("この写真を外して削除しますか？")) return;
+    patch(b, { img: null });
+    if (ctx) { qImageCol(ctx.uid).doc(id).delete().catch((e) => console.warn("Shelf image delete:", e)); qImageCache.delete(id); }
+    setViewId(null);
+  };
+  const inp = { border: "1px solid var(--rule-soft)", background: "var(--paper)", color: "var(--ink)", borderRadius: 6 };
+  return createPortal(
+    <div onClick={() => setOpen(null)} style={{ position: "fixed", inset: 0, zIndex: 9000, background: "rgba(20,24,32,0.55)", display: "flex", alignItems: "flex-start", justifyContent: "center", overflowY: "auto", padding: "24px 12px" }}>
+      <div onClick={(e) => e.stopPropagation()} className="w-full p-3 space-y-3" style={{ maxWidth: 560, background: "var(--paper)", border: "1px solid var(--rule)", borderRadius: 14, color: "var(--ink)" }}>
+        <div className="flex items-center justify-between gap-2">
+          <div className="jp" style={{ fontWeight: 800, fontSize: 16 }}>📚 資格の本棚{one ? "" : `（${books.length}冊）`}</div>
+          <div className="flex gap-1">
+            {one && <button onClick={() => setOpen("all")} className="btn-ghost px-2 py-0.5 text-[11px]">本棚の全体</button>}
+            <button onClick={() => setOpen(null)} className="btn-ghost px-2 py-0.5 text-[11px]">✕ 閉じる</button>
+          </div>
+        </div>
+        {!one && books.length > 0 && <p className="text-[11px]" style={{ color: "var(--ink-mute)" }}>取った日の古い順に並んでいます。★ はこのアプリで勉強して取った資格です。押すと、写真やひとことを付けられます。</p>}
+        {!one && list.map((b) => (
+          // 本棚の全体：1冊を1行で。押すとその本（書きかえはそこで）
+          <div key={b.key} role="button" tabIndex={0} onClick={() => setOpen(b.key)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setOpen(b.key); } }} className="w-full text-left flex items-center gap-3 p-2" style={{ border: "1px solid var(--rule-soft)", borderRadius: 10, background: "var(--cream)", cursor: "pointer", color: "var(--ink)" }}>
+            <span className="flex-shrink-0 self-stretch" style={{ width: 8, borderRadius: 3, background: b.color }} />
+            <span className="flex-1 min-w-0">
+              <span className="jp block" style={{ fontWeight: 800, wordBreak: "break-all" }}>{b.src === "app" ? `★ ${b.icon} ` : "📜 "}{b.name}</span>
+              <span className="block text-[11px]" style={{ color: "var(--ink-soft)" }}>{shelfDate(b.date)}{b.memo ? `・${b.memo}` : ""}</span>
+            </span>
+            {b.img && ctx && <span className="flex-shrink-0" style={{ pointerEvents: "none" }}><QImageThumb userId={ctx.uid} id={b.img} height={40} onOpen={() => {}} /></span>}
+            <span className="flex-shrink-0 text-[12px]" style={{ color: "var(--ink-mute)" }}>›</span>
+          </div>
+        ))}
+        {one && list.map((b) => (
+          <div key={b.key} className="flex gap-3 p-2" style={{ border: "1px solid var(--rule-soft)", borderRadius: 10, background: "var(--cream)" }}>
+            <div className="flex-shrink-0" style={{ width: 10, borderRadius: 3, background: b.color }} />
+            <div className="flex-1 min-w-0 space-y-1">
+              <div className="flex items-start justify-between gap-2">
+                <div className="jp" style={{ fontWeight: 800, wordBreak: "break-all" }}>{b.src === "app" ? `${b.icon} ` : "📜 "}{b.name}</div>
+                <span className="text-[10px] px-1.5 flex-shrink-0" style={{ borderRadius: 999, background: b.src === "app" ? "var(--gold)" : "var(--rule-soft)", color: b.src === "app" ? "#fffdf6" : "var(--ink-soft)" }}>{b.src === "app" ? "★ アプリで合格" : "登録した資格"}</span>
+              </div>
+              <div className="text-[11px]" style={{ color: "var(--ink-soft)" }}>
+                取った日 {b.src === "ext"
+                  ? <input type="date" value={b.date} onChange={(e) => patch(b, { date: e.target.value })} className="text-[11px] px-1" style={inp} />
+                  : shelfDate(b.date)}
+              </div>
+              {b.src === "app" && (
+                <div className="text-[11px]" style={{ color: "var(--ink-soft)" }}>
+                  {b.min > 0 ? `勉強した時間 ${fmtMin(b.min)}${b.from ? `（${shelfDate(b.from)}から）` : ""}・` : ""}問題集 {b.banks}冊・解いた問題 {b.solved}問
+                </div>
+              )}
+              {b.src === "ext" && <input value={b.name} onChange={(e) => patch(b, { name: e.target.value })} className="w-full text-[12px] px-2 py-1" style={inp} aria-label="資格の名前" />}
+              <textarea defaultValue={b.memo} onBlur={(e) => { if (e.target.value !== b.memo) patch(b, { memo: e.target.value.trim() }); }} rows={2} placeholder="ひとこと（試験の思い出・合格番号など）" className="w-full text-[12px] px-2 py-1" style={inp} />
+              <div className="flex items-center gap-2 flex-wrap">
+                {b.img && ctx && <QImageThumb userId={ctx.uid} id={b.img} height={72} onOpen={setViewId} />}
+                {ctx && <button disabled={!!busy} onClick={() => pickPhoto(b)} className="btn-ghost px-2 py-0.5 text-[11px]">{busy === b.key ? "保存中…" : b.img ? "写真を替える" : "＋ 合格証・免状の写真"}</button>}
+                {b.src === "ext" && <button onClick={() => removeBook(b)} className="px-2 py-0.5 text-[11px] btn-danger">本棚から外す</button>}
+              </div>
+            </div>
+          </div>
+        ))}
+        {!one && (adding ? (
+          <div className="p-2 space-y-1.5" style={{ border: "1px dashed var(--rule)", borderRadius: 10 }}>
+            <div className="jp text-[12px]" style={{ fontWeight: 700 }}>前に取った資格を加える</div>
+            <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="資格の名前（例：測量士補）" className="w-full text-[13px] px-2 py-1" style={inp} />
+            <label className="text-[11px] flex items-center gap-2" style={{ color: "var(--ink-soft)" }}>取った日 <input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} className="text-[12px] px-1" style={inp} /></label>
+            <input value={form.memo} onChange={(e) => setForm({ ...form, memo: e.target.value })} placeholder="ひとこと（なくてもよい）" className="w-full text-[12px] px-2 py-1" style={inp} />
+            <div className="flex gap-2">
+              <button onClick={addBook} className="btn-primary px-3 py-1 text-[12px]">本棚に加える</button>
+              <button onClick={() => { setAdding(false); setMsg(""); }} className="btn-ghost px-3 py-1 text-[12px]">やめる</button>
+            </div>
+            <p className="text-[10px]" style={{ color: "var(--ink-mute)" }}>これから受ける資格は、手帳の「資格」で登録してください。合格して「取得済み」にすると、★ の本として自動で並びます。</p>
+          </div>
+        ) : <button onClick={() => { setAdding(true); setMsg(""); }} className="btn-ghost w-full py-1.5 text-[12px]">＋ 前に取った資格を加える</button>)}
+        {msg && <div className="text-[11px]" style={{ color: "var(--ink-soft)" }}>{msg}</div>}
+        <input ref={fileRef} type="file" accept="image/*" style={{ display: "none" }} onChange={(e) => { addPhoto(e.target.files); e.target.value = ""; }} />
+        {viewId && <QImageViewer id={viewId} onClose={() => setViewId(null)} onDelete={removePhoto} />}
+      </div>
+    </div>,
+    document.body
+  );
 }
 function TownPanel({ state, actions }) {
   const [open, setOpen] = useState(false);
