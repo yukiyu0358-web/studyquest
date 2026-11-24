@@ -759,7 +759,7 @@ function DungeonRun({ state, pool, minutes, actions, recordAnswer, startTimer, s
       <div className="rpg-box p-1">
         <div className="rpg-inner-border min-h-[180px] flex flex-col">
           <div className="jp text-[10px] mb-2" style={{ color: "var(--ink-mute)" }}>{bank.name}</div>
-          <div className="qtext jp text-base md:text-lg flex-1 break-words" style={{ color: "var(--ink)" }}>{renderQText(q.q, q.q_formats, q.a)}</div>
+          <div className="qtext jp text-base md:text-lg flex-1 break-words" style={{ color: "var(--ink)" }}>{renderQText(q.q, q.q_formats, q.a, true)}</div>
           <QuestionImages bankId={bank.id} question={q} side="q" />
           {showAnswer ? (
             <>
@@ -1773,7 +1773,7 @@ function QuestRun({ state, run, actions, recordAnswer, startTimer, stopTimer, on
       <BattleStage state={state} q={q} bankName={bank.name} battleKey={battleKey} boss={isBoss} />
       <div className="rpg-box p-1">
         <div className="rpg-inner-border min-h-[180px] flex flex-col">
-          <div className="qtext jp text-base md:text-lg flex-1 break-words" style={{ color: "var(--ink)" }}>{renderQText(q.q, q.q_formats, q.a)}</div>
+          <div className="qtext jp text-base md:text-lg flex-1 break-words" style={{ color: "var(--ink)" }}>{renderQText(q.q, q.q_formats, q.a, true)}</div>
           <QuestionImages bankId={bank.id} question={q} side="q" />
           {showAnswer ? (
             <>
@@ -1992,7 +1992,7 @@ function TrialRun({ state, run, recordAnswer, startTimer, stopTimer, onExit, onF
       <div className="rpg-box p-1">
         <div className="rpg-inner-border min-h-[180px] flex flex-col">
           <div className="jp text-[10px] mb-2" style={{ color: "var(--ink-mute)" }}>{bank.name}</div>
-          <div className="qtext jp text-base md:text-lg flex-1 break-words" style={{ color: "var(--ink)" }}>{renderQText(q.q, q.q_formats, q.a)}</div>
+          <div className="qtext jp text-base md:text-lg flex-1 break-words" style={{ color: "var(--ink)" }}>{renderQText(q.q, q.q_formats, q.a, true)}</div>
           <QuestionImages bankId={bank.id} question={q} side="q" />
           {showAnswer ? (
             <>
@@ -2740,7 +2740,7 @@ function BossBattle({ state, boss, pool, actions, recordAnswer, startTimer, stop
         <div className="rpg-box p-1">
           <div className="rpg-inner-border min-h-[160px] flex flex-col">
             <div className="jp text-[10px] mb-2" style={{ color: "var(--ink-mute)" }}>{item.bankName}</div>
-            <div className="qtext jp text-base md:text-lg flex-1 break-words" style={{ color: "var(--ink)" }}>{renderQText(q.q, q.q_formats, q.a)}</div>
+            <div className="qtext jp text-base md:text-lg flex-1 break-words" style={{ color: "var(--ink)" }}>{renderQText(q.q, q.q_formats, q.a, true)}</div>
             <QuestionImages bankId={item.bankId} question={q} side="q" />
             {showAnswer ? (
               <>
@@ -3444,7 +3444,7 @@ function EndlessRun({ state, actions, recordAnswer, startTimer, stopTimer, onExi
       <div className="rpg-box p-1">
         <div className="rpg-inner-border min-h-[180px] flex flex-col">
           <div className="jp text-[10px] mb-2" style={{ color: "var(--ink-mute)" }}>{bank.name}</div>
-          <div className="qtext jp text-base md:text-lg flex-1 break-words" style={{ color: "var(--ink)" }}>{renderQText(q.q, q.q_formats, q.a)}</div>
+          <div className="qtext jp text-base md:text-lg flex-1 break-words" style={{ color: "var(--ink)" }}>{renderQText(q.q, q.q_formats, q.a, true)}</div>
           <QuestionImages bankId={bank.id} question={q} side="q" />
           {showAnswer ? (
             <>

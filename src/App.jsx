@@ -1578,6 +1578,14 @@ function choiceOf(text, ans) {
   choiceCache.set(key, res);
   return res;
 }
+// ── ○×の問題（2026年11月24日）：答えが ○ か × で始まるもの（4択でないもの）。○×のボタンで答え、アプリが判定する ──
+const TF_O = /^\s*[○◯〇]/, TF_X = /^\s*[×✕✖]/;
+function tfOf(q) {
+  if (!q || !q.a || choiceOf(q.q, q.a)) return null;
+  const a = String(q.a);
+  return TF_O.test(a) ? "o" : TF_X.test(a) ? "x" : null;
+}
+const TF_MARK = { o: "○", x: "×" };
 // 問題を id で書きかえる合図（自分ルール・メモへの追記など。StudyRPG が受け取る）
 const patchQuestion = (qId, patch) => window.dispatchEvent(new CustomEvent("sq-q-patch", { detail: { qId, patch } }));
 // PCのキーボードで答える（2026年10月21日）：文字を入力している欄・日本語の変換中・Ctrl などとの組み合わせは無視する
@@ -1596,35 +1604,58 @@ function useAnswerKeys(onKey, deps) {
   }, deps);
 }
 const KeyHint = ({ children }) => (HAS_KB ? <div className="jp text-[10px] mt-1.5 text-center" style={{ color: "var(--ink-mute)" }}>⌨ {children}</div> : null);
-function RevealButton({ q, onReveal }) {
+// plain：穴埋め（cloze）を出しているときなど、○×・選択肢のボタンを出さない
+function RevealButton({ q, onReveal, plain = false }) {
   const [text, setText] = useState("");
   useEffect(() => { if (q) { THINK.id = q.id; THINK.t0 = Date.now(); delete THINK.pick[q.id]; } setText(""); }, [q && q.id]);
   const mode = STUDY_PREFS.explain || "say";
-  const ch = q ? choiceOf(q.q, q.a) : null;
+  const ch = q && !plain ? choiceOf(q.q, q.a) : null;
+  const tf = q && !plain && !ch ? tfOf(q) : null;
   const reveal = (pick) => {
     if (q) { THINK.sec[q.id] = Math.max(1, Math.round((Date.now() - THINK.t0) / 1000)); if (text.trim()) THINK.note[q.id] = text.trim(); else delete THINK.note[q.id]; }
-    if (q && typeof pick === "number") THINK.pick[q.id] = pick; else if (q) delete THINK.pick[q.id];
+    if (q && (typeof pick === "number" || pick === "o" || pick === "x")) THINK.pick[q.id] = pick; else if (q) delete THINK.pick[q.id];
+    if (q) THINK.choiceQ = ch ? q.id : null; // 選択肢を問題文から外した問題（答えの欄で選択肢を並べる）
     onReveal();
   };
-  // スペース・Enter で答えを見る、4択は数字キーで番号を選ぶ
+  // スペース・Enter で答えを見る、選択問題は数字キー、○×は 1・O／2・X
   useAnswerKeys((k) => {
     if (k === " " || k === "Enter") { reveal(null); return true; }
     if (ch && /^[1-9]$/.test(k) && Number(k) <= ch.opts.length) { reveal(Number(k)); return true; }
+    if (tf && (k === "1" || k === "o" || k === "O")) { reveal("o"); return true; }
+    if (tf && (k === "2" || k === "x" || k === "X")) { reveal("x"); return true; }
     return false;
-  }, [q && q.id, text, !!ch]);
+  }, [q && q.id, text, !!ch, !!tf]);
+  const say = mode === "write" ? (
+    <input value={text} onChange={(e) => setText(e.target.value)} placeholder={tf ? "💭 なぜ ○／× ？ ひとことで（空でもOK）" : "💭 なぜその答え？ ひとことで（空でもOK）"} className="jp w-full mt-3 px-2 py-1.5 text-sm" style={{ background: "var(--paper)", border: "1px dashed var(--gold)", borderRadius: 6, color: "var(--ink)" }} />
+  ) : null;
+  const skipLink = <button onClick={() => reveal(null)} className="jp w-full text-[11px] mt-2" style={{ background: "none", border: "none", color: "var(--ink-mute)", textDecoration: "underline", cursor: "pointer" }}>選ばずに答えを見る</button>;
+  // 選択問題（2026年11月24日）：選択肢を文章ごとのボタンに（問題文の欄には問題文だけ）
   if (ch) return (
     <>
-      {mode === "write" && (
-        <input value={text} onChange={(e) => setText(e.target.value)} placeholder="💭 なぜその答え？ ひとことで（空でもOK）" className="jp w-full mt-3 px-2 py-1.5 text-sm" style={{ background: "var(--paper)", border: "1px dashed var(--gold)", borderRadius: 6, color: "var(--ink)" }} />
-      )}
-      <div className="jp text-[11px] mt-3 mb-1.5 text-center" style={{ color: "var(--ink-soft)" }}>👆 正しいと思う番号をタップ</div>
-      <div className={`grid gap-2 ${ch.opts.length === 2 ? "grid-cols-2" : ch.opts.length === 3 ? "grid-cols-3" : ch.opts.length === 5 ? "grid-cols-5" : "grid-cols-4"}`}>
+      {say}
+      <div className="jp text-[11px] mt-3 mb-1.5 text-center" style={{ color: "var(--ink-soft)" }}>👆 正しいと思うものをタップ</div>
+      <div className="flex flex-col gap-1.5">
         {ch.opts.map((o, i) => (
-          <button key={i} onClick={() => reveal(i + 1)} className="jp btn-info py-2.5" style={{ fontSize: 17, fontWeight: 800 }}>({i + 1})</button>
+          <button key={i} onClick={() => reveal(i + 1)} className="jp w-full text-left px-3 py-2.5 flex items-start gap-2.5" style={{ background: "var(--paper)", border: "1.5px solid var(--sky-deep)", borderRadius: 10, color: "var(--ink)", fontSize: 15, lineHeight: 1.6, cursor: "pointer" }}>
+            <span style={{ flexShrink: 0, width: 26, height: 26, marginTop: 1, borderRadius: "50%", background: "var(--sky-deep)", color: "#fff", fontWeight: 800, fontSize: 14, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>{i + 1}</span>
+            <span className="flex-1 min-w-0 break-words">{TRAP_MARK.on ? markTraps(o, `b${i}`) : o}</span>
+          </button>
         ))}
       </div>
-      <button onClick={() => reveal(null)} className="jp w-full text-[11px] mt-2" style={{ background: "none", border: "none", color: "var(--ink-mute)", textDecoration: "underline", cursor: "pointer" }}>選ばずに答えを見る</button>
+      {skipLink}
       <KeyHint>数字キー 1〜{ch.opts.length} で選ぶ・スペースで選ばずに答えを見る</KeyHint>
+    </>
+  );
+  // ○×の問題（2026年11月24日）：○ と × のボタン。押すとアプリが判定する
+  if (tf) return (
+    <>
+      {say}
+      <div className="grid grid-cols-2 gap-2.5 mt-3">
+        <button onClick={() => reveal("o")} aria-label="○（正しい）" className="jp py-2.5 flex items-center justify-center" style={{ fontSize: 34, fontWeight: 900, lineHeight: 1.1, background: "var(--paper)", border: "2px solid #4f7a3a", color: "#4f7a3a", borderRadius: 12, cursor: "pointer" }}>○</button>
+        <button onClick={() => reveal("x")} aria-label="×（誤り）" className="jp py-2.5 flex items-center justify-center" style={{ fontSize: 34, fontWeight: 900, lineHeight: 1.1, background: "var(--paper)", border: "2px solid #c9564e", color: "#c9564e", borderRadius: 12, cursor: "pointer" }}>×</button>
+      </div>
+      {skipLink}
+      <KeyHint>1 か O で ○・2 か X で ×・スペースで選ばずに答えを見る</KeyHint>
     </>
   );
   return (
@@ -7329,7 +7360,7 @@ function RehearsalRun({ state, run, actions, recordAnswer, startTimer, stopTimer
       <div className="rpg-box p-1">
         <div className="rpg-inner-border min-h-[180px] flex flex-col">
           <div className="jp text-[10px] mb-2" style={{ color: "var(--ink-mute)" }}>第{idx + 1}問　{bank.name}</div>
-          <div className="qtext jp text-base md:text-lg flex-1 break-words" style={{ color: "var(--ink)" }}>{renderQText(q.q, q.q_formats, q.a)}</div>
+          <div className="qtext jp text-base md:text-lg flex-1 break-words" style={{ color: "var(--ink)" }}>{renderQText(q.q, q.q_formats, q.a, true)}</div>
           <QuestionImages bankId={bank.id} question={q} side="q" />
           {showAnswer ? (
             <>
@@ -9049,12 +9080,16 @@ function EvolutionScene({ ev, onClose }) {
   );
 }
 
+const AUTO_NEXT_MS = 1200; // 正解したとき、自動で次へ進むまで
 function AnswerPanel({ onAnswer: onAnswerRaw, wrongLabel = "不正解", correctLabel = "正解", sureClass = "btn-success", question, srSettings }) {
-  // 4択で番号を選んで答えたとき：まちがえたら最初から「間違えた原因は？」に（正解にはできない）
+  // 選択問題・○×の問題をボタンで答えたとき（2026年11月24日）：アプリが判定。まちがいは正解を見せて「次へ」、正解は少し見せて自動で次へ
   const ch = question ? choiceOf(question.q, question.a) : null;
-  const pick = ch && question ? THINK.pick[question.id] || null : null;
-  const pickOk = pick ? pick === ch.correct : null;
-  const [stage, setStage] = useState(pickOk === false ? "wrong" : "choose"); // choose | wrong
+  const tf = question && !ch ? tfOf(question) : null;
+  const rawPick = question ? THINK.pick[question.id] : null;
+  const pick = ch && typeof rawPick === "number" ? rawPick : tf && (rawPick === "o" || rawPick === "x") ? rawPick : null;
+  const pickOk = pick ? pick === (ch ? ch.correct : tf) : null;
+  const showOpts = !!ch && (pick != null || THINK.choiceQ === (question && question.id)); // 問題文から外した選択肢を、答えの欄に並べる
+  const [stage, setStage] = useState(pickOk === false ? "wrong" : pickOk === true ? "auto" : "choose"); // choose | wrong | auto（正解・自動で次へ） | hold（止めた）
   const [confident, setConfident] = useState(false);
   const [rule, setRule] = useState("");
   const [ruleEdit, setRuleEdit] = useState(false);
@@ -9066,8 +9101,23 @@ function AnswerPanel({ onAnswer: onAnswerRaw, wrongLabel = "不正解", correctL
   const onAnswer = (correct, meta) => { const m = { ...(meta || {}), sec: sec || undefined }; if (qid) delete THINK.pick[qid]; emitBattle({ correct, conf: m.conf, errType: m.errType, sec: m.sec }); onAnswerRaw(correct, m); };
   const pv = question ? previewIntervals(question, srSettings) : null; // 次回までの日数
   const submitWrong = (errType) => onAnswer(false, { errType: errType || null, confident, rule: rule.trim() || undefined });
-  // キーボード：1＝✕（そのまま次へ）／2＝△／3＝◎。4択でまちがえたあとは 1・0・Enter で次へ
+  // 正解：覚えている（◎）として記録。時間がかかったときは「あやふや」（△）
+  const doneRef = useRef(false);
+  const submitOk = (conf) => { if (doneRef.current) return; doneRef.current = true; onAnswer(true, conf === "unsure" ? { conf: "unsure" } : slow ? { conf: "unsure", slow: true } : { conf: "sure" }); };
+  const okRef = useRef(submitOk); okRef.current = submitOk;
+  useEffect(() => {
+    if (stage !== "auto") return;
+    const t = setTimeout(() => okRef.current(), AUTO_NEXT_MS);
+    return () => clearTimeout(t);
+  }, [stage]);
+  // キーボード：1＝✕（そのまま次へ）／2＝△／3＝◎。まちがえたあとは 1・0・Enter で次へ。正解のあとは Enter・スペース・3 ですぐ次へ
   useAnswerKeys((k) => {
+    if (stage === "auto" || stage === "hold") {
+      if (k === "Enter" || k === " " || k === "3") { submitOk(); return true; }
+      if (k === "2") { submitOk("unsure"); return true; }
+      if (stage === "auto" && (k === "Escape" || k === "0")) { setStage("hold"); return true; }
+      return false;
+    }
     if (stage === "choose") {
       if (k === "1") { submitWrong(null); return true; }
       if (k === "2") { onAnswer(true, { conf: "unsure" }); return true; }
@@ -9080,10 +9130,24 @@ function AnswerPanel({ onAnswer: onAnswerRaw, wrongLabel = "不正解", correctL
   // 答えを開く前に書いたひとこと・かかった時間・自分ルール（答えの下、ボタンの上に出す）
   const info = (
     <>
-      {pick && (
-        <div className="jp text-[12px] mt-2 px-2 py-1.5" style={{ background: pickOk ? "rgba(109,132,84,0.12)" : "rgba(201,86,78,0.08)", border: `1px solid ${pickOk ? "#6d8454" : "#c9564e"}`, borderRadius: 6, color: "var(--ink)", lineHeight: 1.7 }}>
-          {pickOk ? <><b style={{ color: "#4f7a3a" }}>✓ 正解！</b>　({pick}) {ch.opts[pick - 1]}</>
-            : <><b style={{ color: "#c9564e" }}>✕ あなたの答え</b>　({pick}) {ch.opts[pick - 1]}<br /><b style={{ color: "#4f7a3a" }}>◎ 正解</b>　({ch.correct}) {ch.opts[ch.correct - 1]}</>}
+      {pick != null && (
+        <div className="jp text-[14px] mt-2 px-2.5 py-1.5 flex items-center gap-2 flex-wrap" style={{ background: pickOk ? "rgba(109,132,84,0.14)" : "rgba(201,86,78,0.1)", border: `1.5px solid ${pickOk ? "#6d8454" : "#c9564e"}`, borderRadius: 8, color: "var(--ink)" }}>
+          <b style={{ color: pickOk ? "#4f7a3a" : "#c9564e", fontSize: 16 }}>{pickOk ? "✓ 正解！" : "✕ 不正解"}</b>
+          {tf && <span className="text-[12px]" style={{ color: "var(--ink-soft)" }}>あなたの答え <b style={{ fontSize: 16, color: pickOk ? "#4f7a3a" : "#c9564e" }}>{TF_MARK[pick]}</b>{!pickOk && <>　→ 正解は <b style={{ fontSize: 16, color: "#4f7a3a" }}>{TF_MARK[tf]}</b></>}</span>}
+          {ch && !pickOk && <span className="text-[12px]" style={{ color: "var(--ink-soft)" }}>正解は <b style={{ color: "#4f7a3a" }}>{ch.correct}</b></span>}
+        </div>
+      )}
+      {showOpts && (
+        <div className="mt-2 flex flex-col gap-1">
+          {ch.opts.map((o, i) => {
+            const n = i + 1, isC = n === ch.correct, isP = n === pick;
+            return (
+              <div key={i} className="jp flex items-start gap-2 px-2.5 py-1.5 text-[13px]" style={{ borderRadius: 8, border: `1.5px solid ${isC ? "#6d8454" : isP ? "#c9564e" : "var(--rule-soft)"}`, background: isC ? "rgba(109,132,84,0.14)" : isP ? "rgba(201,86,78,0.1)" : "var(--paper)", color: "var(--ink)", lineHeight: 1.6 }}>
+                <span style={{ flexShrink: 0, fontWeight: 800, minWidth: 30, color: isC ? "#4f7a3a" : isP ? "#c9564e" : "var(--ink-mute)" }}>{isC ? "◎" : isP ? "✕" : "・"}{n}</span>
+                <span className="flex-1 min-w-0 break-words">{o}</span>
+              </div>
+            );
+          })}
         </div>
       )}
       {(note || sec > 0) && (
@@ -9104,8 +9168,31 @@ function AnswerPanel({ onAnswer: onAnswerRaw, wrongLabel = "不正解", correctL
     </>
   );
 
+  if (stage === "auto" || stage === "hold") {
+    // 正解したとき（○×・選択問題）：少し見せて自動で次へ。止めると解説を読んでから進める
+    return (
+      <>
+      {info}
+      {stage === "auto" ? (
+        <div className="mt-3 flex items-center gap-2">
+          <div className="jp flex-1 text-[12px]" style={{ color: "var(--ink-soft)" }}>◎ 覚えているとして次へ進みます…{slow ? "（時間がかかったので「あやふや」で記録）" : ""}
+            <div style={{ height: 4, marginTop: 4, borderRadius: 2, background: "var(--beige)", overflow: "hidden" }}><div style={{ height: "100%", background: "#6d8454", animation: `sqAutoNext ${AUTO_NEXT_MS}ms linear forwards` }} /></div>
+            <style>{`@keyframes sqAutoNext{from{width:0}to{width:100%}}`}</style>
+          </div>
+          <button onClick={() => setStage("hold")} className="jp btn-ghost text-[11px] px-2.5 py-1.5" style={{ flexShrink: 0 }}>⏸ 止めて解説を読む</button>
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 gap-2 mt-3">
+          <button onClick={() => submitOk("unsure")} className="jp btn-info py-2">△ 自信なし{pv && <span className="text-[10px]">・{fmtDays(pv.hard)}後</span>}</button>
+          <button onClick={() => submitOk()} className={`jp ${sureClass} py-2`}>◎ 次へ{pv && <span className="text-[10px]">・{fmtDays(slow ? pv.hard : pv.good)}後</span>}</button>
+        </div>
+      )}
+      <KeyHint>{stage === "auto" ? "Enter ですぐ次へ・Esc で止める" : "2 △・3 か Enter で ◎ 次へ"}</KeyHint>
+      </>
+    );
+  }
   if (stage === "wrong") {
-    // 4択でまちがえた番号を選んだとき：正解を見せて「次へ」だけ（原因を選ぶ画面は2026年10月26日にやめた）
+    // まちがえた番号・○×を選んだとき：正解を見せて「次へ」だけ（原因を選ぶ画面は2026年10月26日にやめた）
     return (
       <>
       {info}
@@ -10539,8 +10626,9 @@ function markTraps(t, keyBase) {
   if (last < t.length) out.push(t.slice(last));
   return out;
 }
-function renderQText(text, formats, ans) {
+function renderQText(text, formats, ans, stemOnly = false) {
   const ch = ans && (!formats || !formats.length) ? choiceOf(text, ans) : null;
+  if (ch && stemOnly) return <span>{TRAP_MARK.on ? markTraps(ch.stem, "s") : ch.stem}</span>;
   if (ch) return (
     <>
       <span>{TRAP_MARK.on ? markTraps(ch.stem, "s") : ch.stem}</span>

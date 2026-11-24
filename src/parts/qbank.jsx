@@ -1311,7 +1311,7 @@ function RevengeSession({ bank, state, recordRevengeAnswer, recordClozeRevengeAn
     displayA = currentCloze.blanks.map((b, i) => `(${i + 1}) ${b.answer}`).join(" / ");
     badgeText = `穴あき問題（◯${currentCloze.correct} ✕${currentCloze.wrong}${currentCloze.marked ? " ⭐" : ""}）`;
   } else {
-    displayQ = renderQText(currentQ.q, currentQ.q_formats, currentQ.a);
+    displayQ = renderQText(currentQ.q, currentQ.q_formats, currentQ.a, true);
     displayA = renderFormattedText(currentQ.a, currentQ.a_formats);
     badgeText = `苦手な問題（◯${currentQ.correct} ✕${currentQ.wrong}${currentQ.marked ? " ⭐" : ""}）`;
   }
@@ -1371,7 +1371,7 @@ function RevengeSession({ bank, state, recordRevengeAnswer, recordClozeRevengeAn
               )}
             </>
           ) : (
-            <RevealButton q={currentQ} onReveal={() => setShowAnswer(true)} />
+            <RevealButton q={currentQ} plain={!!currentCloze} onReveal={() => setShowAnswer(true)} />
           )}
         </div>
       </div>
@@ -1774,7 +1774,7 @@ function QStudySession({ bank, state, recordAnswer, awardXp, startTimer, stopTim
               </div>
             </div>
           ) : (
-            <div className="qtext jp text-base md:text-lg flex-1 break-words" style={{ color: "var(--ink)" }}>{renderQText(currentQ.q, currentQ.q_formats, currentQ.a)}</div>
+            <div className="qtext jp text-base md:text-lg flex-1 break-words" style={{ color: "var(--ink)" }}>{renderQText(currentQ.q, currentQ.q_formats, currentQ.a, true)}</div>
           )}
           <QuestionImages bankId={bank.id} question={currentQ} side="q" />
           {showAnswer ? (
@@ -2354,7 +2354,7 @@ function MixedStudySession({ bank, state, recordAnswer, recordClozeAnswer, award
     badge = "穴あき";
     isCloze = true;
   } else {
-    displayQ = renderQText(currentQ.q, currentQ.q_formats, currentQ.a);
+    displayQ = renderQText(currentQ.q, currentQ.q_formats, currentQ.a, true);
     displayA = renderFormattedText(currentQ.a, currentQ.a_formats);
     badge = "一問一答";
     isCloze = false;
@@ -2395,7 +2395,7 @@ function MixedStudySession({ bank, state, recordAnswer, recordClozeAnswer, award
               )}
             </>
           ) : (
-            <RevealButton q={currentQ} onReveal={() => setShowAnswer(true)} />
+            <RevealButton q={currentQ} plain={!!currentCloze} onReveal={() => setShowAnswer(true)} />
           )}
         </div>
       </div>
@@ -2509,7 +2509,7 @@ function CrossYearRevengeSession({ qualId, state, recordRevengeAnswer, recordClo
     displayA = currentCloze.blanks.map((b, i) => `(${i + 1}) ${b.answer}`).join(" / ");
     badge = `穴あき（◯${currentCloze.correct} ✕${currentCloze.wrong}）`;
   } else {
-    displayQ = currentQ.q;
+    displayQ = renderQText(currentQ.q, currentQ.q_formats, currentQ.a, true);
     displayA = currentQ.a;
     badge = `（◯${currentQ.correct} ✕${currentQ.wrong}）`;
   }
@@ -2547,7 +2547,7 @@ function CrossYearRevengeSession({ qualId, state, recordRevengeAnswer, recordClo
               )}
             </>
           ) : (
-            <RevealButton q={currentQ} onReveal={() => setShowAnswer(true)} />
+            <RevealButton q={currentQ} plain={!!currentCloze} onReveal={() => setShowAnswer(true)} />
           )}
         </div>
       </div>
