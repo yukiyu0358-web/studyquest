@@ -9980,7 +9980,12 @@ const SHELF_ART = [
   { key: "doboku2", name: "２級土木施工管理技士", re: /[二2２]級土木施工管理/ },
   { key: "doboku1", name: "１級土木施工管理技士", re: /[一1１]級土木施工管理/ },
   { key: "shiho", name: "司法書士", re: /司法書士/ },
+  { key: "sokuryo", name: "測量士", re: /測量士(?!補)/ },
 ];
+// 本棚の絵（public/art/shelf/bookshelf.webp、900×971）の3つの段。絵の上の%：left・width＝棚の内側、top・h＝本を立てる場所（床から上へ）
+const SHELF_ROWS = [{ top: 17.7, h: 18.3 }, { top: 43.0, h: 17.7 }, { top: 68.3, h: 17.2 }];
+const SHELF_IN = { left: 11.2, width: 77.6 };
+const SHELF_ROW_CAP = 19; // 1段に立てる本の数（背表紙の幅から）
 const shelfArtOf = (name) => SHELF_ART.find((a) => a.re.test(String(name || ""))) || null;
 const shelfArtUrl = (a, kind) => `${ART_URL}shelf/${a.key}-${kind}.webp`;
 function shelfBooks(state) {
@@ -10002,27 +10007,23 @@ function shelfBooks(state) {
   return [...app, ...ext].map((b) => ({ ...b, art: shelfArtOf(b.name) })).sort((a, b) => (a.date || "9999") < (b.date || "9999") ? -1 : (a.date || "9999") > (b.date || "9999") ? 1 : 0);
 }
 const shelfDate = (d) => (d ? d.replace(/-/g, "/") : "日付なし");
-// 本の背表紙（縦書きの名前）
+// 本の背表紙：段の高さいっぱいに立てる（絵のある資格は背表紙の絵、無い資格は色の背表紙に縦書きの名前）
 function ShelfSpine({ b, onOpen }) {
-  // 本ごとに少しずつ高さと太さを変える（名前から決まるので、いつも同じ形）
   const hv = hashStr(b.key);
-  const h = 118 + (hv % 4) * 6;
-  const w = 34 + (hv % 3) * 4;
   if (b.art) return (
     <button onClick={() => onOpen(b.key)} title={`${b.name}（${shelfDate(b.date)}）`} className="flex-shrink-0 relative"
-      style={{ height: 184, padding: 0, border: "none", background: "none", cursor: "pointer", filter: "drop-shadow(1px 2px 2px rgba(0,0,0,0.3))" }}>
-      <img src={shelfArtUrl(b.art, "spine")} alt={b.name} draggable={false} style={{ height: 184, width: "auto", display: "block" }} />
-      {b.src === "app" && <span style={{ position: "absolute", left: "50%", top: 1, transform: "translateX(-50%)", fontSize: 9, color: "#f2c14e", textShadow: "0 1px 2px rgba(0,0,0,0.6)" }}>★</span>}
+      style={{ height: "100%", aspectRatio: "82 / 440", padding: 0, border: "none", background: "none", cursor: "pointer", filter: "drop-shadow(1px 1px 1.5px rgba(0,0,0,0.45))" }}>
+      <img src={shelfArtUrl(b.art, "spine")} alt={b.name} draggable={false} style={{ height: "100%", width: "100%", display: "block" }} />
+      {b.src === "app" && <span style={{ position: "absolute", left: "50%", top: "-14%", transform: "translateX(-50%)", fontSize: 9, lineHeight: 1, color: "#f2c14e", textShadow: "0 1px 2px rgba(0,0,0,0.7)" }}>★</span>}
     </button>
   );
   return (
-    <button onClick={() => onOpen(b.key)} title={`${b.name}（${shelfDate(b.date)}）`} className="flex-shrink-0 flex flex-col items-center justify-between py-1.5"
-      style={{ width: w, height: h, border: "none", borderRadius: "3px 3px 1px 1px", cursor: "pointer", color: "#fffdf6",
-        background: `linear-gradient(90deg, rgba(0,0,0,0.22), rgba(255,255,255,0.12) 18%, rgba(0,0,0,0) 40%, rgba(0,0,0,0.18)), ${b.color}`,
-        boxShadow: "inset 0 0 0 1px rgba(0,0,0,0.12), 1px 0 0 rgba(0,0,0,0.15)" }}>
-      <span style={{ width: "70%", height: 2, background: "rgba(255,236,180,0.85)" }} />
-      <span className="jp" style={{ writingMode: "vertical-rl", fontSize: 12, fontWeight: 700, letterSpacing: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxHeight: h - 30, lineHeight: 1.1, textShadow: "0 1px 1px rgba(0,0,0,0.35)" }}>{b.name}</span>
-      <span style={{ fontSize: 10, lineHeight: 1 }}>{b.src === "app" ? "★" : "・"}</span>
+    <button onClick={() => onOpen(b.key)} title={`${b.name}（${shelfDate(b.date)}）`} className="flex-shrink-0 relative flex flex-col items-center justify-between overflow-hidden"
+      style={{ height: `${88 + (hv % 3) * 6}%`, aspectRatio: "84 / 440", padding: "3px 0", border: "none", borderRadius: "2px 2px 1px 1px", cursor: "pointer", color: "#fffdf6",
+        background: `linear-gradient(90deg, rgba(0,0,0,0.25), rgba(255,255,255,0.14) 20%, rgba(0,0,0,0) 45%, rgba(0,0,0,0.2)), ${b.color}`, boxShadow: "1px 1px 1.5px rgba(0,0,0,0.4)" }}>
+      <span style={{ width: "70%", height: 2, background: "rgba(255,236,180,0.85)", flexShrink: 0 }} />
+      <span className="jp" style={{ writingMode: "vertical-rl", fontSize: "clamp(7px, 1.6vw, 11px)", fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minHeight: 0, flex: 1, lineHeight: 1, textShadow: "0 1px 1px rgba(0,0,0,0.4)" }}>{b.name}</span>
+      {b.src === "app" && <span style={{ fontSize: 8, lineHeight: 1, color: "#f2c14e", flexShrink: 0 }}>★</span>}
     </button>
   );
 }
@@ -10031,19 +10032,23 @@ const shelfGot = (books) => new Set(books.filter((b) => b.art).map((b) => b.art.
 function QualShelf({ state, onUpdate }) {
   const books = shelfBooks(state);
   const got = shelfGot(books);
+  // 1段に並べる数：少ないうちは上の段から5冊ずつ、多くなったら3段に均等に（1段は最大 SHELF_ROW_CAP）
+  const per = Math.min(SHELF_ROW_CAP, Math.max(5, Math.ceil(books.length / SHELF_ROWS.length)));
   const [open, setOpen] = useState(null); // null＝閉じている、"all"＝本棚の全体、"q:…"／"x:…"＝その本
   return (
     <div className="mb-4 p-3" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)", borderRadius: 12 }}>
       <div className="flex items-center justify-between gap-2 mb-2">
-        <div className="jp" style={{ fontWeight: 800, color: "var(--ink)" }}>📚 資格の本棚 <span className="text-[11px]" style={{ color: "var(--ink-mute)", fontWeight: 600 }}>{books.length ? `${books.length}冊` : ""}</span><span className="text-[10px] ml-2 px-1.5" style={{ borderRadius: 999, background: "rgba(176,138,62,0.15)", color: "#8a6a2a", fontWeight: 700 }}>コレクション {got.size} / {SHELF_ART.length}</span></div>
-        <button onClick={() => setOpen("all")} className="btn-ghost px-2 py-0.5 text-[11px]">{books.length ? "本棚をひらく" : "＋ 資格を加える"}</button>
+        <div className="jp" style={{ fontWeight: 800, color: "var(--ink)" }}>📚 資格の本棚 <span className="text-[11px]" style={{ color: "var(--ink-mute)", fontWeight: 600 }}>{books.length ? `${books.length}冊` : ""}</span><span className="text-[10px] ml-2 px-1.5 inline-block" style={{ borderRadius: 999, background: "rgba(176,138,62,0.15)", color: "#8a6a2a", fontWeight: 700, whiteSpace: "nowrap" }}>コレクション {got.size} / {SHELF_ART.length}</span></div>
+        <button onClick={() => setOpen("all")} className="btn-ghost px-2 py-0.5 text-[11px] flex-shrink-0" style={{ whiteSpace: "nowrap" }}>{books.length ? "本棚をひらく" : "＋ 資格を加える"}</button>
       </div>
-      <div className="relative" style={{ borderRadius: 6, padding: "10px 10px 0", background: "linear-gradient(180deg, rgba(120,84,40,0.16), rgba(120,84,40,0.06))" }}>
-        <div className="flex items-end gap-[3px] overflow-x-auto" style={{ minHeight: books.some((b) => b.art) ? 190 : 136, overflowY: "hidden" }}>
-          {books.map((b) => <ShelfSpine key={b.key} b={b} onOpen={setOpen} />)}
-          {books.length === 0 && <div className="jp text-[11px] self-center py-6 px-2" style={{ color: "var(--ink-mute)" }}>取った資格が、ここに本のように並びます。手帳の資格で「取得済み」にするか、前に取った資格を加えてください。</div>}
-        </div>
-        <div style={{ height: 9, margin: "0 -10px", background: "linear-gradient(180deg, #a77b45, #7a5428)", borderRadius: "0 0 6px 6px", boxShadow: "0 2px 3px rgba(0,0,0,0.15)" }} />
+      <div className="relative mx-auto" style={{ width: "100%", maxWidth: 520, aspectRatio: "900 / 971", backgroundImage: `url(${ART_URL}shelf/bookshelf.webp)`, backgroundSize: "100% 100%", filter: "drop-shadow(0 4px 8px rgba(40,24,8,0.25))" }}>
+        {SHELF_ROWS.map((r, ri) => { const row = books.slice(ri * per, (ri + 1) * per); return (
+          <div key={ri} className="flex items-end" style={{ position: "absolute", left: `${SHELF_IN.left}%`, width: `${SHELF_IN.width}%`, top: `${r.top}%`, height: `${r.h}%`, gap: "0.4%" }}>
+            {row.map((b) => <ShelfSpine key={b.key} b={b} onOpen={setOpen} />)}
+          </div>
+        ); })}
+        {books.length === 0 && <div className="jp text-[11px] text-center px-2 py-1.5" style={{ position: "absolute", left: "14%", right: "14%", top: "47%", transform: "translateY(-50%)", color: "#fdfbf5", background: "rgba(40,24,8,0.55)", borderRadius: 8 }}>取った資格が、ここに本のように並びます。手帳の資格で「取得済み」にするか、前に取った資格を加えてください。</div>}
+        {books.length > SHELF_ROWS.length * per && <button onClick={() => setOpen("all")} className="text-[10px] px-2" style={{ position: "absolute", right: "12%", bottom: "4%", borderRadius: 999, border: "none", background: "rgba(40,24,8,0.7)", color: "#fdfbf5", cursor: "pointer" }}>ほか {books.length - SHELF_ROWS.length * per}冊</button>}
       </div>
       {open && <QualShelfModal state={state} books={books} open={open} setOpen={setOpen} onUpdate={onUpdate} />}
     </div>
