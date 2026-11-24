@@ -1024,6 +1024,7 @@ function HomeLayoutSettings({ ds, onChange }) {
   );
   return (
     <div className="jp mb-3">
+      <button onClick={() => onChange({ homeScene: ds.homeScene === false })} className="jp w-full text-left text-xs px-2 py-1.5 mb-2" style={{ background: "var(--paper)", color: "var(--ink)", border: "1px solid var(--rule-soft)" }}>{ds.homeScene === false ? "☐" : "☑"} ホームを街の絵にまとめる（絵の中の印をタップしてひらく。☐ で下のカードの並び）</button>
       <div className="flex items-center text-xs mb-1" style={{ color: "var(--ink-soft)" }}><span className="flex-1">ホームの表示（☑で表示・▲▼で並べ替え）</span><button onClick={() => onChange({ homeLayout: null })} className="text-[10px]" style={{ background: "none", border: "none", color: "var(--ink-mute)", textDecoration: "underline", cursor: "pointer" }}>元に戻す</button></div>
       <div className="px-2 py-1" style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)", borderRadius: 8 }}>
         {L.order.map((id, i) => { const b = HOME_BLOCKS.find((x) => x.id === id); return (
@@ -2010,6 +2011,8 @@ function StudyRPG({ user }) {
   const [openBankReq, setOpenBankReq] = useState(null); // 今日のタスクの「解く」→ 問題タブでその問題集の開始画面を開く
   const lastNoteTab = useRef("status"); // 「手帳」タブで最後に開いていた画面（資格・タスク・時間・メモ）
   const [lapView, setLapView] = useState("plan"); // 「周回」タブの中の画面（plan・kijutsu・weak）
+  const [homeSheet, setHomeSheet] = useState(null); // 街の絵のホームで、ひらいている物（house・desk など）
+  useEffect(() => { setHomeSheet(null); }, [tab]);
   const lastLap = useRef(["laps", "plan"]); // 「周回」タブで最後に開いていた画面
   useEffect(() => { if (NOTE_TABS.includes(tab)) lastNoteTab.current = tab; }, [tab]);
   // 使う機能で隠した手帳の画面は開かない（ステータスへのリンクなどからはホームへ）
@@ -4504,9 +4507,9 @@ function StudyRPG({ user }) {
             const HL = homeLayoutOf(state);
             const vis = HL.order.filter((id) => !HL.hidden.has(id));
             const dash = (part) => <HomeDashboard key={part} part={part} state={state} actions={rpgActions} todayCount={getTodayReviewItems().length} liveSeconds={liveSeconds} onGo={(t) => setTab(t)} planActions={planActions} onQuick={() => { const list = forgettingItems(state, 3); if (list.length) { setQuickPreset(list); setTab("today"); } }} />;
-            const out = [];
-            for (let i = 0; i < vis.length; i++) {
-              const id = vis[i];
+            const blocks = (ids) => { const out = [];
+            for (let i = 0; i < ids.length; i++) {
+              const id = ids[i]; const vis = ids;
               if (id === "top") out.push(classic ? <MenuHome key="top" state={state} todayCount={getTodayReviewItems().length} onCommand={homeCommand} /> : isWhite ? <SignpostHome key="top" state={state} todayCount={getTodayReviewItems().length} onCommand={homeCommand} /> : null);
               else if (id === "guide" && vis[i + 1] === "quest") { out.push(dash("guide+quest")); i++; }
               else if (id === "quest" && vis[i + 1] === "guide") { out.push(<div key="qg" className="grid gap-3 md:grid-cols-2 items-start mb-4">{dash("quest")}{dash("guide")}</div>); i++; }
@@ -4514,13 +4517,39 @@ function StudyRPG({ user }) {
               else if (id === "shelf") out.push(<QualShelf key="shelf" state={state} onUpdate={updateQualShelf} />);
               else if (id === "quals") out.push(<div key="quals"><HomeTab state={state} liveSeconds={liveSeconds} setMainTitle={setMainTitle} setTab={setTab} todayCount={getTodayReviewItems().length} hideBanner dashboard /></div>);
             }
+            return out; };
+            const starBar = (state.qualifications || []).length ? <StarBookBar key="book" state={state} onPick={(id) => updateDisplaySettings({ activeQual: id, studyScope: id === "all" ? "all" : null })} onNew={() => setTab("qual")} /> : null;
+            if (homeSceneOn(state)) {
+              // 街の絵のホーム：物をタップすると中身をひらく
+              const items = getTodayReviewItems();
+              const goals = [rmShow(state) && featOn("elite") && <EliteGoalCard key="elite" state={state} />, rmShow(state) && featOn("roadmap") && <RoadmapBanner key="roadmap" state={state} />].filter(Boolean);
+              const SHEETS = {
+                house: ["📚", "家（資格の本棚）", () => <>{starBar}<QualShelf state={state} onUpdate={updateQualShelf} /></>],
+                desk: ["📖", "机（今日の学習）", () => <>{state.questionBanks.length > 0 ? <TodayLink state={state} dueN={items.length} dueMin={estimateMinutes(state, items)} onGo={() => setTab("today")} /> : <div className="text-[12px] py-2" style={{ color: "var(--ink-mute)" }}>まだ問題集がありません。周回の塔の「問題集」から加えてください。</div>}<button onClick={() => setTab("today")} className="btn-primary w-full py-2 text-sm">▶ 今日の学習をはじめる</button></>],
+                tripod: ["🧭", "三脚（道しるべ・今日のクエスト）", () => <>{blocks(vis.filter((id) => id !== "shelf" && id !== "quals"))}</>],
+                tent: ["⛺", "テント（仲間）", () => <><AllyOmen state={state} onTrial={(id) => { setTab("adventure"); setTimeout(() => startAllyTrial(id), 500); }} /><TentAllies state={state} actions={rpgActions} /><button onClick={() => setTab("adventure")} className="btn-ghost w-full text-[12px] py-1.5 mt-2">⚔ 冒険の塔でパーティを見る</button></>],
+                well: ["💰", "井戸（街の依頼・税収）", () => <TownPanel state={state} actions={rpgActions} part="well" />],
+                shed: ["🪵", "薪小屋（建物を建てる・強くする）", () => <TownPanel state={state} actions={rpgActions} part="shed" />],
+                field: ["🌱", "畑（資格の進捗）", () => <HomeTab state={state} liveSeconds={liveSeconds} setMainTitle={setMainTitle} setTab={setTab} todayCount={items.length} hideBanner dashboard />],
+                stones: ["🎯", "境界の石（目標）", () => goals.length ? <>{goals}</> : <div className="text-[12px] py-3 text-center" style={{ color: "var(--ink-mute)" }}>目標（上位1%・合格ロードマップ）は、土地家屋調査士の資格を選んでいるときに出ます。</div>],
+                exam: ["📣", "試験のお知らせ", () => <ExamDayCard state={state} actions={rpgActions} />],
+              };
+              const sh = homeSheet && SHEETS[homeSheet];
+              return [
+                <TownScene key="scene" state={state} dueN={items.length} alert={examDayInfo(state) ? "試験のお知らせ" : null}
+                  onSpot={(id) => { if (id === "bridge") { setTab("map"); window.scrollTo(0, 0); } else setHomeSheet(id); }}
+                  onToday={() => { setTab("today"); window.scrollTo(0, 0); }} onCards={() => updateDisplaySettings({ homeScene: false })} />,
+                sh ? <SceneSheet key="sheet" icon={sh[0]} title={sh[1]} onClose={() => setHomeSheet(null)}>{sh[2]()}</SceneSheet> : null,
+              ];
+            }
+            const out = blocks(vis);
             out.unshift(<AllyOmen key="omen" state={state} onTrial={(id) => { setTab("adventure"); setTimeout(() => startAllyTrial(id), 500); }} />);
             if (state.questionBanks.length) { const items = getTodayReviewItems(); out.unshift(<TodayLink key="todaylink" state={state} dueN={items.length} dueMin={estimateMinutes(state, items)} onGo={() => setTab("today")} />); }
             if (rmShow(state) && featOn("roadmap")) out.unshift(<RoadmapBanner key="roadmap" state={state} />);
             if (rmShow(state) && featOn("elite")) out.unshift(<EliteGoalCard key="elite" state={state} />);
             out.unshift(<TownPanel key="town" state={state} actions={rpgActions} />);
             if (examDayInfo(state)) out.unshift(<ExamDayCard key="examday" state={state} actions={rpgActions} />);
-            if ((state.qualifications || []).length) out.unshift(<StarBookBar key="book" state={state} onPick={(id) => updateDisplaySettings({ activeQual: id, studyScope: id === "all" ? "all" : null })} onNew={() => setTab("qual")} />);
+            if (starBar) out.unshift(starBar);
             return out;
           })()}
           {tab === "today" && <TodayTab header={<>{rmShow(state) && <TodayThree state={state} actions={rpgActions} />}{state.questionBanks.length > 0 && featOn("gap") && <GapTime state={state} />}</>} state={state} recordSRAnswer={recordSRAnswer} updateSrSettings={updateSrSettings} startTimer={startTimer} stopTimer={stopTimer} toggleQuestionMark={toggleQuestionMark} rpgActionsForPairs={rpgActions} preset={quickPreset} onPresetUsed={() => setQuickPreset(null)} planActions={planActions} />}
@@ -10118,8 +10147,10 @@ function QualShelfModal({ state, books, open, setOpen, onUpdate }) {
     document.body
   );
 }
-function TownPanel({ state, actions }) {
-  const [open, setOpen] = useState(false);
+function TownPanel({ state, actions, part }) {
+  const [open0, setOpen] = useState(false);
+  const full = !part;
+  const open = part === "shed" || open0;
   const ts = townStatus(state);
   const r = normRpg(state.rpg);
   const T = r.town || {};
@@ -10144,8 +10175,8 @@ function TownPanel({ state, actions }) {
     </div>
   );
   return (
-    <div className="jp mb-3 overflow-hidden" style={{ borderRadius: 14, border: "1.5px solid #b08a3e", background: "var(--paper)", boxShadow: "0 6px 18px rgba(34,51,92,0.12)" }}>
-      <div style={{ position: "relative" }}>
+    <div className={full ? "jp mb-3 overflow-hidden" : "jp"} style={full ? { borderRadius: 14, border: "1.5px solid #b08a3e", background: "var(--paper)", boxShadow: "0 6px 18px rgba(34,51,92,0.12)" } : {}}>
+      {full && <div style={{ position: "relative" }}>
         <TownImage stage={shownStage} />
         {/* 建てた建物・記念の建物の印（タップで説明） */}
         {marks.map((m) => (
@@ -10166,9 +10197,9 @@ function TownPanel({ state, actions }) {
           <div style={{ fontFamily: "'Shippori Mincho B1', serif", fontWeight: 900, fontSize: 18, letterSpacing: "0.06em" }}>🏘 はじまりの{st.name}<span className="text-[11px] ml-2" style={{ color: "#f1dfae" }}>第{shownStage + 1}段階 / {TOWN_STAGES.length}</span></div>
           <div className="text-[11px]" style={{ color: "#dfe8f6" }}>{st.text}</div>
         </div>
-      </div>
-      <div className="px-3 py-2 space-y-2">
-        <div className="flex items-baseline gap-2 flex-wrap">
+      </div>}
+      <div className={full ? "px-3 py-2 space-y-2" : "space-y-2"}>
+        {full && <><div className="flex items-baseline gap-2 flex-wrap">
           <span className="text-[13px]" style={{ fontWeight: 800, color: "var(--ink)" }}>街の経験値 {ts.xp.toLocaleString()}</span>
           <span className="text-[10px]" style={{ color: "var(--ink-mute)" }}>住人 {ts.pop.toLocaleString()}人（覚えた問題の数）</span>
           <span className="flex-1" />
@@ -10181,20 +10212,21 @@ function TownPanel({ state, actions }) {
             <div className="text-[10px]" style={{ color: "var(--ink-mute)" }}>問題に答える +1（正解は+2）・問題集を1周 +30・学習2分ごとに +1。{HERO_NAME}のレベル（戦いで上がる）とは別に育ちます。</div>
           </div>
         ) : <div className="text-[11px]" style={{ color: "#4f7a3a", fontWeight: 800 }}>王都まで育ちました！ ここまでの学びが、この都をつくりました。</div>}
-        {monuments.length > 0 && <div className="text-[10px]" style={{ color: "var(--ink-soft)" }}>記念の建物：{monuments.map((q) => { const mo = monumentOf(q); return `${mo.icon} ${mo.name}`; }).join("　")}</div>}
-        {featOn("townReq") && <TownRequests state={state} actions={actions} />}
-        <div className="flex items-center gap-2 flex-wrap text-[11px]" style={{ color: "var(--ink-soft)" }}>
+        {monuments.length > 0 && <div className="text-[10px]" style={{ color: "var(--ink-soft)" }}>記念の建物：{monuments.map((q) => { const mo = monumentOf(q); return `${mo.icon} ${mo.name}`; }).join("　")}</div>}</>}
+        {(full || part === "well") && featOn("townReq") && <TownRequests state={state} actions={actions} />}
+        {(full || part === "shed") && <div className="flex items-center gap-2 flex-wrap text-[11px]" style={{ color: "var(--ink-soft)" }}>
           <span>🎫 休息のランタン <b style={{ color: "var(--ink)" }}>{r.consumables.restTicket || 0}</b> / {CHARM_MAX}</span>
           <span className="flex-1 text-[10px]" style={{ color: "var(--ink-mute)" }}>学習できなかった日があっても、自動で連続学習を守ります</span>
           <button disabled={(r.consumables.restTicket || 0) >= CHARM_MAX || r.gold < CHARM_PRICE} onClick={() => actions.buyCharm()} className="btn-ghost text-[10px] px-2 py-0.5" style={{ opacity: (r.consumables.restTicket || 0) >= CHARM_MAX || r.gold < CHARM_PRICE ? 0.45 : 1 }}>{CHARM_PRICE}Gで買う</button>
-        </div>
-        <div className="flex items-center gap-2 flex-wrap">
+        </div>}
+        {(full || part === "well") && <div className="flex items-center gap-2 flex-wrap">
           {taxed ? <span className="text-[11px]" style={{ color: "var(--ink-mute)" }}>💰 今日の税収は受け取りました</span>
             : <button onClick={() => actions.townTax(tax)} className="btn-primary text-[12px] px-3 py-1">💰 税収を受け取る　{tax.gold}G{tax.potion ? "・回復薬1" : ""}</button>}
           {!taxed && <span className="text-[10px]" style={{ color: "var(--ink-mute)" }}>{tax.studied ? "前の日の学習で満額" : "前の日は学習なし（3割）"}</span>}
           <span className="flex-1" />
-          <button onClick={() => setOpen(!open)} className="btn-ghost text-[11px] px-2 py-1">{open ? "▲ 建物をとじる" : "🏗 建物を見る・建てる"}</button>
-        </div>
+          {full && <button onClick={() => setOpen(!open)} className="btn-ghost text-[11px] px-2 py-1">{open ? "▲ 建物をとじる" : "🏗 建物を見る・建てる"}</button>}
+        </div>}
+        {part === "shed" && <div className="text-[11px]" style={{ color: "var(--ink-soft)" }}>建物 {builtN}/{TOWN_BUILDINGS.length}　建てると、その効果がずっと続きます</div>}
         {open && (
           <div className="grid gap-1.5 md:grid-cols-2">
             {TOWN_BUILDINGS.map((b) => {
@@ -10226,6 +10258,124 @@ function TownPanel({ state, actions }) {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+// ── 街の絵のホーム（2026年11月24日、試作）──────────────────────────
+// ホームのカードを、街の絵の中の物にまとめる。物をタップすると、その中身を下からひらく（SceneSheet）。
+// 場所は街の絵（public/art/town/stageN.webp、1400×788）の上の%。小屋・開拓地・集落の絵は、家・机・三脚・井戸・石・橋が同じ位置
+// displaySettings.homeScene === false で、今までのカードの並び
+const homeSceneOn = (state) => !(state.displaySettings && state.displaySettings.homeScene === false);
+const HOME_SCENE_SPOTS = [
+  { id: "house", icon: "📚", name: "資格の本棚", at: [48.5, 36] },
+  { id: "desk", icon: "📖", name: "今日の学習", at: [40, 71] },
+  { id: "tripod", icon: "🧭", name: "道しるべ", at: [25, 59] },
+  { id: "tent", icon: "⛺", name: "仲間", at: [69, 44] },
+  { id: "well", icon: "💰", name: "依頼・税収", at: [62.5, 71] },
+  { id: "shed", icon: "🪵", name: "建物", at: [31, 39] },
+  { id: "field", icon: "🌱", name: "資格の進捗", at: [12, 52] },
+  { id: "stones", icon: "🎯", name: "目標", at: [19, 78] },
+  { id: "bridge", icon: "🗺", name: "地図へ", at: [89, 50] },
+];
+// 絵の上の数の印：机＝今日の復習、井戸＝受け取れる依頼と税収、テント＝おみやげと試練を待つ仲間
+function sceneBadges(state, dueN) {
+  const r = normRpg(state.rpg);
+  const T = r.town || {};
+  let well = T.taxDay === todayStr() ? 0 : 1;
+  if (featOn("townReq")) {
+    const now = townToday(state);
+    const rec = r.townReq && r.townReq.d === todayStr() ? r.townReq : { got: [] };
+    well += townReqsToday(state).filter((q) => !rec.got.includes(q.id) && (now[q.key] || 0) >= q.n).length;
+  }
+  const gift = r.townGift && r.townGift.d === todayStr() ? r.townGift.got : [];
+  const tent = alliesJoined(r).filter((a) => !gift.includes(a.id)).length + alliesReady(r).length;
+  return { desk: dueN || 0, well, tent };
+}
+function TownScene({ state, dueN, onSpot, onToday, onCards, alert }) {
+  const stage = townShownStage(state);
+  const ts = townStatus(state);
+  const st = TOWN_STAGES[stage];
+  const badges = sceneBadges(state, dueN);
+  const [bad, setBad] = useState(false);
+  useEffect(() => { setBad(false); }, [stage]);
+  const [vw, setVw] = useState(() => window.innerWidth);
+  useEffect(() => { const f = () => setVw(window.innerWidth); window.addEventListener("resize", f); return () => window.removeEventListener("resize", f); }, []);
+  const phone = vw < 640;
+  const scRef = useRef(null);
+  // スマホは絵を大きくして横に動かせる（はじめは家が真ん中）
+  useEffect(() => { const el = scRef.current; if (el && phone) el.scrollLeft = Math.max(0, el.scrollWidth * 0.485 - el.clientWidth / 2); }, [phone]);
+  return (
+    <div className="jp mb-3 overflow-hidden" style={{ borderRadius: 14, border: "1.5px solid #b08a3e", background: "var(--paper)", boxShadow: "0 6px 18px rgba(34,51,92,0.12)" }}>
+      <div ref={scRef} style={{ overflowX: phone ? "auto" : "hidden", overflowY: "hidden", WebkitOverflowScrolling: "touch" }}>
+        <div style={{ position: "relative", width: phone ? 620 : "100%", aspectRatio: "1400 / 788" }}>
+          <img src={bad ? `${ART_URL}townmap.webp` : townArt(stage)} onError={() => setBad(true)} alt={`はじまりの${st.name}`} draggable={false} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+          {HOME_SCENE_SPOTS.map((s) => { const b = badges[s.id]; return (
+            <button key={s.id} onClick={() => onSpot(s.id)} aria-label={s.name} title={s.name}
+              style={{ position: "absolute", left: `${s.at[0]}%`, top: `${s.at[1]}%`, transform: "translate(-50%, -50%)", background: "none", border: "none", padding: 0, cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 2, zIndex: 2 }}>
+              <span style={{ position: "relative", width: 36, height: 36, borderRadius: "50%", background: "rgba(253,251,245,0.94)", border: "2px solid #f2c14e", boxShadow: "0 2px 8px rgba(20,28,50,0.45)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, lineHeight: 1 }}>
+                {s.icon}
+                {b > 0 && <span style={{ position: "absolute", right: -8, top: -7, minWidth: 18, height: 18, padding: "0 4px", borderRadius: 999, background: "var(--brick)", color: "#fff", fontSize: 10, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center" }}>{b}</span>}
+              </span>
+              <span style={{ fontSize: 10.5, fontWeight: 800, color: "#fdfbf5", background: "rgba(20,28,50,0.68)", padding: "1px 7px", borderRadius: 999, whiteSpace: "nowrap" }}>{s.name}</span>
+            </button>
+          ); })}
+          {alert && (
+            <button onClick={() => onSpot("exam")} style={{ position: "absolute", left: "50%", top: 10, transform: "translateX(-50%)", zIndex: 3, border: "2px solid #f2c14e", background: "linear-gradient(180deg, #b0413e, #8a2d2b)", color: "#fff", fontWeight: 800, fontSize: 12, padding: "4px 12px", borderRadius: 999, boxShadow: "0 3px 10px rgba(20,28,50,0.45)", cursor: "pointer", whiteSpace: "nowrap" }}>📣 {alert}</button>
+          )}
+        </div>
+      </div>
+      <div className="px-3 py-2 space-y-1.5">
+        <div className="flex items-baseline gap-2 flex-wrap">
+          <span style={{ fontFamily: "'Shippori Mincho B1', serif", fontWeight: 900, fontSize: 17, color: "var(--ink)", letterSpacing: "0.05em" }}>🏘 はじまりの{st.name}</span>
+          <span className="text-[10px]" style={{ color: "var(--ink-mute)" }}>第{stage + 1}段階 / {TOWN_STAGES.length}</span>
+          <span className="flex-1" />
+          <span className="text-[10px]" style={{ color: "var(--ink-soft)" }}>街の経験値 {ts.xp.toLocaleString()}{ts.next ? ` / ${ts.next.xp.toLocaleString()}（次は「${ts.next.name}」）` : ""}</span>
+        </div>
+        {ts.next && <div style={{ height: 5, borderRadius: 3, background: "var(--beige)", overflow: "hidden" }}><div style={{ width: `${Math.min(100, (ts.xp / Math.max(1, ts.next.xp)) * 100)}%`, height: "100%", background: "linear-gradient(90deg,#b08a3e,#f2c14e)" }} /></div>}
+        <button onClick={onToday} className="btn-primary w-full py-2 text-sm" style={{ fontWeight: 800 }}>▶ 今日の学習をはじめる{dueN ? `（復習 ${dueN}問）` : ""}</button>
+        <div className="flex items-center text-[10px]" style={{ color: "var(--ink-mute)" }}>
+          <span className="flex-1">絵の中の印をタップすると、中身がひらきます{phone ? "（絵は横に動かせます）" : ""}</span>
+          <button onClick={onCards} style={{ background: "none", border: "none", color: "var(--ink-mute)", textDecoration: "underline", cursor: "pointer", fontSize: 10 }}>カードの並びで見る</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+// 絵の物をタップしたときに、下からひらく窓
+function SceneSheet({ title, icon, onClose, children }) {
+  useEffect(() => { const f = (e) => { if (e.key === "Escape") onClose(); }; window.addEventListener("keydown", f); return () => window.removeEventListener("keydown", f); }, [onClose]);
+  return createPortal(
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 8000, background: "rgba(20,28,50,0.45)", display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+      <div onClick={(e) => e.stopPropagation()} className="jp" style={{ width: "100%", maxWidth: 780, maxHeight: "88vh", overflowY: "auto", background: "var(--cream)", borderRadius: "16px 16px 0 0", border: "1.5px solid #b08a3e", borderBottom: "none", boxShadow: "0 -8px 24px rgba(20,28,50,0.3)", padding: "0 12px calc(18px + env(safe-area-inset-bottom))" }}>
+        <div className="flex items-center" style={{ position: "sticky", top: 0, zIndex: 5, background: "var(--cream)", padding: "10px 0 8px", marginBottom: 6, borderBottom: "1px solid var(--rule-soft)" }}>
+          <span className="flex-1" style={{ fontWeight: 900, fontSize: 15, color: "var(--ink)" }}>{icon} {title}</span>
+          <button onClick={onClose} className="btn-ghost text-xs px-2 py-1">✕ とじる</button>
+        </div>
+        {children}
+      </div>
+    </div>,
+    document.body
+  );
+}
+// テントの中：街に住む仲間（ひとことと1日1回のおみやげ）
+function TentAllies({ state, actions }) {
+  const r = normRpg(state.rpg);
+  const gift = r.townGift && r.townGift.d === todayStr() ? r.townGift.got : [];
+  const list = alliesJoined(r);
+  if (!list.length) return <div className="text-[12px] px-2 py-3 text-center" style={{ color: "var(--ink-mute)" }}>まだ仲間はいません。ストーリーや試練の塔を進めると、仲間が加わります。</div>;
+  return (
+    <div className="grid gap-1.5 md:grid-cols-2">
+      {list.map((a) => { const can = !gift.includes(a.id); return (
+        <div key={a.id} className="flex items-center gap-2 px-2 py-1.5" style={{ borderRadius: 10, border: "1px solid var(--rule-soft)", background: "var(--paper)" }}>
+          <span aria-hidden="true" style={{ flexShrink: 0, width: 40, height: 40, borderRadius: "50%", border: "2px solid #7fa3d8", background: a.img && a.face ? `#e9e4d6 url(${ART_URL}${a.img}) ${a.face[0]}% ${a.face[1]}% / 300% auto no-repeat` : "#e9e4d6" }} />
+          <span className="flex-1 min-w-0">
+            <span className="block text-[12px]" style={{ fontWeight: 800, color: "var(--ink)" }}>{a.name}<span className="text-[10px] ml-1" style={{ color: "var(--ink-mute)", fontWeight: 400 }}>{ALLY_HOMES[a.id] || "街"}に住んでいます</span></span>
+            <span className="block text-[11px]" style={{ color: "var(--ink-soft)" }}>💬 {allyTownLine(a)}</span>
+          </span>
+          {can ? <button onClick={() => actions.townGift(a.id)} className="btn-primary text-[10px] px-2 py-0.5" style={{ flexShrink: 0 }}>🎁 おみやげ</button> : <span className="text-[10px]" style={{ color: "#4f7a3a", fontWeight: 800, flexShrink: 0 }}>✓ 受け取り済み</span>}
+        </div>
+      ); })}
+      <div className="text-[10px] md:col-span-2" style={{ color: "var(--ink-mute)" }}>おみやげ：1日1回 {ALLY_GIFT.gold}G・絆+{ALLY_GIFT.bond}・街の経験値+{ALLY_GIFT.xp}</div>
     </div>
   );
 }
